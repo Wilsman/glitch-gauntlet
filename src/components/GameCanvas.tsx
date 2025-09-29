@@ -2,8 +2,8 @@ import React from 'react';
 import { Stage, Layer, Rect, Circle, Text, Ring } from 'react-konva';
 import { useGameStore } from '@/hooks/useGameStore';
 import { useShallow } from 'zustand/react/shallow';
-const ARENA_WIDTH = 1280;
-const ARENA_HEIGHT = 720;
+const ARENA_WIDTH = 1600;
+const ARENA_HEIGHT = 900;
 const HIT_FLASH_DURATION = 100; // ms
 const CRIT_FLASH_DURATION = 160; // ms
 const HEAL_FLASH_DURATION = 180; // ms

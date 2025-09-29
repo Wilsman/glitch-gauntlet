@@ -6,12 +6,12 @@ import type { ApiResponse, GameState, UpgradeOption, Player } from '@shared/type
 import { Loader2 } from 'lucide-react';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useGameAudio } from '@/hooks/useGameAudio';
-import PlayerHUD from '@/components/PlayerHUD';
 import UpgradeModal from '@/components/UpgradeModal';
 import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
+import StatsPanel from '@/components/StatsPanel';
+import PlayerListPanel from '@/components/PlayerListPanel';
 
 const EMPTY_PLAYERS: Player[] = [];
-const hudPositions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
 
 export default function GamePage() {
   const { gameId } = useParams<{ gameId: string }>();
@@ -165,9 +165,14 @@ export default function GamePage() {
     return null;
   }
 
+  const localPlayer = players.find(p => p.id === localPlayerId);
+
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
-      <GameCanvas />
+      <div className="flex items-center gap-4">
+        <GameCanvas />
+        {localPlayer && <StatsPanel player={localPlayer} />}
+      </div>
       <AudioSettingsPanel className="absolute right-4 top-4 z-40" />
 
       <div className="absolute top-4 text-center w-full pointer-events-none">
@@ -176,14 +181,7 @@ export default function GamePage() {
         </p>
       </div>
 
-      {players.map((p, i) => (
-        <PlayerHUD
-          key={p.id}
-          player={p}
-          isLocalPlayer={p.id === localPlayerId}
-          position={hudPositions[i % 4]}
-        />
-      ))}
+      <PlayerListPanel players={players} localPlayerId={localPlayerId || ''} />
 
       {isPaused && !isLocalPlayerLevelingUp && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40">

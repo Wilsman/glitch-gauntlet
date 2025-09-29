@@ -104,7 +104,7 @@ export default function GameOverPage() {
       </div>
       <AudioSettingsPanel className="absolute right-4 top-4 z-30" />
       <footer className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20">
-        <p>Built with ❤️ at Cloudflare</p>
+        <p>Built with ❤️ from Wilsman</p>
       </footer>
     </main>
   );
