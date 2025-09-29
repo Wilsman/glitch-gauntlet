@@ -4,8 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Loader2 } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
+import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
 import type { ApiResponse } from '@shared/types';
 import { useGameStore } from '@/hooks/useGameStore';
+import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
+import { AudioManager } from '@/lib/audio/AudioManager';
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -15,9 +18,20 @@ export function HomePage() {
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
 
+  useSyncAudioSettings();
+
   useEffect(() => {
     resetGameState();
   }, [resetGameState]);
+
+  useEffect(() => {
+    const audio = AudioManager.getInstance();
+    void audio.resume();
+    audio.playMenuMusic();
+    return () => {
+      audio.stopMenuMusic();
+    };
+  }, []);
 
   const handleHostGame = async () => {
     setIsHosting(true);
@@ -110,6 +124,7 @@ export function HomePage() {
         <p>Built with love at Cloudflare</p>
       </footer>
       <Toaster richColors theme="dark" />
+      <AudioSettingsPanel className="absolute right-4 top-4 z-30" />
     </main>
   );
 }

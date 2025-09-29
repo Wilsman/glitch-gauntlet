@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
+import { AudioManager } from '@/lib/audio/AudioManager';
 import { Button } from '@/components/ui/button';
+import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
 import { Loader2 } from 'lucide-react';
 import type { ApiResponse, GameState } from '@shared/types';
 import { motion } from 'framer-motion';
@@ -8,6 +11,18 @@ export default function GameWonPage() {
   const { gameId } = useParams<{ gameId: string }>();
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useSyncAudioSettings();
+  useEffect(() => {
+    const audio = AudioManager.getInstance();
+    void audio.resume();
+    audio.stopGameMusic();
+    audio.playMenuMusic();
+    return () => {
+      audio.stopMenuMusic();
+    };
+  }, []);
+
   useEffect(() => {
     const fetchGameState = async () => {
       if (!gameId) {
@@ -87,9 +102,11 @@ export default function GameWonPage() {
           </Link>
         </motion.div>
       </div>
+      <AudioSettingsPanel className="absolute right-4 top-4 z-30" />
       <footer className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20">
         <p>Built with ❤️ at Cloudflare</p>
       </footer>
     </main>
   );
 }
+

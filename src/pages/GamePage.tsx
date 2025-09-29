@@ -5,8 +5,10 @@ import GameCanvas from '@/components/GameCanvas';
 import type { ApiResponse, GameState, UpgradeOption, Player } from '@shared/types';
 import { Loader2 } from 'lucide-react';
 import { useGameLoop } from '@/hooks/useGameLoop';
+import { useGameAudio } from '@/hooks/useGameAudio';
 import PlayerHUD from '@/components/PlayerHUD';
 import UpgradeModal from '@/components/UpgradeModal';
+import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
 
 const EMPTY_PLAYERS: Player[] = [];
 const hudPositions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
@@ -44,6 +46,8 @@ export default function GamePage() {
   const isLocalPlayerLevelingUp = levelingUpPlayerId === localPlayerId;
 
   useGameLoop(gameId, isPaused);
+
+  useGameAudio();
 
   useEffect(() => {
     if (!gameStatus || !gameId) return;
@@ -164,6 +168,7 @@ export default function GamePage() {
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
       <GameCanvas />
+      <AudioSettingsPanel className="absolute right-4 top-4 z-40" />
 
       <div className="absolute top-4 text-center w-full pointer-events-none">
         <p className="font-press-start text-4xl text-neon-yellow" style={{ textShadow: '0 0 10px #FFFF00' }}>
@@ -190,3 +195,4 @@ export default function GamePage() {
     </div>
   );
 }
+
