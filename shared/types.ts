@@ -16,6 +16,22 @@ export type InputState = {
   right: boolean;
 };
 export type PlayerStatus = 'alive' | 'dead';
+export interface Pet {
+  id: string;
+  ownerId: string;
+  position: Vector2D;
+  health: number;
+  maxHealth: number;
+  level: number;
+  xp: number;
+  xpToNextLevel: number;
+  damage: number;
+  attackSpeed: number;
+  attackCooldown: number;
+  emoji: string; // Visual representation
+  lastHitTimestamp?: number;
+}
+
 export interface Player {
   id: string;
   position: Vector2D;
@@ -63,6 +79,8 @@ export interface Player {
   ricochetCount?: number; // number of bounces
   homingStrength?: number; // homing bullet strength
   knockbackForce?: number; // knockback distance
+  // Pet
+  hasPet?: boolean;
 }
 export interface DamageNumber {
   id: string;
@@ -215,4 +233,5 @@ export interface GameState {
   teleporter: Teleporter | null;
   explosions?: Explosion[];
   chainLightning?: ChainLightning[];
+  pets?: Pet[];
 }

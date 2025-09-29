@@ -11,6 +11,7 @@ import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
 import StatsPanel from '@/components/StatsPanel';
 import PlayerListPanel from '@/components/PlayerListPanel';
 import CollectedUpgradesPanel from '@/components/CollectedUpgradesPanel';
+import PetStatsPanel from '@/components/PetStatsPanel';
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -167,11 +168,17 @@ export default function GamePage() {
   }
 
   const localPlayer = players.find(p => p.id === localPlayerId);
+  const localPlayerPet = activeGameState?.pets?.find(pet => pet.ownerId === localPlayerId) || null;
 
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
       <GameCanvas />
       {localPlayer && <StatsPanel player={localPlayer} />}
+      {localPlayerPet && (
+        <div className="fixed left-4 bottom-[200px] z-30">
+          <PetStatsPanel pet={localPlayerPet} />
+        </div>
+      )}
       <AudioSettingsPanel className="fixed right-4 top-4 z-40" />
 
       <div className="absolute top-4 text-center w-full pointer-events-none">

@@ -41,7 +41,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [] } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [] } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -89,6 +89,49 @@ export default function GameCanvas() {
         {xpOrbs.map((orb) => (
           <Circle key={orb.id} x={orb.position.x} y={orb.position.y} radius={5} fill="#a855f7" shadowColor="#a855f7" shadowBlur={10} />
         ))}
+        {/* Render Pets */}
+        {pets.map((pet) => {
+          const isHit = pet.lastHitTimestamp && (now - pet.lastHitTimestamp < HIT_FLASH_DURATION);
+          return (
+            <React.Fragment key={pet.id}>
+              {/* Pet body */}
+              <Circle
+                x={pet.position.x}
+                y={pet.position.y}
+                radius={12}
+                fill={isHit ? '#FFFFFF' : '#FFB6C1'}
+                stroke="#FF69B4"
+                strokeWidth={2}
+                shadowColor="#FF69B4"
+                shadowBlur={15}
+              />
+              {/* Pet emoji */}
+              <Text
+                text={pet.emoji}
+                x={pet.position.x}
+                y={pet.position.y}
+                fontSize={16}
+                offsetX={8}
+                offsetY={8}
+              />
+              {/* Health bar */}
+              <Rect
+                x={pet.position.x - 15}
+                y={pet.position.y - 20}
+                width={30}
+                height={3}
+                fill="#333333"
+              />
+              <Rect
+                x={pet.position.x - 15}
+                y={pet.position.y - 20}
+                width={30 * (pet.health / pet.maxHealth)}
+                height={3}
+                fill="#FF69B4"
+              />
+            </React.Fragment>
+          );
+        })}
         {/* Render Players */}
         {players.map((player) => {
           const isHit = player.lastHitTimestamp && (now - player.lastHitTimestamp < HIT_FLASH_DURATION);

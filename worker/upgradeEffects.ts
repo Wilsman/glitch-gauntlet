@@ -111,13 +111,17 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       player.pickupRadius = Math.min(150, player.pickupRadius * 1.3);
       break;
     
+    // ===== ADVANCED =====
+    case 'pet':
+      player.hasPet = true;
+      break;
+    
     // ===== ADVANCED (Not yet implemented) =====
     case 'ghostBullets':
     case 'clone':
     case 'orbital':
     case 'invincibility':
     case 'aura':
-    case 'pet':
     case 'turret':
     case 'reflect':
     case 'dash':

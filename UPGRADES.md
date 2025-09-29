@@ -82,6 +82,22 @@ This document provides a comprehensive overview of all upgrades in the game, the
 | **lucky** | Legendary | Double all drops | ✅ | None |
 | **timeWarp** | Legendary | Slow enemies by 30% | ✅ | Slow-motion effect (TODO) |
 
+### 🐾 Companion System
+
+| Upgrade Type | Rarity | Effect | Visual Effect |
+|-------------|--------|--------|---------------|
+| **pet** | Boss | Summon a companion that auto-attacks enemies | Emoji-style animal with health bar |
+
+**Pet Details:**
+
+- Levels up automatically with player
+- Auto-attacks nearest enemy within 400 units
+- Has own health pool and DPS stats
+- Stats scale with level: +10 HP, +2 damage, 5% faster attack speed
+- Follows player at 40 unit distance
+- Shows dedicated stats panel below player stats
+- Random emoji from: 🐶🐱🐰🦊🐻🐼🐨🐯🦁🐸
+
 ### 🚧 Not Yet Implemented
 
 These upgrades are defined but need full implementation:
@@ -94,7 +110,6 @@ These upgrades are defined but need full implementation:
 | **clone** | Legendary | Summon a clone that fights with you |
 | **ghostBullets** | Lunar | Bullets phase through walls, +20% damage taken |
 | **aura** | Boss | Enemies near you deal 30% less damage |
-| **pet** | Boss | Summon a familiar that attacks enemies |
 | **turret** | Boss | Deploy a turret that shoots enemies |
 | **reflect** | Boss | Reflect 50% of projectiles |
 | **dash** | Boss | Dash through enemies |
@@ -223,6 +238,7 @@ interface Projectile {
 - **Chain Lightning**: Implemented with jagged yellow lightning bolts between enemies (70% damage per chain)
 - **Ricochet**: Implemented with magenta bullets that seek nearest enemy after each bounce
 - **Homing Shots**: Implemented with cyan bullets that curve toward enemies within 300 units
+- **Pet System**: Fully implemented with emoji-style companions, auto-leveling, auto-attack AI, and dedicated stats panel
 
 ---
 

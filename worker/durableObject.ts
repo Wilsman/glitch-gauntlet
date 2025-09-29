@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion, ChainLightning } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion, ChainLightning, Pet } from '@shared/types';
 import { getRandomUpgrades } from './upgrades';
 import { applyUpgradeEffect } from './upgradeEffects';
 const MAX_PLAYERS = 4;
@@ -101,6 +101,29 @@ export class GlobalDurableObject extends DurableObject {
         const choice = choices?.find(c => c.id === upgradeId);
         if (!player || !choice) return;
         applyUpgradeEffect(player, choice.type);
+        
+        // Spawn pet if pet upgrade selected
+        if (choice.type === 'pet' && gameState) {
+            if (!gameState.pets) gameState.pets = [];
+            const petEmojis = ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐸'];
+            const randomEmoji = petEmojis[Math.floor(Math.random() * petEmojis.length)];
+            const newPet: Pet = {
+                id: uuidv4(),
+                ownerId: playerId,
+                position: { ...player.position },
+                health: 50,
+                maxHealth: 50,
+                level: 1,
+                xp: 0,
+                xpToNextLevel: 10,
+                damage: 5,
+                attackSpeed: 800,
+                attackCooldown: 0,
+                emoji: randomEmoji,
+            };
+            gameState.pets.push(newPet);
+        }
+        
         // Track collected upgrade
         if (!player.collectedUpgrades) player.collectedUpgrades = [];
         const existing = player.collectedUpgrades.find(u => u.type === choice.type);
@@ -143,6 +166,7 @@ export class GlobalDurableObject extends DurableObject {
             this.updatePlayerMovement(state, timeFactor);
             this.updatePlayerEffects(state, delta);
             this.updateRevives(state, delta);
+            this.updatePets(state, now, delta, timeFactor);
             this.updateEnemyAI(state, now, delta, timeFactor);
             this.updatePlayerAttacks(state, delta);
             this.updateProjectiles(state, now, delta, timeFactor);
@@ -196,6 +220,66 @@ export class GlobalDurableObject extends DurableObject {
             } else {
                 deadPlayer.reviveProgress = 0;
             }
+        });
+    }
+    updatePets(state: GameState, now: number, delta: number, timeFactor: number) {
+        if (!state.pets) return;
+        
+        state.pets = state.pets.filter(pet => {
+            const owner = state.players.find(p => p.id === pet.ownerId);
+            // Remove pet if owner is dead or disconnected
+            if (!owner || owner.status === 'dead') return false;
+            
+            // Pet follows owner at a distance
+            const followDistance = 40;
+            const dx = owner.position.x - pet.position.x;
+            const dy = owner.position.y - pet.position.y;
+            const dist = Math.hypot(dx, dy);
+            
+            if (dist > followDistance) {
+                const speed = 3 * timeFactor;
+                pet.position.x += (dx / dist) * speed;
+                pet.position.y += (dy / dist) * speed;
+            }
+            
+            // Pet attacks nearest enemy
+            pet.attackCooldown -= delta;
+            if (pet.attackCooldown <= 0 && state.enemies.length > 0) {
+                const nearestEnemy = state.enemies.reduce((closest, enemy) => {
+                    const d = Math.hypot(enemy.position.x - pet.position.x, enemy.position.y - pet.position.y);
+                    return d < closest.dist ? { enemy, dist: d } : closest;
+                }, { enemy: null as Enemy | null, dist: Infinity });
+                
+                if (nearestEnemy.enemy && nearestEnemy.dist < 400) {
+                    pet.attackCooldown = pet.attackSpeed;
+                    const angle = Math.atan2(nearestEnemy.enemy.position.y - pet.position.y, nearestEnemy.enemy.position.x - pet.position.x);
+                    const petProjectile: Projectile = {
+                        id: uuidv4(),
+                        ownerId: pet.id, // Pet owns this projectile
+                        position: { ...pet.position },
+                        velocity: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
+                        damage: pet.damage,
+                        isCrit: false,
+                        kind: 'bullet',
+                        radius: 4,
+                        hitEnemies: [],
+                        pierceRemaining: 0,
+                        ricochetRemaining: 0,
+                    };
+                    state.projectiles.push(petProjectile);
+                }
+            }
+            
+            // Pet levels up with owner
+            if (pet.level < owner.level) {
+                pet.level = owner.level;
+                pet.maxHealth += 10;
+                pet.health = pet.maxHealth;
+                pet.damage += 2;
+                pet.attackSpeed = Math.max(400, pet.attackSpeed * 0.95);
+            }
+            
+            return pet.health > 0;
         });
     }
     updateEnemyAI(state: GameState, now: number, delta: number, timeFactor: number) {
