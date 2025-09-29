@@ -44,6 +44,8 @@ export interface Player {
   bananarangsPerShot?: number; // how many bananas when attacking
   // UI cues
   lastHealedTimestamp?: number;
+  // Collected upgrades
+  collectedUpgrades?: CollectedUpgrade[];
 }
 export interface DamageNumber {
   id: string;
@@ -87,6 +89,8 @@ export interface XpOrb {
   position: Vector2D;
   value: number;
 }
+export type UpgradeRarity = 'common' | 'uncommon' | 'legendary' | 'boss' | 'lunar' | 'void';
+
 export type UpgradeType =
   | 'attackSpeed'
   | 'projectileDamage'
@@ -96,12 +100,54 @@ export type UpgradeType =
   | 'multiShot'
   | 'critChance'
   | 'lifeSteal'
-  | 'bananarang';
+  | 'bananarang'
+  | 'critDamage'
+  | 'armor'
+  | 'dodge'
+  | 'thorns'
+  | 'explosion'
+  | 'chain'
+  | 'pierce'
+  | 'vampiric'
+  | 'berserker'
+  | 'lucky'
+  | 'magnetic'
+  | 'regeneration'
+  | 'shield'
+  | 'timeWarp'
+  | 'ghostBullets'
+  | 'ricochet'
+  | 'homingShots'
+  | 'poisonDamage'
+  | 'fireDamage'
+  | 'iceSlow'
+  | 'knockback'
+  | 'executioner'
+  | 'doubleJump'
+  | 'dash'
+  | 'invincibility'
+  | 'clone'
+  | 'orbital'
+  | 'turret'
+  | 'pet'
+  | 'aura'
+  | 'reflect';
+
 export interface UpgradeOption {
   id: string;
   type: UpgradeType;
   title: string;
   description: string;
+  rarity: UpgradeRarity;
+  emoji: string;
+}
+
+export interface CollectedUpgrade {
+  type: UpgradeType;
+  title: string;
+  rarity: UpgradeRarity;
+  emoji: string;
+  count: number;
 }
 export interface Teleporter {
   id: string;

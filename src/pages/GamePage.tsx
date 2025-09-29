@@ -10,6 +10,7 @@ import UpgradeModal from '@/components/UpgradeModal';
 import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
 import StatsPanel from '@/components/StatsPanel';
 import PlayerListPanel from '@/components/PlayerListPanel';
+import CollectedUpgradesPanel from '@/components/CollectedUpgradesPanel';
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -182,6 +183,7 @@ export default function GamePage() {
       </div>
 
       <PlayerListPanel players={players} localPlayerId={localPlayerId || ''} />
+      {localPlayer && <CollectedUpgradesPanel upgrades={localPlayer.collectedUpgrades || []} />}
 
       {isPaused && !isLocalPlayerLevelingUp && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40">

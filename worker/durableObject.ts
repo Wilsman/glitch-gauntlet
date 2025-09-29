@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade } from '@shared/types';
+import { getRandomUpgrades } from './upgrades';
 const MAX_PLAYERS = 4;
 const ARENA_WIDTH = 1600;
 const ARENA_HEIGHT = 900;
@@ -14,17 +15,7 @@ function uuidv4() {
         return v.toString(16);
     });
 }
-const UPGRADE_OPTIONS: Omit<UpgradeOption, 'id'>[] = [
-    { type: 'attackSpeed', title: 'Caffeinated Hamster Wheel', description: 'Your trigger finger discovers espresso. +20% pew speed.' },
-    { type: 'projectileDamage', title: 'Angry Spicy Bullets', description: 'Infused with hot sauce. +5 damage and mild regret.' },
-    { type: 'playerSpeed', title: 'Greased Lightning Shoes', description: 'Slick soles, quick goals. +15% zoom-zoom.' },
-    { type: 'maxHealth', title: 'Vitamin Gummies (Probably Safe)', description: 'Chewy HP gummies. +20 max HP and heal 20.' },
-    { type: 'pickupRadius', title: 'Industrial Shop‑Vac', description: 'Vroom vroom loot vacuum. +20% XP suck radius.' },
-    { type: 'multiShot', title: 'Two‑For‑One Tuesdays', description: 'Buy one bullet, get one free. +1 projectile per shot.' },
-    { type: 'critChance', title: 'Red Numbers Go Brrr', description: '10% more crit chance. Double damage, double flex.' },
-    { type: 'lifeSteal', title: 'Thirsty Bullets', description: 'Hydration via violence. Heal 5% of damage dealt.' },
-    { type: 'bananarang', title: 'Bananarang', description: 'Add a returning banana to your attack. Picks add more bananas.' },
-];
+// Upgrades now loaded from upgrades.ts
 export class GlobalDurableObject extends DurableObject {
     private lastTick: number = 0;
     private tickInterval: number | null = null;
@@ -56,6 +47,7 @@ export class GlobalDurableObject extends DurableObject {
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
             pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
             hasBananarang: false, bananarangsPerShot: 0,
+            collectedUpgrades: [],
         };
         const initialGameState: GameState = {
             gameId,
@@ -86,6 +78,7 @@ export class GlobalDurableObject extends DurableObject {
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
             pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
             hasBananarang: false, bananarangsPerShot: 0,
+            collectedUpgrades: [],
         };
         gameState.players.push(newPlayer);
         return { playerId };
@@ -391,7 +384,7 @@ export class GlobalDurableObject extends DurableObject {
                 p.xp -= p.xpToNextLevel;
                 p.xpToNextLevel = Math.floor(p.xpToNextLevel * 1.5);
                 state.levelingUpPlayerId = p.id;
-                const choices = [...UPGRADE_OPTIONS].sort(() => 0.5 - Math.random()).slice(0, 3).map(o => ({ ...o, id: uuidv4() }));
+                const choices = getRandomUpgrades(3).map(o => ({ ...o, id: uuidv4() }));
                 this.upgradeChoices.set(p.id, choices);
             }
         });
@@ -423,6 +416,13 @@ export class GlobalDurableObject extends DurableObject {
         }
     }
 }
+
+
+
+
+
+
+
 
 
 
