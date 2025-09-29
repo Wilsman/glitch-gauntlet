@@ -199,13 +199,21 @@ export class AudioManager {
     if (this.currentTrack === 'menu') return;
 
     this.stopGameMusic();
+    if (this.menuSequence && 'cancel' in this.menuSequence) {
+      // @ts-expect-error cancel exists at runtime on Tone.Sequence
+      this.menuSequence.cancel(0);
+    }
     this.menuSequence?.start(0);
     this.currentTrack = 'menu';
     this.ensureTransport();
   }
 
   public stopMenuMusic() {
-    this.menuSequence?.stop();
+    this.menuSequence?.stop(0);
+    if (this.menuSequence && 'cancel' in this.menuSequence) {
+      // @ts-expect-error cancel exists at runtime on Tone.Sequence
+      this.menuSequence.cancel(0);
+    }
     if (this.currentTrack === 'menu') {
       this.currentTrack = null;
     }
@@ -217,6 +225,14 @@ export class AudioManager {
     if (this.currentTrack === 'game') return;
 
     this.stopMenuMusic();
+    if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
+      // @ts-expect-error cancel exists at runtime on Tone.Loop
+      this.gameBassLoop.cancel(0);
+    }
+    if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
+      // @ts-expect-error cancel exists at runtime on Tone.Sequence
+      this.gameLeadSequence.cancel(0);
+    }
     this.gameBassLoop?.start(0);
     this.gameLeadSequence?.start(0);
     this.currentTrack = 'game';
@@ -224,8 +240,16 @@ export class AudioManager {
   }
 
   public stopGameMusic() {
-    this.gameBassLoop?.stop();
-    this.gameLeadSequence?.stop();
+    this.gameBassLoop?.stop(0);
+    this.gameLeadSequence?.stop(0);
+    if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
+      // @ts-expect-error cancel exists at runtime on Tone.Loop
+      this.gameBassLoop.cancel(0);
+    }
+    if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
+      // @ts-expect-error cancel exists at runtime on Tone.Sequence
+      this.gameLeadSequence.cancel(0);
+    }
     if (this.currentTrack === 'game') {
       this.currentTrack = null;
     }

@@ -39,6 +39,9 @@ export interface Player {
   critChance: number; // 0..1
   critMultiplier: number; // e.g., 2.0x
   lifeSteal: number; // 0..1 portion of damage healed
+  // Arsenal
+  hasBananarang?: boolean; // unlocked via upgrade
+  bananarangsPerShot?: number; // how many bananas when attacking
   // UI cues
   lastHealedTimestamp?: number;
 }
@@ -62,6 +65,14 @@ export interface Projectile {
   damage: number;
   // UI cues
   isCrit?: boolean;
+  // Projectile flavor
+  kind?: 'bananarang' | 'bullet';
+  // Bananarang-specific fields
+  spawnPosition?: Vector2D;
+  maxRange?: number; // distance before returning
+  state?: 'outbound' | 'returning';
+  returnSpeedMultiplier?: number; // multiplier for return speed
+  radius?: number; // hitbox radius
 }
 export interface XpOrb {
   id: string;
@@ -76,7 +87,8 @@ export type UpgradeType =
   | 'pickupRadius'
   | 'multiShot'
   | 'critChance'
-  | 'lifeSteal';
+  | 'lifeSteal'
+  | 'bananarang';
 export interface UpgradeOption {
   id: string;
   type: UpgradeType;

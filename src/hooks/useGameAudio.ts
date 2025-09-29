@@ -19,9 +19,15 @@ export function useGameAudio() {
 
   useEffect(() => {
     const audio = AudioManager.getInstance();
-    void audio.resume();
-    audio.playGameMusic();
+    let cancelled = false;
+    (async () => {
+      await audio.resume();
+      if (!cancelled) {
+        audio.playGameMusic();
+      }
+    })();
     return () => {
+      cancelled = true;
       audio.stopGameMusic();
     };
   }, []);

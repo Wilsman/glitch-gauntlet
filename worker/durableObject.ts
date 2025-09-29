@@ -23,6 +23,7 @@ const UPGRADE_OPTIONS: Omit<UpgradeOption, 'id'>[] = [
     { type: 'multiShot', title: 'Two‑For‑One Tuesdays', description: 'Buy one bullet, get one free. +1 projectile per shot.' },
     { type: 'critChance', title: 'Red Numbers Go Brrr', description: '10% more crit chance. Double damage, double flex.' },
     { type: 'lifeSteal', title: 'Thirsty Bullets', description: 'Hydration via violence. Heal 5% of damage dealt.' },
+    { type: 'bananarang', title: 'Bananarang', description: 'Add a returning banana to your attack. Picks add more bananas.' },
 ];
 export class GlobalDurableObject extends DurableObject {
     private lastTick: number = 0;
@@ -54,6 +55,7 @@ export class GlobalDurableObject extends DurableObject {
             color: PLAYER_COLORS[0], attackCooldown: 0, attackSpeed: 500,
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
             pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
+            hasBananarang: false, bananarangsPerShot: 0,
         };
         const initialGameState: GameState = {
             gameId,
@@ -83,6 +85,7 @@ export class GlobalDurableObject extends DurableObject {
             attackCooldown: 0, attackSpeed: 500,
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
             pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
+            hasBananarang: false, bananarangsPerShot: 0,
         };
         gameState.players.push(newPlayer);
         return { playerId };
@@ -129,6 +132,14 @@ export class GlobalDurableObject extends DurableObject {
             case 'lifeSteal':
                 player.lifeSteal = Math.min(0.30, player.lifeSteal + 0.05);
                 break;
+            case 'bananarang':
+                if (!player.hasBananarang) {
+                    player.hasBananarang = true;
+                    player.bananarangsPerShot = 1;
+                } else {
+                    player.bananarangsPerShot = Math.min(5, (player.bananarangsPerShot || 1) + 1);
+                }
+                break;
         }
         if (gameState) gameState.levelingUpPlayerId = null;
         this.upgradeChoices.delete(playerId);
@@ -159,7 +170,7 @@ export class GlobalDurableObject extends DurableObject {
             this.updateRevives(state, delta);
             this.updateEnemyAI(state, now, delta, timeFactor);
             this.updatePlayerAttacks(state, delta);
-            this.updateProjectiles(state, now, timeFactor);
+            this.updateProjectiles(state, now, delta, timeFactor);
             this.updateXPOrbs(state);
             this.updateWaves(state, delta);
             this.updateGameStatus(state);
@@ -235,46 +246,121 @@ export class GlobalDurableObject extends DurableObject {
                 }, { enemy: null as Enemy | null, dist: Infinity });
                 if (closestEnemy.enemy) {
                     const baseAngle = Math.atan2(closestEnemy.enemy.position.y - p.position.y, closestEnemy.enemy.position.x - p.position.x);
+                    // Fire normal bullets (always)
                     const shots = Math.max(1, p.projectilesPerShot || 1);
-                    const spread = 10 * Math.PI / 180; // 10 degrees between projectiles
+                    const spread = 10 * Math.PI / 180; // 10 degrees between bullets
                     for (let i = 0; i < shots; i++) {
                         const offset = (i - (shots - 1) / 2) * spread;
                         const angle = baseAngle + offset;
                         const isCrit = Math.random() < (p.critChance || 0);
                         const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
-                        const newProjectile: Projectile = {
+                        const newBullet: Projectile = {
                             id: uuidv4(),
                             ownerId: p.id,
                             position: { ...p.position },
                             velocity: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
                             damage,
-                            isCrit
+                            isCrit,
+                            kind: 'bullet',
+                            radius: 5,
                         };
-                        state.projectiles.push(newProjectile);
+                        state.projectiles.push(newBullet);
+                    }
+
+                    // Fire bananarangs if unlocked
+                    const bananaShots = p.hasBananarang ? Math.max(0, p.bananarangsPerShot || 0) : 0;
+                    if (bananaShots > 0) {
+                        const bananaSpread = 10 * Math.PI / 180; // degrees between bananas
+                        for (let i = 0; i < bananaShots; i++) {
+                            const offset = (i - (bananaShots - 1) / 2) * bananaSpread;
+                            const angle = baseAngle + offset;
+                            const isCrit = Math.random() < (p.critChance || 0);
+                            const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
+                            const speed = 10; // base speed
+                            const maxRange = 220; // return distance
+                            const radius = 10; // hitbox
+                            const bananarang: Projectile = {
+                                id: uuidv4(),
+                                ownerId: p.id,
+                                position: { ...p.position },
+                                velocity: { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed },
+                                damage,
+                                isCrit,
+                                kind: 'bananarang',
+                                spawnPosition: { ...p.position },
+                                maxRange,
+                                state: 'outbound',
+                                returnSpeedMultiplier: 1.2,
+                                radius,
+                            };
+                            state.projectiles.push(bananarang);
+                        }
                     }
                 }
             }
         });
     }
-    updateProjectiles(state: GameState, now: number, timeFactor: number) {
+    updateProjectiles(state: GameState, now: number, delta: number, timeFactor: number) {
         state.projectiles = state.projectiles.filter(proj => {
+            const owner = state.players.find(pp => pp.id === proj.ownerId);
+            const radius = proj.radius ?? 8;
+            // Movement
+            if (proj.kind === 'bananarang') {
+                // Check range to toggle return
+                const origin = proj.spawnPosition || proj.position;
+                const distFromOrigin = Math.hypot(proj.position.x - origin.x, proj.position.y - origin.y);
+                if (proj.state === 'outbound' && proj.maxRange && distFromOrigin >= proj.maxRange) {
+                    proj.state = 'returning';
+                }
+
+                // If returning, steer towards owner
+                if (proj.state === 'returning' && owner) {
+                    const dx = owner.position.x - proj.position.x;
+                    const dy = owner.position.y - proj.position.y;
+                    const d = Math.hypot(dx, dy) || 1;
+                    const baseSpeed = Math.hypot(proj.velocity.x, proj.velocity.y) || 10;
+                    const speed = baseSpeed * (proj.returnSpeedMultiplier || 1.2);
+                    proj.velocity.x = (dx / d) * speed;
+                    proj.velocity.y = (dy / d) * speed;
+                    // If we reached the owner, remove projectile
+                    if (d < 16) {
+                        return false;
+                    }
+                } else {
+                    // Optional slight curve on outbound for a boomerang feel
+                    const turn = 0.03 * timeFactor; // radians per frame
+                    const cosT = Math.cos(turn);
+                    const sinT = Math.sin(turn);
+                    const vx = proj.velocity.x;
+                    const vy = proj.velocity.y;
+                    proj.velocity.x = vx * cosT - vy * sinT;
+                    proj.velocity.y = vx * sinT + vy * cosT;
+                }
+            }
+
+            // Integrate position
             proj.position.x += proj.velocity.x * timeFactor;
             proj.position.y += proj.velocity.y * timeFactor;
+
+            // Collisions: persistent hitbox; do NOT remove on hit for bananarang
             for (const enemy of state.enemies) {
-                if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < 20) {
+                if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < (radius + 10)) {
                     enemy.health -= proj.damage;
-                    // Life steal on hit
-                    const owner = state.players.find(pp => pp.id === proj.ownerId);
                     if (owner && owner.lifeSteal && owner.lifeSteal > 0) {
                         owner.health = Math.min(owner.maxHealth, owner.health + proj.damage * owner.lifeSteal);
                         owner.lastHealedTimestamp = now;
                     }
                     enemy.lastHitTimestamp = now;
                     if (proj.isCrit) enemy.lastCritTimestamp = now;
-                    return false;
+                    if (proj.kind !== 'bananarang') {
+                        // bullets disappear on hit
+                        return false;
+                    }
                 }
             }
-            return proj.position.x > -10 && proj.position.x < ARENA_WIDTH + 10 && proj.position.y > -10 && proj.position.y < ARENA_HEIGHT + 10;
+            // Keep inside loose bounds; bananarang may briefly go off-screen
+            const inBounds = proj.position.x > -40 && proj.position.x < ARENA_WIDTH + 40 && proj.position.y > -40 && proj.position.y < ARENA_HEIGHT + 40;
+            return inBounds;
         });
         const deadEnemies = state.enemies.filter(e => e.health <= 0);
         deadEnemies.forEach(dead => state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue }));

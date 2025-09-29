@@ -110,17 +110,36 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Projectiles */}
-        {projectiles.map((p) => (
-          <Circle
-            key={p.id}
-            x={p.position.x}
-            y={p.position.y}
-            radius={p.isCrit ? 5 : 4}
-            fill={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
-            shadowColor={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
-            shadowBlur={12}
-          />
-        ))}
+        {projectiles.map((p) => {
+          if (p.kind === 'bananarang') {
+            const color = p.isCrit ? '#FFD166' : '#FFF176';
+            return (
+              <Ring
+                key={p.id}
+                x={p.position.x}
+                y={p.position.y}
+                innerRadius={p.isCrit ? 6 : 5}
+                outerRadius={p.isCrit ? 10 : 9}
+                fill={color}
+                opacity={0.9}
+                shadowColor={color}
+                shadowBlur={14}
+                rotation={((Date.now() / 10) % 360)}
+              />
+            );
+          }
+          return (
+            <Circle
+              key={p.id}
+              x={p.position.x}
+              y={p.position.y}
+              radius={p.isCrit ? 5 : 4}
+              fill={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
+              shadowColor={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
+              shadowBlur={12}
+            />
+          );
+        })}
         {/* Game ID Text */}
         <Text text={`Game Code: ${gameId}`} x={20} y={ARENA_HEIGHT - 30} fontFamily='"Press Start 2P"' fontSize={14} fill="#FF00FF" />
       </Layer>
