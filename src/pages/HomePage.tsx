@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,17 +6,24 @@ import { Loader2 } from 'lucide-react';
 import { Toaster, toast } from '@/components/ui/sonner';
 import type { ApiResponse } from '@shared/types';
 import { useGameStore } from '@/hooks/useGameStore';
+
 export function HomePage() {
   const navigate = useNavigate();
   const [isHosting, setIsHosting] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
+  const resetGameState = useGameStore((state) => state.resetGameState);
+
+  useEffect(() => {
+    resetGameState();
+  }, [resetGameState]);
+
   const handleHostGame = async () => {
     setIsHosting(true);
     try {
       const response = await fetch('/api/game/create', { method: 'POST' });
-      const result = await response.json() as ApiResponse<{ gameId: string, playerId: string }>;
+      const result = (await response.json()) as ApiResponse<{ gameId: string; playerId: string }>;
       if (result.success && result.data?.gameId && result.data?.playerId) {
         setLocalPlayerId(result.data.playerId);
         toast.success('Game session created!', {
@@ -35,6 +42,7 @@ export function HomePage() {
       setIsHosting(false);
     }
   };
+
   const handleJoinGame = async () => {
     if (!joinCode) {
       toast.warning('Please enter a game code.');
@@ -43,7 +51,7 @@ export function HomePage() {
     setIsJoining(true);
     try {
       const response = await fetch(`/api/game/${joinCode}/join`, { method: 'POST' });
-      const result = await response.json() as ApiResponse<{ playerId: string }>;
+      const result = (await response.json()) as ApiResponse<{ playerId: string }>;
       if (result.success && result.data?.playerId) {
         setLocalPlayerId(result.data.playerId);
         toast.success('Joined game successfully!');
@@ -60,6 +68,7 @@ export function HomePage() {
       setIsJoining(false);
     }
   };
+
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-center p-4 overflow-hidden relative text-neon-cyan">
       <div className="absolute inset-0 bg-black opacity-80 z-0" />
@@ -98,7 +107,7 @@ export function HomePage() {
         </div>
       </div>
       <footer className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20">
-        <p>Built with ❤️ at Cloudflare</p>
+        <p>Built with love at Cloudflare</p>
       </footer>
       <Toaster richColors theme="dark" />
     </main>

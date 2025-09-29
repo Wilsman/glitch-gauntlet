@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/hooks/useGameStore';
 import GameCanvas from '@/components/GameCanvas';
@@ -19,14 +19,26 @@ export default function GamePage() {
   const localPlayerId = useGameStore((state) => state.localPlayerId);
   const closeUpgradeModal = useGameStore((state) => state.closeUpgradeModal);
   const openUpgradeModal = useGameStore((state) => state.openUpgradeModal);
-  const players = useGameStore((state) => state.gameState?.players ?? EMPTY_PLAYERS);
-  const levelingUpPlayerId = useGameStore((state) => state.gameState?.levelingUpPlayerId ?? null);
-  const gameStatus = useGameStore((state) => state.gameState?.status ?? null);
-  const wave = useGameStore((state) => state.gameState?.wave ?? 0);
   const isUpgradeModalOpen = useGameStore((state) => state.isUpgradeModalOpen);
+  const rawGameState = useGameStore((state) => state.gameState);
+
+  const activeGameState = useMemo(() => {
+    if (!rawGameState || !gameId) return null;
+    return rawGameState.gameId === gameId ? rawGameState : null;
+  }, [rawGameState, gameId]);
+
+  const players = activeGameState?.players ?? EMPTY_PLAYERS;
+  const levelingUpPlayerId = activeGameState?.levelingUpPlayerId ?? null;
+  const gameStatus = activeGameState?.status ?? null;
+  const wave = activeGameState?.wave ?? 0;
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsLoading(true);
+    setError(null);
+  }, [gameId]);
 
   const isPaused = !!levelingUpPlayerId;
   const isLocalPlayerLevelingUp = levelingUpPlayerId === localPlayerId;
@@ -34,6 +46,8 @@ export default function GamePage() {
   useGameLoop(gameId, isPaused);
 
   useEffect(() => {
+    if (!gameStatus || !gameId) return;
+
     if (gameStatus === 'gameOver') {
       navigate(`/gameover/${gameId}`);
     } else if (gameStatus === 'won') {
@@ -73,7 +87,7 @@ export default function GamePage() {
 
   useEffect(() => {
     const fetchUpgrades = async () => {
-      if (isLocalPlayerLevelingUp && !isUpgradeModalOpen) {
+      if (isLocalPlayerLevelingUp && !isUpgradeModalOpen && gameId) {
         try {
           const res = await fetch(`/api/game/${gameId}/upgrades`);
           if (res.status === 404) {
@@ -125,7 +139,7 @@ export default function GamePage() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading && !activeGameState) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-neon-cyan">
         <Loader2 className="h-16 w-16 animate-spin text-neon-pink" />
@@ -141,6 +155,10 @@ export default function GamePage() {
         <p className="font-vt323 text-2xl mt-4 text-center">{error}</p>
       </div>
     );
+  }
+
+  if (!activeGameState) {
+    return null;
   }
 
   return (
