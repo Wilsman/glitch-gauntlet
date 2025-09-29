@@ -56,7 +56,21 @@ export class AudioManager {
   private lastShootTime: number | null = null;
 
   private currentTrack: MusicTrack = null;
+  private requestedTrack: MusicTrack = null;
   private resumeBlockedLogged = false;
+  private resumeListenersAttached = false;
+  private readonly resumeHandler = async () => {
+    try {
+      await Tone.start();
+    } catch (e) {
+      console.debug('Audio context start deferred:', e);
+    }
+    this.removeResumeEventListeners();
+    // Build nodes now that context is running
+    this.ensureInitialized();
+    this.ensureTransport();
+    this.kickCurrentTrack();
+  };
   private volumeSettings: VolumeSettings = {
     master: DEFAULT_MASTER_VOLUME,
     music: DEFAULT_MUSIC_VOLUME,
@@ -74,6 +88,11 @@ export class AudioManager {
 
   private ensureInitialized() {
     if (!this.isBrowser || this.master) return;
+    // Avoid constructing Tone nodes before user gesture unlocks the context
+    if (!this.isContextRunning()) {
+      this.addResumeEventListeners();
+      return;
+    }
 
     this.master = new Tone.Gain(DEFAULT_MASTER_VOLUME).toDestination();
     this.musicGain = new Tone.Gain(DEFAULT_MUSIC_VOLUME).connect(this.master);
@@ -176,22 +195,71 @@ export class AudioManager {
     }
   }
 
+  private addResumeEventListeners() {
+    if (!this.isBrowser || this.resumeListenersAttached) return;
+    this.resumeListenersAttached = true;
+    window.addEventListener('pointerdown', this.resumeHandler as EventListener, { passive: true } as any);
+    window.addEventListener('keydown', this.resumeHandler as EventListener);
+    window.addEventListener('touchstart', this.resumeHandler as EventListener, { passive: true } as any);
+  }
+
+  private removeResumeEventListeners() {
+    if (!this.isBrowser || !this.resumeListenersAttached) return;
+    window.removeEventListener('pointerdown', this.resumeHandler as EventListener);
+    window.removeEventListener('keydown', this.resumeHandler as EventListener);
+    window.removeEventListener('touchstart', this.resumeHandler as EventListener);
+    this.resumeListenersAttached = false;
+  }
+
+  private kickCurrentTrack() {
+    // Ensure requested track is playing after context resumes
+    const want = this.requestedTrack ?? this.currentTrack;
+    if (want === 'menu') {
+      const p = this.menuPlayer;
+      if (p) {
+        try {
+          if ((p as any).loaded || (p as any).buffer?.loaded) {
+            p.restart();
+          } else {
+            p.autostart = true;
+          }
+        } catch (e) {
+          console.debug('Menu player start deferred:', e);
+        }
+      }
+    } else if (want === 'game') {
+      const p = this.gamePlayer;
+      if (p) {
+        try {
+          if ((p as any).loaded || (p as any).buffer?.loaded) {
+            p.restart();
+          } else {
+            p.autostart = true;
+          }
+        } catch (e) {
+          console.debug('Game player start deferred:', e);
+        }
+      }
+    }
+  }
+
   public async resume() {
     if (!this.isBrowser) return;
     this.ensureInitialized();
     if (!this.isContextRunning()) {
-      try {
-        await Tone.start();
-      } catch (error) {
-        if (!this.resumeBlockedLogged) {
-          this.resumeBlockedLogged = true;
-          console.warn('Tone.js audio context resume blocked until user interaction', error);
-        }
-        return;
+      // Defer to a user gesture to unlock the audio context
+      if (!this.resumeBlockedLogged) {
+        this.resumeBlockedLogged = true;
+        console.debug('Audio context pending user gesture');
       }
+      this.addResumeEventListeners();
+      return;
     }
+    // Context already running
     this.resumeBlockedLogged = false;
+    this.ensureInitialized();
     this.ensureTransport();
+    this.kickCurrentTrack();
   }
 
   public playMenuMusic() {
@@ -202,32 +270,27 @@ export class AudioManager {
     this.stopGameMusic();
     // Stop legacy procedural music just in case
     if (this.menuSequence && 'cancel' in this.menuSequence) {
-      // @ts-expect-error cancel exists at runtime on Tone.Sequence
+
       this.menuSequence.cancel(0);
     }
     this.menuSequence?.stop(0);
 
-    // Start file-based menu music (wait until buffer is loaded)
+    // Start file-based menu music (start now or autostart when loaded)
     if (this.menuPlayer) {
-      const player = this.menuPlayer;
-      const startSafe = () => {
-        try {
-          if (player.state !== 'started') player.start();
-        } catch (e) {
-          // ignore start errors; will try again on next call
-          console.warn('Menu player failed to start (will retry):', e);
+      const p = this.menuPlayer as any;
+      try {
+        const isLoaded = !!(p.loaded || p.buffer?.loaded);
+        if (isLoaded) {
+          // restart to guarantee playback
+          if (p.state === 'started') p.restart(); else p.start();
+        } else {
+          p.autostart = true;
         }
-      };
-      // Prefer buffer.loaded if available; otherwise use onload callback
-      // @ts-expect-error tone typings
-      const isLoaded: boolean | undefined = player.buffer?.loaded ?? (player as any).loaded;
-      if (isLoaded) {
-        startSafe();
-      } else {
-        // @ts-expect-error tone typings expose onload at runtime
-        player.onload = () => startSafe();
+      } catch (e) {
+        console.debug('Menu player start deferred:', e);
       }
     }
+    this.requestedTrack = 'menu';
     this.currentTrack = 'menu';
     this.ensureTransport();
   }
@@ -236,14 +299,19 @@ export class AudioManager {
     // Stop both legacy and file-based menu music
     this.menuSequence?.stop(0);
     if (this.menuSequence && 'cancel' in this.menuSequence) {
-      // @ts-expect-error cancel exists at runtime on Tone.Sequence
+
       this.menuSequence.cancel(0);
     }
     if (this.menuPlayer && this.menuPlayer.state === 'started') {
-      try { this.menuPlayer.stop(); } catch {}
+      try { this.menuPlayer.stop(); } catch (e) {
+        console.debug('Menu player stop deferred:', e);
+      }
     }
     if (this.currentTrack === 'menu') {
       this.currentTrack = null;
+    }
+    if (this.requestedTrack === 'menu') {
+      this.requestedTrack = null;
     }
   }
 
@@ -256,11 +324,9 @@ export class AudioManager {
 
     // Stop legacy procedural game music
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
-      // @ts-expect-error cancel exists at runtime on Tone.Loop
       this.gameBassLoop.cancel(0);
     }
     if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
-      // @ts-expect-error cancel exists at runtime on Tone.Sequence
       this.gameLeadSequence.cancel(0);
     }
     this.gameBassLoop?.stop(0);
@@ -279,20 +345,23 @@ export class AudioManager {
       .map((name) => encodeURI(`/music/${name}`));
     const pick = gameTracks.length > 0
       ? gameTracks[Math.floor(Math.random() * gameTracks.length)]
-      : encodeURI('/music/Pixel Dash.wav');
+      : encodeURI('/music/Pixel Dash.mp3');
 
     // Recreate player each time to avoid TS/runtime incompatibilities with .load
     if (this.gamePlayer) {
       try {
         this.gamePlayer.stop();
         this.gamePlayer.dispose();
-      } catch {}
+      } catch (e) {
+        console.debug('Game player dispose deferred:', e);
+      }
     }
     this.gamePlayer = new Tone.Player({
       url: pick,
       loop: true,
       autostart: true, // auto start as soon as the buffer is loaded
     }).connect(this.musicGain);
+    this.requestedTrack = 'game';
     this.currentTrack = 'game';
     this.ensureTransport();
   }
@@ -302,22 +371,27 @@ export class AudioManager {
     this.gameBassLoop?.stop(0);
     this.gameLeadSequence?.stop(0);
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
-      // @ts-expect-error cancel exists at runtime on Tone.Loop
       this.gameBassLoop.cancel(0);
     }
     if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
-      // @ts-expect-error cancel exists at runtime on Tone.Sequence
       this.gameLeadSequence.cancel(0);
     }
     if (this.gamePlayer) {
       try {
         if (this.gamePlayer.state === 'started') this.gamePlayer.stop();
-      } catch {}
-      try { this.gamePlayer.dispose(); } catch {}
+      } catch (e) {
+        console.debug('Game player stop deferred:', e);
+      }
+      try { this.gamePlayer.dispose(); } catch (e) {
+        console.debug('Game player dispose deferred:', e);
+      }
       this.gamePlayer = null;
     }
     if (this.currentTrack === 'game') {
       this.currentTrack = null;
+    }
+    if (this.requestedTrack === 'game') {
+      this.requestedTrack = null;
     }
   }
 
