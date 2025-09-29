@@ -74,6 +74,7 @@
     z-index: 9999;
     pointer-events: none;
     opacity: 0.5;
+    will-change: auto;
   }
   body::after {
     content: " ";
@@ -90,6 +91,7 @@
     pointer-events: none;
     opacity: 0.2;
     animation: flicker 0.15s infinite;
+    will-change: opacity;
   }
   @keyframes flicker {
     0% { opacity: 0.1; }

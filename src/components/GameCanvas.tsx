@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { Stage, Layer, Rect, Circle, Text, Ring, Line } from 'react-konva';
 import { useGameStore } from '@/hooks/useGameStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -6,6 +6,18 @@ import { useShallow } from 'zustand/react/shallow';
 // Fixed server-side arena dimensions
 const SERVER_ARENA_WIDTH = 1280;
 const SERVER_ARENA_HEIGHT = 720;
+
+// Memoized background grid for performance
+const BackgroundGrid = memo(() => (
+  <>
+    {[...Array(Math.floor(SERVER_ARENA_WIDTH / 40))].map((_, i) => (
+      <Rect key={`v-${i}`} x={i * 40} y={0} width={1} height={SERVER_ARENA_HEIGHT} fill="#FF00FF" opacity={0.2} />
+    ))}
+    {[...Array(Math.floor(SERVER_ARENA_HEIGHT / 40))].map((_, i) => (
+      <Rect key={`h-${i}`} x={0} y={i * 40} width={SERVER_ARENA_WIDTH} height={1} fill="#FF00FF" opacity={0.2} />
+    ))}
+  </>
+));
 
 // Calculate responsive display size while maintaining aspect ratio
 function getDisplaySize() {
@@ -61,15 +73,11 @@ export default function GameCanvas() {
       scaleX={scale}
       scaleY={scale}
       className="bg-gray-900 border-4 border-neon-pink shadow-glow-pink"
+      listening={false}
     >
       <Layer>
         {/* Background Grid */}
-        {[...Array(Math.floor(SERVER_ARENA_WIDTH / 40))].map((_, i) => (
-          <Rect key={`v-${i}`} x={i * 40} y={0} width={1} height={SERVER_ARENA_HEIGHT} fill="#FF00FF" opacity={0.2} />
-        ))}
-        {[...Array(Math.floor(SERVER_ARENA_HEIGHT / 40))].map((_, i) => (
-          <Rect key={`h-${i}`} x={0} y={i * 40} width={SERVER_ARENA_WIDTH} height={1} fill="#FF00FF" opacity={0.2} />
-        ))}
+        <BackgroundGrid />
         {/* Teleporter */}
         {teleporter && (
           <Circle
@@ -389,7 +397,7 @@ export default function GameCanvas() {
           const maxDuration = 500; // ms
           if (age > maxDuration) return null;
           const progress = age / maxDuration;
-          const currentRadius = explosion.radius * (0.3 + progress * 0.7);
+          const currentRadius = Math.max(0, explosion.radius * (0.3 + progress * 0.7));
           const opacity = 1 - progress;
           return (
             <Circle
