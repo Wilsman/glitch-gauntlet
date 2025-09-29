@@ -2,31 +2,37 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useGameStore } from '@/hooks/useGameStore';
 import GameCanvas from '@/components/GameCanvas';
-import type { ApiResponse, GameState, UpgradeOption } from '@shared/types';
+import type { ApiResponse, GameState, UpgradeOption, Player } from '@shared/types';
 import { Loader2 } from 'lucide-react';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import PlayerHUD from '@/components/PlayerHUD';
 import UpgradeModal from '@/components/UpgradeModal';
-import { useShallow } from 'zustand/react/shallow';
+
+const EMPTY_PLAYERS: Player[] = [];
 const hudPositions = ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const;
+
 export default function GamePage() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
-  const { setGameState, localPlayerId, closeUpgradeModal, openUpgradeModal } = useGameStore();
-  const { players, levelingUpPlayerId, gameStatus, wave, isUpgradeModalOpen } = useGameStore(
-    useShallow((state) => ({
-      players: state.gameState?.players || [],
-      levelingUpPlayerId: state.gameState?.levelingUpPlayerId,
-      gameStatus: state.gameState?.status,
-      wave: state.gameState?.wave,
-      isUpgradeModalOpen: state.isUpgradeModalOpen,
-    }))
-  );
+
+  const setGameState = useGameStore((state) => state.setGameState);
+  const localPlayerId = useGameStore((state) => state.localPlayerId);
+  const closeUpgradeModal = useGameStore((state) => state.closeUpgradeModal);
+  const openUpgradeModal = useGameStore((state) => state.openUpgradeModal);
+  const players = useGameStore((state) => state.gameState?.players ?? EMPTY_PLAYERS);
+  const levelingUpPlayerId = useGameStore((state) => state.gameState?.levelingUpPlayerId ?? null);
+  const gameStatus = useGameStore((state) => state.gameState?.status ?? null);
+  const wave = useGameStore((state) => state.gameState?.wave ?? 0);
+  const isUpgradeModalOpen = useGameStore((state) => state.isUpgradeModalOpen);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const isPaused = !!levelingUpPlayerId;
   const isLocalPlayerLevelingUp = levelingUpPlayerId === localPlayerId;
+
   useGameLoop(gameId, isPaused);
+
   useEffect(() => {
     if (gameStatus === 'gameOver') {
       navigate(`/gameover/${gameId}`);
@@ -34,16 +40,19 @@ export default function GamePage() {
       navigate(`/gamewon/${gameId}`);
     }
   }, [gameStatus, navigate, gameId]);
+
   useEffect(() => {
     if (!gameId) {
       setError('No game ID provided.');
       setIsLoading(false);
       return;
     }
+
     if (!localPlayerId) {
       navigate('/');
       return;
     }
+
     const fetchInitialState = async () => {
       try {
         const response = await fetch(`/api/game/${gameId}`);
@@ -58,13 +67,19 @@ export default function GamePage() {
         setIsLoading(false);
       }
     };
+
     fetchInitialState();
   }, [gameId, setGameState, localPlayerId, navigate]);
+
   useEffect(() => {
     const fetchUpgrades = async () => {
       if (isLocalPlayerLevelingUp && !isUpgradeModalOpen) {
         try {
           const res = await fetch(`/api/game/${gameId}/upgrades`);
+          if (res.status === 404) {
+            console.warn('Upgrades not yet available for this player.');
+            return;
+          }
           if (!res.ok) throw new Error('Failed to fetch upgrades');
           const result = (await res.json()) as ApiResponse<UpgradeOption[]>;
           if (result.success && result.data) {
@@ -73,21 +88,43 @@ export default function GamePage() {
             console.error(result.error || 'Could not load upgrades.');
           }
         } catch (e) {
-          console.error("Failed to fetch upgrades", e);
+          console.error('Failed to fetch upgrades', e);
         }
       }
     };
+
     fetchUpgrades();
   }, [isLocalPlayerLevelingUp, gameId, openUpgradeModal, isUpgradeModalOpen]);
+
   const handleSelectUpgrade = async (upgradeId: string) => {
     if (!gameId || !localPlayerId) return;
-    await fetch(`/api/game/${gameId}/upgrade`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: localPlayerId, upgradeId }),
-    });
-    closeUpgradeModal();
+
+    try {
+      const response = await fetch(`/api/game/${gameId}/upgrade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: localPlayerId, upgradeId }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to submit selected upgrade');
+        return;
+      }
+
+      const stateResponse = await fetch(`/api/game/${gameId}`);
+      if (stateResponse.ok) {
+        const stateResult = (await stateResponse.json()) as ApiResponse<GameState>;
+        if (stateResult.success && stateResult.data) {
+          setGameState(stateResult.data);
+        }
+      }
+    } catch (err) {
+      console.error('Error confirming upgrade selection', err);
+    } finally {
+      closeUpgradeModal();
+    }
   };
+
   if (isLoading) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-neon-cyan">
@@ -96,6 +133,7 @@ export default function GamePage() {
       </div>
     );
   }
+
   if (error) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-neon-pink p-4">
@@ -104,14 +142,17 @@ export default function GamePage() {
       </div>
     );
   }
+
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
       <GameCanvas />
+
       <div className="absolute top-4 text-center w-full pointer-events-none">
         <p className="font-press-start text-4xl text-neon-yellow" style={{ textShadow: '0 0 10px #FFFF00' }}>
           WAVE {wave}
         </p>
       </div>
+
       {players.map((p, i) => (
         <PlayerHUD
           key={p.id}
@@ -120,11 +161,13 @@ export default function GamePage() {
           position={hudPositions[i % 4]}
         />
       ))}
+
       {isPaused && !isLocalPlayerLevelingUp && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40">
-            <p className="font-press-start text-3xl text-white">Another player is choosing an upgrade...</p>
+          <p className="font-press-start text-3xl text-white">Another player is choosing an upgrade...</p>
         </div>
       )}
+
       {isLocalPlayerLevelingUp && <UpgradeModal onSelectUpgrade={handleSelectUpgrade} />}
     </div>
   );

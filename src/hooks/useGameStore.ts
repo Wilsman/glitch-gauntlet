@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 import type { GameState, UpgradeOption } from '@shared/types';
 import { deepEqual } from '@/lib/utils';
+
 type GameStore = {
   gameState: GameState | null;
   localPlayerId: string | null;
@@ -9,9 +10,11 @@ type GameStore = {
   upgradeOptions: UpgradeOption[];
   setGameState: (newState: GameState) => void;
   setLocalPlayerId: (playerId: string) => void;
+  resetGameState: () => void;
   openUpgradeModal: (options: UpgradeOption[]) => void;
   closeUpgradeModal: () => void;
 };
+
 export const useGameStore = create<GameStore>()(
   immer((set, get) => ({
     gameState: null,
@@ -28,6 +31,14 @@ export const useGameStore = create<GameStore>()(
     setLocalPlayerId: (playerId) => {
       set((state) => {
         state.localPlayerId = playerId;
+      });
+    },
+    resetGameState: () => {
+      set((state) => {
+        state.gameState = null;
+        state.localPlayerId = null;
+        state.isUpgradeModalOpen = false;
+        state.upgradeOptions = [];
       });
     },
     openUpgradeModal: (options) => {
