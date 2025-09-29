@@ -18,7 +18,11 @@ export default function CollectedUpgradesPanel({ upgrades }: CollectedUpgradesPa
   if (upgrades.length === 0) return null;
 
   return (
-    <div className="fixed left-4 top-1/2 -translate-y-1/2 w-64 max-h-[70vh] overflow-y-auto bg-black/90 border-2 border-neon-yellow p-2 backdrop-blur-sm z-30">
+    <div className="fixed left-0 top-1/2 -translate-y-1/2 w-64 max-h-[70vh] overflow-y-auto bg-black/90 border-2 border-neon-yellow p-2 backdrop-blur-sm z-30 transition-transform duration-300 hover:translate-x-0 -translate-x-[calc(100%-2rem)] group">
+      {/* Hover Tab */}
+      <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-full w-8 h-16 bg-neon-yellow/20 border-2 border-l-0 border-neon-yellow flex items-center justify-center group-hover:bg-neon-yellow/40 transition-colors">
+        <span className="font-press-start text-[8px] text-neon-yellow -rotate-90">ITEMS</span>
+      </div>
       <h2 className="font-press-start text-[10px] text-neon-yellow mb-2 text-center border-b border-neon-yellow pb-2">
         COLLECTED
       </h2>

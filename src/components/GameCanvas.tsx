@@ -1,9 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Circle, Text, Ring } from 'react-konva';
 import { useGameStore } from '@/hooks/useGameStore';
 import { useShallow } from 'zustand/react/shallow';
-const ARENA_WIDTH = 1280;
-const ARENA_HEIGHT = 720;
+
+// Calculate responsive arena size
+function getArenaSize() {
+  const width = window.innerWidth;
+  const height = window.innerHeight - 120; // Reserve space for player cards at bottom
+  
+  // Maintain 16:9 aspect ratio
+  const aspectRatio = 16 / 9;
+  let arenaWidth = width * 0.95; // 95% of window width
+  let arenaHeight = arenaWidth / aspectRatio;
+  
+  // If height is too tall, constrain by height instead
+  if (arenaHeight > height) {
+    arenaHeight = height;
+    arenaWidth = arenaHeight * aspectRatio;
+  }
+  
+  return { width: Math.floor(arenaWidth), height: Math.floor(arenaHeight) };
+}
 const HIT_FLASH_DURATION = 100; // ms
 const CRIT_FLASH_DURATION = 160; // ms
 const HEAL_FLASH_DURATION = 180; // ms
@@ -17,6 +34,18 @@ export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
   const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [] } = gameState || {};
   const now = Date.now();
+  
+  const [arenaSize, setArenaSize] = useState(getArenaSize());
+  
+  useEffect(() => {
+    const handleResize = () => setArenaSize(getArenaSize());
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  const ARENA_WIDTH = arenaSize.width;
+  const ARENA_HEIGHT = arenaSize.height;
+  
   return (
     <Stage width={ARENA_WIDTH} height={ARENA_HEIGHT} className="bg-gray-900 border-4 border-neon-pink shadow-glow-pink">
       <Layer>

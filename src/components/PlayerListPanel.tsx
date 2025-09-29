@@ -9,7 +9,7 @@ interface PlayerListPanelProps {
 
 export default function PlayerListPanel({ players, localPlayerId }: PlayerListPanelProps) {
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-30">
+    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-50">
       {players.map((player) => {
         const isLocalPlayer = player.id === localPlayerId;
         const isDead = player.status === 'dead';

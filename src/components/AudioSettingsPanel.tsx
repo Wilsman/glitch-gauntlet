@@ -22,10 +22,14 @@ export function AudioSettingsPanel({ className }: AudioSettingsPanelProps) {
   return (
     <div
       className={cn(
-        'pointer-events-auto w-64 rounded-lg border border-neon-cyan/40 bg-black/70 p-4 text-white shadow-[0_0_15px_rgba(0,255,255,0.25)] backdrop-blur',
+        'pointer-events-auto w-64 rounded-lg border border-neon-cyan/40 bg-black/90 p-4 text-white shadow-[0_0_15px_rgba(0,255,255,0.25)] backdrop-blur transition-transform duration-300 hover:translate-y-0 -translate-y-[calc(100%-3rem)] group',
         className
       )}
     >
+      {/* Hover Tab */}
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-24 h-8 bg-neon-cyan/20 border-2 border-t-0 border-neon-cyan flex items-center justify-center group-hover:bg-neon-cyan/40 transition-colors rounded-b-lg">
+        <span className="font-press-start text-[8px] text-neon-cyan">AUDIO</span>
+      </div>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MasterIcon className="h-4 w-4 text-neon-cyan" />
