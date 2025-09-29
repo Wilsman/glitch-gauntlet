@@ -34,6 +34,11 @@ export class AudioManager {
   private musicReverb: Tone.Reverb | null = null;
   private sfxReverb: Tone.Reverb | null = null;
 
+  // File-based music players
+  private menuPlayer: Tone.Player | null = null;
+  private gamePlayer: Tone.Player | null = null;
+
+  // Legacy procedural music (kept for SFX compatibility; no longer used for music)
   private menuSynth: Tone.PolySynth<Tone.Synth> | null = null;
   private menuSequence: Tone.Sequence<string[]> | null = null;
 
@@ -75,24 +80,20 @@ export class AudioManager {
     this.sfxGain = new Tone.Gain(DEFAULT_SFX_VOLUME).connect(this.master);
     this.musicReverb = new Tone.Reverb({ decay: 2.5, wet: 0.25 }).connect(this.musicGain);
     this.sfxReverb = new Tone.Reverb({ decay: 2.5, wet: 0.25 }).connect(this.sfxGain);
+    // --- File-based music setup ---
+    const menuTrackUrl = encodeURI('/music/Pixel Pulse.mp3');
+    this.menuPlayer = new Tone.Player({
+      url: menuTrackUrl,
+      loop: true,
+      autostart: false,
+    }).connect(this.musicGain);
 
+    // Keep legacy synths initialized for SFX-only routes and to avoid null refs,
+    // but we won't start these for music anymore.
     this.menuSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'sawtooth' },
       envelope: { attack: 0.05, decay: 0.2, sustain: 0.3, release: 1.5 },
     }).connect(this.musicReverb);
-
-    this.menuSequence = new Tone.Sequence(
-      (time, chord) => {
-        this.menuSynth?.triggerAttackRelease(chord, '8n', time);
-      },
-      [
-        ['C4', 'E4', 'G4'],
-        ['A3', 'C4', 'E4'],
-        ['F3', 'A3', 'C4'],
-        ['G3', 'B3', 'D4'],
-      ],
-      '2n'
-    );
 
     this.gameBass = new Tone.MembraneSynth({
       pitchDecay: 0.01,
@@ -199,20 +200,47 @@ export class AudioManager {
     if (this.currentTrack === 'menu') return;
 
     this.stopGameMusic();
+    // Stop legacy procedural music just in case
     if (this.menuSequence && 'cancel' in this.menuSequence) {
       // @ts-expect-error cancel exists at runtime on Tone.Sequence
       this.menuSequence.cancel(0);
     }
-    this.menuSequence?.start(0);
+    this.menuSequence?.stop(0);
+
+    // Start file-based menu music (wait until buffer is loaded)
+    if (this.menuPlayer) {
+      const player = this.menuPlayer;
+      const startSafe = () => {
+        try {
+          if (player.state !== 'started') player.start();
+        } catch (e) {
+          // ignore start errors; will try again on next call
+          console.warn('Menu player failed to start (will retry):', e);
+        }
+      };
+      // Prefer buffer.loaded if available; otherwise use onload callback
+      // @ts-expect-error tone typings
+      const isLoaded: boolean | undefined = player.buffer?.loaded ?? (player as any).loaded;
+      if (isLoaded) {
+        startSafe();
+      } else {
+        // @ts-expect-error tone typings expose onload at runtime
+        player.onload = () => startSafe();
+      }
+    }
     this.currentTrack = 'menu';
     this.ensureTransport();
   }
 
   public stopMenuMusic() {
+    // Stop both legacy and file-based menu music
     this.menuSequence?.stop(0);
     if (this.menuSequence && 'cancel' in this.menuSequence) {
       // @ts-expect-error cancel exists at runtime on Tone.Sequence
       this.menuSequence.cancel(0);
+    }
+    if (this.menuPlayer && this.menuPlayer.state === 'started') {
+      try { this.menuPlayer.stop(); } catch {}
     }
     if (this.currentTrack === 'menu') {
       this.currentTrack = null;
@@ -225,6 +253,8 @@ export class AudioManager {
     if (this.currentTrack === 'game') return;
 
     this.stopMenuMusic();
+
+    // Stop legacy procedural game music
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
       // @ts-expect-error cancel exists at runtime on Tone.Loop
       this.gameBassLoop.cancel(0);
@@ -233,13 +263,42 @@ export class AudioManager {
       // @ts-expect-error cancel exists at runtime on Tone.Sequence
       this.gameLeadSequence.cancel(0);
     }
-    this.gameBassLoop?.start(0);
-    this.gameLeadSequence?.start(0);
+    this.gameBassLoop?.stop(0);
+    this.gameLeadSequence?.stop(0);
+
+    // Start randomized file-based game music
+    const allTracks = [
+      'Digital Frenzy 2.mp3',
+      'Digital Frenzy.mp3',
+      'Pixel Dash.mp3',
+      'Pixel Groove.mp3',
+      'Pixel Pulse.mp3',
+    ];
+    const gameTracks = allTracks
+      .filter((name) => name !== 'Pixel Pulse.mp3')
+      .map((name) => encodeURI(`/music/${name}`));
+    const pick = gameTracks.length > 0
+      ? gameTracks[Math.floor(Math.random() * gameTracks.length)]
+      : encodeURI('/music/Pixel Dash.wav');
+
+    // Recreate player each time to avoid TS/runtime incompatibilities with .load
+    if (this.gamePlayer) {
+      try {
+        this.gamePlayer.stop();
+        this.gamePlayer.dispose();
+      } catch {}
+    }
+    this.gamePlayer = new Tone.Player({
+      url: pick,
+      loop: true,
+      autostart: true, // auto start as soon as the buffer is loaded
+    }).connect(this.musicGain);
     this.currentTrack = 'game';
     this.ensureTransport();
   }
 
   public stopGameMusic() {
+    // Stop both legacy and file-based game music
     this.gameBassLoop?.stop(0);
     this.gameLeadSequence?.stop(0);
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
@@ -249,6 +308,13 @@ export class AudioManager {
     if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
       // @ts-expect-error cancel exists at runtime on Tone.Sequence
       this.gameLeadSequence.cancel(0);
+    }
+    if (this.gamePlayer) {
+      try {
+        if (this.gamePlayer.state === 'started') this.gamePlayer.stop();
+      } catch {}
+      try { this.gamePlayer.dispose(); } catch {}
+      this.gamePlayer = null;
     }
     if (this.currentTrack === 'game') {
       this.currentTrack = null;

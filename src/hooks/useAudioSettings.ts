@@ -30,7 +30,7 @@ export const useAudioSettings = create<AudioSettingsState>()(
   persist(
     immer((set, get) => ({
       masterVolume: DEFAULT_VOLUME,
-      musicVolume: 1,
+      musicVolume: 0.5,
       sfxVolume: 1,
       muted: false,
       setMasterVolume: (value) => {
