@@ -1,0 +1,102 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@layer base {
+  :root {
+    --background: 255 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --border: 285 100% 50%; /* neon-pink-ish */
+    --ring: 180 100% 50%; /* neon-cyan-ish */
+    --card: 255 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 255 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --input: 0 0% 14.9%;
+    --radius: 0rem;
+  }
+  .dark {
+    --background: 255 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --border: 285 100% 50%;
+    --ring: 180 100% 50%;
+    --card: 255 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 255 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --input: 0 0% 14.9%;
+  }
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground font-vt323;
+    background-color: #0d0221;
+    image-rendering: pixelated;
+  }
+  body::before {
+    content: " ";
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,0.5) 0px, rgba(0,0,0,0.5) 1px, transparent 1px, transparent 2px);
+    background-size: 100% 3px;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  body::after {
+    content: " ";
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(0,0,0,0.4) 100%);
+    z-index: 9998;
+    pointer-events: none;
+    opacity: 0.2;
+    animation: flicker 0.15s infinite;
+  }
+  @keyframes flicker {
+    0% { opacity: 0.1; }
+    20% { opacity: 0.3; }
+    40% { opacity: 0.15; }
+    60% { opacity: 0.25; }
+    80% { opacity: 0.1; }
+    100% { opacity: 0.2; }
+  }
+}
