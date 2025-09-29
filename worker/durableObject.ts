@@ -3,8 +3,8 @@ import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, X
 import { getRandomUpgrades } from './upgrades';
 import { applyUpgradeEffect } from './upgradeEffects';
 const MAX_PLAYERS = 4;
-const ARENA_WIDTH = 1600;
-const ARENA_HEIGHT = 900;
+const ARENA_WIDTH = 1280;
+const ARENA_HEIGHT = 720;
 const PLAYER_COLORS = ['#00FFFF', '#FF00FF', '#FFFF00', '#00FF00'];
 const TICK_RATE = 50; // ms
 const WAVE_DURATION = 30000; // 30 seconds per wave
@@ -522,6 +522,7 @@ export class GlobalDurableObject extends DurableObject {
         }
     }
 }
+
 
 
 

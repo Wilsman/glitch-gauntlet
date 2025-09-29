@@ -170,10 +170,8 @@ export default function GamePage() {
 
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
-      <div className="flex items-center gap-4">
-        <GameCanvas />
-        {localPlayer && <StatsPanel player={localPlayer} />}
-      </div>
+      <GameCanvas />
+      {localPlayer && <StatsPanel player={localPlayer} />}
       <AudioSettingsPanel className="absolute right-4 top-4 z-40" />
 
       <div className="absolute top-4 text-center w-full pointer-events-none">
@@ -182,8 +180,8 @@ export default function GamePage() {
         </p>
       </div>
 
-      <PlayerListPanel players={players} localPlayerId={localPlayerId || ''} />
       {localPlayer && <CollectedUpgradesPanel upgrades={localPlayer.collectedUpgrades || []} />}
+      <PlayerListPanel players={players} localPlayerId={localPlayerId || ''} />
 
       {isPaused && !isLocalPlayerLevelingUp && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40">

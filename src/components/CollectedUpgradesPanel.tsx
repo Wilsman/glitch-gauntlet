@@ -18,7 +18,7 @@ export default function CollectedUpgradesPanel({ upgrades }: CollectedUpgradesPa
   if (upgrades.length === 0) return null;
 
   return (
-    <div className="absolute top-4 right-[340px] w-64 max-h-[calc(100vh-32px)] overflow-y-auto bg-black/80 border-2 border-neon-yellow p-2 backdrop-blur-sm">
+    <div className="fixed left-4 top-1/2 -translate-y-1/2 w-64 max-h-[70vh] overflow-y-auto bg-black/90 border-2 border-neon-yellow p-2 backdrop-blur-sm z-30">
       <h2 className="font-press-start text-[10px] text-neon-yellow mb-2 text-center border-b border-neon-yellow pb-2">
         COLLECTED
       </h2>
