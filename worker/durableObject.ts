@@ -15,9 +15,14 @@ function uuidv4() {
     });
 }
 const UPGRADE_OPTIONS: Omit<UpgradeOption, 'id'>[] = [
-    { type: 'attackSpeed', title: 'Rapid Fire', description: 'Increases attack speed by 20%.' },
-    { type: 'projectileDamage', title: 'Heavy Caliber', description: 'Increases projectile damage by 5.' },
-    { type: 'playerSpeed', title: 'Agility Boost', description: 'Increases movement speed by 15%.' },
+    { type: 'attackSpeed', title: 'Caffeinated Hamster Wheel', description: 'Your trigger finger discovers espresso. +20% pew speed.' },
+    { type: 'projectileDamage', title: 'Angry Spicy Bullets', description: 'Infused with hot sauce. +5 damage and mild regret.' },
+    { type: 'playerSpeed', title: 'Greased Lightning Shoes', description: 'Slick soles, quick goals. +15% zoom-zoom.' },
+    { type: 'maxHealth', title: 'Vitamin Gummies (Probably Safe)', description: 'Chewy HP gummies. +20 max HP and heal 20.' },
+    { type: 'pickupRadius', title: 'Industrial Shop‑Vac', description: 'Vroom vroom loot vacuum. +20% XP suck radius.' },
+    { type: 'multiShot', title: 'Two‑For‑One Tuesdays', description: 'Buy one bullet, get one free. +1 projectile per shot.' },
+    { type: 'critChance', title: 'Red Numbers Go Brrr', description: '10% more crit chance. Double damage, double flex.' },
+    { type: 'lifeSteal', title: 'Thirsty Bullets', description: 'Hydration via violence. Heal 5% of damage dealt.' },
 ];
 export class GlobalDurableObject extends DurableObject {
     private lastTick: number = 0;
@@ -48,6 +53,7 @@ export class GlobalDurableObject extends DurableObject {
             health: 100, maxHealth: 100, level: 1, xp: 0, xpToNextLevel: 10,
             color: PLAYER_COLORS[0], attackCooldown: 0, attackSpeed: 500,
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
+            pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
         };
         const initialGameState: GameState = {
             gameId,
@@ -76,6 +82,7 @@ export class GlobalDurableObject extends DurableObject {
             color: PLAYER_COLORS[gameState.players.length % PLAYER_COLORS.length],
             attackCooldown: 0, attackSpeed: 500,
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
+            pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
         };
         gameState.players.push(newPlayer);
         return { playerId };
@@ -97,9 +104,31 @@ export class GlobalDurableObject extends DurableObject {
         const choice = choices?.find(c => c.id === upgradeId);
         if (!player || !choice) return;
         switch (choice.type) {
-            case 'attackSpeed': player.attackSpeed *= 0.8; break;
-            case 'projectileDamage': player.projectileDamage += 5; break;
-            case 'playerSpeed': player.speed *= 1.15; break;
+            case 'attackSpeed':
+                player.attackSpeed = Math.max(60, player.attackSpeed * 0.8);
+                break;
+            case 'projectileDamage':
+                player.projectileDamage += 5;
+                break;
+            case 'playerSpeed':
+                player.speed *= 1.15;
+                break;
+            case 'maxHealth':
+                player.maxHealth += 20;
+                player.health = Math.min(player.maxHealth, player.health + 20);
+                break;
+            case 'pickupRadius':
+                player.pickupRadius = Math.min(120, player.pickupRadius * 1.2);
+                break;
+            case 'multiShot':
+                player.projectilesPerShot = Math.min(5, player.projectilesPerShot + 1);
+                break;
+            case 'critChance':
+                player.critChance = Math.min(0.5, player.critChance + 0.10);
+                break;
+            case 'lifeSteal':
+                player.lifeSteal = Math.min(0.30, player.lifeSteal + 0.05);
+                break;
         }
         if (gameState) gameState.levelingUpPlayerId = null;
         this.upgradeChoices.delete(playerId);
@@ -205,9 +234,24 @@ export class GlobalDurableObject extends DurableObject {
                     return dist < closest.dist ? { enemy, dist } : closest;
                 }, { enemy: null as Enemy | null, dist: Infinity });
                 if (closestEnemy.enemy) {
-                    const angle = Math.atan2(closestEnemy.enemy.position.y - p.position.y, closestEnemy.enemy.position.x - p.position.x);
-                    const newProjectile: Projectile = { id: uuidv4(), ownerId: p.id, position: { ...p.position }, velocity: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 }, damage: p.projectileDamage };
-                    state.projectiles.push(newProjectile);
+                    const baseAngle = Math.atan2(closestEnemy.enemy.position.y - p.position.y, closestEnemy.enemy.position.x - p.position.x);
+                    const shots = Math.max(1, p.projectilesPerShot || 1);
+                    const spread = 10 * Math.PI / 180; // 10 degrees between projectiles
+                    for (let i = 0; i < shots; i++) {
+                        const offset = (i - (shots - 1) / 2) * spread;
+                        const angle = baseAngle + offset;
+                        const isCrit = Math.random() < (p.critChance || 0);
+                        const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
+                        const newProjectile: Projectile = {
+                            id: uuidv4(),
+                            ownerId: p.id,
+                            position: { ...p.position },
+                            velocity: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
+                            damage,
+                            isCrit
+                        };
+                        state.projectiles.push(newProjectile);
+                    }
                 }
             }
         });
@@ -219,7 +263,14 @@ export class GlobalDurableObject extends DurableObject {
             for (const enemy of state.enemies) {
                 if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < 20) {
                     enemy.health -= proj.damage;
+                    // Life steal on hit
+                    const owner = state.players.find(pp => pp.id === proj.ownerId);
+                    if (owner && owner.lifeSteal && owner.lifeSteal > 0) {
+                        owner.health = Math.min(owner.maxHealth, owner.health + proj.damage * owner.lifeSteal);
+                        owner.lastHealedTimestamp = now;
+                    }
                     enemy.lastHitTimestamp = now;
+                    if (proj.isCrit) enemy.lastCritTimestamp = now;
                     return false;
                 }
             }
@@ -233,7 +284,8 @@ export class GlobalDurableObject extends DurableObject {
         state.players.forEach(p => {
             if (p.status !== 'alive') return;
             state.xpOrbs = state.xpOrbs.filter(orb => {
-                if (Math.hypot(p.position.x - orb.position.x, p.position.y - orb.position.y) < 30) {
+                const radius = p.pickupRadius || 30;
+                if (Math.hypot(p.position.x - orb.position.x, p.position.y - orb.position.y) < radius) {
                     p.xp += orb.value;
                     return false;
                 }

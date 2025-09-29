@@ -5,6 +5,8 @@ import { useShallow } from 'zustand/react/shallow';
 const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
 const HIT_FLASH_DURATION = 100; // ms
+const CRIT_FLASH_DURATION = 160; // ms
+const HEAL_FLASH_DURATION = 180; // ms
 const REVIVE_DURATION = 3000;
 const selectGameState = (state) => ({
   gameState: state.gameState,
@@ -46,8 +48,21 @@ export default function GameCanvas() {
         {/* Render Players */}
         {players.map((player) => {
           const isHit = player.lastHitTimestamp && (now - player.lastHitTimestamp < HIT_FLASH_DURATION);
+          const isHealed = player.lastHealedTimestamp && (now - player.lastHealedTimestamp < HEAL_FLASH_DURATION);
           return (
             <React.Fragment key={player.id}>
+              {/* Pickup radius (local player only) */}
+              {player.id === localPlayerId && player.status === 'alive' && (
+                <Circle
+                  x={player.position.x}
+                  y={player.position.y}
+                  radius={player.pickupRadius || 30}
+                  fillEnabled={false}
+                  stroke="#a855f7"
+                  opacity={0.2}
+                  dash={[6, 6]}
+                />
+              )}
               <Circle
                 x={player.position.x}
                 y={player.position.y}
@@ -59,6 +74,17 @@ export default function GameCanvas() {
                 shadowBlur={20}
                 opacity={player.status === 'dead' ? 0.3 : 1}
               />
+              {/* Heal flash */}
+              {isHealed && player.status === 'alive' && (
+                <Ring
+                  x={player.position.x}
+                  y={player.position.y}
+                  innerRadius={18}
+                  outerRadius={22}
+                  fill="#00FF00"
+                  opacity={0.5}
+                />
+              )}
               {player.status === 'dead' && player.reviveProgress > 0 && (
                 <Ring
                   x={player.position.x}
@@ -76,13 +102,24 @@ export default function GameCanvas() {
         {/* Render Enemies */}
         {enemies.map((enemy) => {
           const isHit = enemy.lastHitTimestamp && (now - enemy.lastHitTimestamp < HIT_FLASH_DURATION);
+          const isCrit = enemy.lastCritTimestamp && (now - enemy.lastCritTimestamp < CRIT_FLASH_DURATION);
+          const fill = isCrit ? '#FF5A5A' : isHit ? '#FFFFFF' : '#FFFF00';
+          const shadow = isCrit ? '#FF5A5A' : '#FFFF00';
           return (
-            <Rect key={enemy.id} x={enemy.position.x - 10} y={enemy.position.y - 10} width={20} height={20} fill={isHit ? '#FFFFFF' : '#FFFF00'} shadowColor="#FFFF00" shadowBlur={15} />
+            <Rect key={enemy.id} x={enemy.position.x - 10} y={enemy.position.y - 10} width={20} height={20} fill={fill} shadowColor={shadow} shadowBlur={18} />
           );
         })}
         {/* Render Projectiles */}
         {projectiles.map((p) => (
-          <Circle key={p.id} x={p.position.x} y={p.position.y} radius={4} fill="#FFFFFF" shadowColor="#FFFFFF" shadowBlur={10} />
+          <Circle
+            key={p.id}
+            x={p.position.x}
+            y={p.position.y}
+            radius={p.isCrit ? 5 : 4}
+            fill={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
+            shadowColor={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
+            shadowBlur={12}
+          />
         ))}
         {/* Game ID Text */}
         <Text text={`Game Code: ${gameId}`} x={20} y={ARENA_HEIGHT - 30} fontFamily='"Press Start 2P"' fontSize={14} fill="#FF00FF" />

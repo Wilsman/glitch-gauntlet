@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 import { AudioManager } from '@/lib/audio/AudioManager';
 
 const STORAGE_KEY = 'glitch-gauntlet-audio-settings';
-const DEFAULT_VOLUME = 0.3;
+const DEFAULT_VOLUME = 0.2;
 
 const clampVolume = (value: number) => Math.min(1, Math.max(0, value));
 

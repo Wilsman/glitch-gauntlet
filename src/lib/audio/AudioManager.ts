@@ -47,6 +47,8 @@ export class AudioManager {
   private clickSynth: Tone.Synth | null = null;
   private gameOverSynth: Tone.Synth | null = null;
   private victorySynth: Tone.Synth | null = null;
+  // SFX scheduling guards
+  private lastShootTime: number | null = null;
 
   private currentTrack: MusicTrack = null;
   private resumeBlockedLogged = false;
@@ -233,7 +235,11 @@ export class AudioManager {
     if (!this.isBrowser) return;
     this.ensureInitialized();
     if (!this.isContextRunning()) return;
-    this.shootSynth?.triggerAttackRelease('C3', '32n');
+    const now = Tone.now();
+    const epsilon = 0.0005; // 0.5ms to satisfy strict monotonic start times
+    const time = this.lastShootTime !== null && now <= this.lastShootTime ? this.lastShootTime + epsilon : now;
+    this.lastShootTime = time;
+    this.shootSynth?.triggerAttackRelease('C3', '32n', time);
   }
 
   public playPlayerDeath() {

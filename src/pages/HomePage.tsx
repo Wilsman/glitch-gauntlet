@@ -1,20 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Loader2 } from 'lucide-react';
-import { Toaster, toast } from '@/components/ui/sonner';
-import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
-import type { ApiResponse } from '@shared/types';
-import { useGameStore } from '@/hooks/useGameStore';
-import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
-import { AudioManager } from '@/lib/audio/AudioManager';
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Loader2 } from "lucide-react";
+import { Toaster, toast } from "@/components/ui/sonner";
+import { AudioSettingsPanel } from "@/components/AudioSettingsPanel";
+import type { ApiResponse } from "@shared/types";
+import { useGameStore } from "@/hooks/useGameStore";
+import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
+import { AudioManager } from "@/lib/audio/AudioManager";
 
 export function HomePage() {
   const navigate = useNavigate();
   const [isHosting, setIsHosting] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
-  const [joinCode, setJoinCode] = useState('');
+  const [joinCode, setJoinCode] = useState("");
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
 
@@ -36,21 +36,25 @@ export function HomePage() {
   const handleHostGame = async () => {
     setIsHosting(true);
     try {
-      const response = await fetch('/api/game/create', { method: 'POST' });
-      const result = (await response.json()) as ApiResponse<{ gameId: string; playerId: string }>;
+      const response = await fetch("/api/game/create", { method: "POST" });
+      const result = (await response.json()) as ApiResponse<{
+        gameId: string;
+        playerId: string;
+      }>;
       if (result.success && result.data?.gameId && result.data?.playerId) {
         setLocalPlayerId(result.data.playerId);
-        toast.success('Game session created!', {
+        toast.success("Game session created!", {
           description: `Joining session: ${result.data.gameId}`,
         });
         navigate(`/game/${result.data.gameId}`);
       } else {
-        throw new Error(result.error || 'Failed to create game session.');
+        throw new Error(result.error || "Failed to create game session.");
       }
     } catch (error) {
-      console.error('Error hosting game:', error);
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
-      toast.error('Failed to Host Game', {
+      console.error("Error hosting game:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "An unknown error occurred.";
+      toast.error("Failed to Host Game", {
         description: errorMessage,
       });
       setIsHosting(false);
@@ -59,24 +63,29 @@ export function HomePage() {
 
   const handleJoinGame = async () => {
     if (!joinCode) {
-      toast.warning('Please enter a game code.');
+      toast.warning("Please enter a game code.");
       return;
     }
     setIsJoining(true);
     try {
-      const response = await fetch(`/api/game/${joinCode}/join`, { method: 'POST' });
-      const result = (await response.json()) as ApiResponse<{ playerId: string }>;
+      const response = await fetch(`/api/game/${joinCode}/join`, {
+        method: "POST",
+      });
+      const result = (await response.json()) as ApiResponse<{
+        playerId: string;
+      }>;
       if (result.success && result.data?.playerId) {
         setLocalPlayerId(result.data.playerId);
-        toast.success('Joined game successfully!');
+        toast.success("Joined game successfully!");
         navigate(`/game/${joinCode}`);
       } else {
-        throw new Error(result.error || 'Failed to join game. Check the code.');
+        throw new Error(result.error || "Failed to join game. Check the code.");
       }
     } catch (error) {
-      console.error('Error joining game:', error);
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
-      toast.error('Failed to Join Game', {
+      console.error("Error joining game:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "An unknown error occurred.";
+      toast.error("Failed to Join Game", {
         description: errorMessage,
       });
       setIsJoining(false);
@@ -88,18 +97,31 @@ export function HomePage() {
       <div className="absolute inset-0 bg-black opacity-80 z-0" />
       <div className="w-full h-full absolute inset-0 border-4 border-neon-pink shadow-glow-pink z-10 pointer-events-none" />
       <div className="relative z-20 flex flex-col items-center justify-center text-center space-y-12">
-        <h1 className="font-press-start text-5xl md:text-7xl text-neon-yellow" style={{ textShadow: '0 0 10px #FFFF00, 0 0 20px #FFFF00' }}>
-          GLITCH
+        <h1
+          className="font-press-start text-5xl md:text-7xl text-neon-yellow"
+          style={{ textShadow: "0 0 10px #FFFF00, 0 0 20px #FFFF00" }}
+        >
+          CHILLIN
           <br />
-          GAUNTLET
+          'n'
+          <br />
+          KILLIN
         </h1>
+        {/* // "the game in small" */}
+        <div className="flex items-center space-x-2">
+          <p className="font-press-start text-lg text-neon-pink">The game</p>
+        </div>
         <div className="space-y-6 w-full max-w-sm">
           <Button
             onClick={handleHostGame}
             disabled={isHosting || isJoining}
             className="w-full font-press-start text-lg bg-transparent border-2 border-neon-cyan text-neon-cyan h-16 hover:bg-neon-cyan hover:text-black hover:shadow-glow-cyan transition-all duration-300"
           >
-            {isHosting ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : 'Host Game'}
+            {isHosting ? (
+              <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+            ) : (
+              "Host Game"
+            )}
           </Button>
           <div className="flex items-center space-x-4">
             <Input
@@ -115,13 +137,17 @@ export function HomePage() {
               disabled={isHosting || isJoining}
               className="font-press-start text-lg bg-transparent border-2 border-neon-pink text-neon-pink h-16 hover:bg-neon-pink hover:text-black hover:shadow-glow-pink transition-all duration-300"
             >
-              {isJoining ? <Loader2 className="h-6 w-6 animate-spin" /> : 'Join'}
+              {isJoining ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : (
+                "Join"
+              )}
             </Button>
           </div>
         </div>
       </div>
       <footer className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20">
-        <p>Built with love at Cloudflare</p>
+        <p>Built with ❤️ from Wilsman</p>
       </footer>
       <Toaster richColors theme="dark" />
       <AudioSettingsPanel className="absolute right-4 top-4 z-30" />

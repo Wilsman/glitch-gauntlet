@@ -33,6 +33,14 @@ export interface Player {
   projectileDamage: number;
   lastHitTimestamp?: number;
   reviveProgress: number;
+  // Upgrades
+  pickupRadius: number; // XP pickup radius
+  projectilesPerShot: number; // Multishot count
+  critChance: number; // 0..1
+  critMultiplier: number; // e.g., 2.0x
+  lifeSteal: number; // 0..1 portion of damage healed
+  // UI cues
+  lastHealedTimestamp?: number;
 }
 export interface Enemy {
   id: string;
@@ -43,6 +51,8 @@ export interface Enemy {
   xpValue: number;
   damage: number;
   lastHitTimestamp?: number;
+  // UI cues
+  lastCritTimestamp?: number;
 }
 export interface Projectile {
   id: string;
@@ -50,13 +60,23 @@ export interface Projectile {
   velocity: Vector2D;
   ownerId: string; // ID of the player who shot it
   damage: number;
+  // UI cues
+  isCrit?: boolean;
 }
 export interface XpOrb {
   id: string;
   position: Vector2D;
   value: number;
 }
-export type UpgradeType = 'attackSpeed' | 'projectileDamage' | 'playerSpeed';
+export type UpgradeType =
+  | 'attackSpeed'
+  | 'projectileDamage'
+  | 'playerSpeed'
+  | 'maxHealth'
+  | 'pickupRadius'
+  | 'multiShot'
+  | 'critChance'
+  | 'lifeSteal';
 export interface UpgradeOption {
   id: string;
   type: UpgradeType;
