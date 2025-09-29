@@ -4,7 +4,7 @@
  */
  {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "v1-glitch-gauntlet-07498784-7f5f-4224-9e7f-4356534c5156",
+	"name": "cnk",
 	"main": "worker/index.ts",
 	"compatibility_date": "2025-04-24",
 	"assets": {

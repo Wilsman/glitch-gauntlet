@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber } from '@shared/types';
 const MAX_PLAYERS = 4;
-const ARENA_WIDTH = 1280;
-const ARENA_HEIGHT = 720;
+const ARENA_WIDTH = 1600;
+const ARENA_HEIGHT = 900;
 const PLAYER_COLORS = ['#00FFFF', '#FF00FF', '#FFFF00', '#00FF00'];
 const TICK_RATE = 50; // ms
 const WAVE_DURATION = 30000; // 30 seconds per wave
@@ -352,6 +352,9 @@ export class GlobalDurableObject extends DurableObject {
                     }
                     enemy.lastHitTimestamp = now;
                     if (proj.isCrit) enemy.lastCritTimestamp = now;
+                    // Add damage number
+                    if (!enemy.damageNumbers) enemy.damageNumbers = [];
+                    enemy.damageNumbers.push({ id: uuidv4(), damage: proj.damage, isCrit: proj.isCrit || false, position: { ...enemy.position }, timestamp: now });
                     if (proj.kind !== 'bananarang') {
                         // bullets disappear on hit
                         return false;
@@ -361,6 +364,12 @@ export class GlobalDurableObject extends DurableObject {
             // Keep inside loose bounds; bananarang may briefly go off-screen
             const inBounds = proj.position.x > -40 && proj.position.x < ARENA_WIDTH + 40 && proj.position.y > -40 && proj.position.y < ARENA_HEIGHT + 40;
             return inBounds;
+        });
+        // Clean up old damage numbers
+        state.enemies.forEach(enemy => {
+            if (enemy.damageNumbers) {
+                enemy.damageNumbers = enemy.damageNumbers.filter(dmg => (now - dmg.timestamp) < 1000);
+            }
         });
         const deadEnemies = state.enemies.filter(e => e.health <= 0);
         deadEnemies.forEach(dead => state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue }));
@@ -414,3 +423,6 @@ export class GlobalDurableObject extends DurableObject {
         }
     }
 }
+
+
+

@@ -8,6 +8,7 @@ const HIT_FLASH_DURATION = 100; // ms
 const CRIT_FLASH_DURATION = 160; // ms
 const HEAL_FLASH_DURATION = 180; // ms
 const REVIVE_DURATION = 3000;
+const DAMAGE_NUMBER_DURATION = 800; // ms
 const selectGameState = (state) => ({
   gameState: state.gameState,
   localPlayerId: state.localPlayerId,
@@ -106,7 +107,35 @@ export default function GameCanvas() {
           const fill = isCrit ? '#FF5A5A' : isHit ? '#FFFFFF' : '#FFFF00';
           const shadow = isCrit ? '#FF5A5A' : '#FFFF00';
           return (
-            <Rect key={enemy.id} x={enemy.position.x - 10} y={enemy.position.y - 10} width={20} height={20} fill={fill} shadowColor={shadow} shadowBlur={18} />
+            <React.Fragment key={enemy.id}>
+              <Rect x={enemy.position.x - 10} y={enemy.position.y - 10} width={20} height={20} fill={fill} shadowColor={shadow} shadowBlur={18} />
+              {/* Damage Numbers */}
+              {enemy.damageNumbers?.map((dmg) => {
+                const age = now - dmg.timestamp;
+                if (age > DAMAGE_NUMBER_DURATION) return null;
+                const progress = age / DAMAGE_NUMBER_DURATION;
+                const yOffset = -20 - (progress * 30);
+                const opacity = 1 - progress;
+                const fontSize = dmg.isCrit ? 18 : 14;
+                const color = dmg.isCrit ? '#FF3333' : '#FFFFFF';
+                return (
+                  <Text
+                    key={dmg.id}
+                    text={dmg.damage.toString()}
+                    x={dmg.position.x}
+                    y={dmg.position.y + yOffset}
+                    fontSize={fontSize}
+                    fontFamily='"Press Start 2P"'
+                    fontStyle={dmg.isCrit ? 'bold' : 'normal'}
+                    fill={color}
+                    opacity={opacity}
+                    shadowColor={color}
+                    shadowBlur={dmg.isCrit ? 8 : 4}
+                    offsetX={fontSize * 2}
+                  />
+                );
+              })}
+            </React.Fragment>
           );
         })}
         {/* Render Projectiles */}

@@ -45,6 +45,13 @@ export interface Player {
   // UI cues
   lastHealedTimestamp?: number;
 }
+export interface DamageNumber {
+  id: string;
+  damage: number;
+  isCrit: boolean;
+  position: Vector2D;
+  timestamp: number;
+}
 export interface Enemy {
   id: string;
   position: Vector2D;
@@ -56,6 +63,7 @@ export interface Enemy {
   lastHitTimestamp?: number;
   // UI cues
   lastCritTimestamp?: number;
+  damageNumbers?: DamageNumber[];
 }
 export interface Projectile {
   id: string;
