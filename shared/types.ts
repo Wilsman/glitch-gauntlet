@@ -46,6 +46,23 @@ export interface Player {
   lastHealedTimestamp?: number;
   // Collected upgrades
   collectedUpgrades?: CollectedUpgrade[];
+  // Upgrade effects
+  armor?: number; // damage reduction percentage
+  dodge?: number; // dodge chance
+  regeneration?: number; // HP per second
+  thorns?: number; // reflect damage percentage
+  shield?: number; // absorb damage amount
+  maxShield?: number;
+  // Elemental/Status upgrades
+  fireDamage?: number; // fire DoT percentage
+  poisonDamage?: number; // poison DoT percentage
+  iceSlow?: number; // slow percentage
+  explosionDamage?: number; // explosion damage multiplier
+  pierceCount?: number; // number of enemies to pierce
+  chainCount?: number; // number of enemies to chain to
+  ricochetCount?: number; // number of bounces
+  homingStrength?: number; // homing bullet strength
+  knockbackForce?: number; // knockback distance
 }
 export interface DamageNumber {
   id: string;
@@ -54,6 +71,13 @@ export interface DamageNumber {
   position: Vector2D;
   timestamp: number;
 }
+export interface StatusEffect {
+  type: 'burning' | 'poisoned' | 'frozen' | 'slowed';
+  damage?: number; // DoT damage per tick
+  duration: number; // remaining duration in ms
+  slowAmount?: number; // movement speed multiplier (0-1)
+}
+
 export interface Enemy {
   id: string;
   position: Vector2D;
@@ -66,6 +90,9 @@ export interface Enemy {
   // UI cues
   lastCritTimestamp?: number;
   damageNumbers?: DamageNumber[];
+  // Status effects
+  statusEffects?: StatusEffect[];
+  baseSpeed?: number; // for calculating slow effects
 }
 export interface Projectile {
   id: string;
@@ -83,6 +110,9 @@ export interface Projectile {
   state?: 'outbound' | 'returning';
   returnSpeedMultiplier?: number; // multiplier for return speed
   radius?: number; // hitbox radius
+  // Pierce tracking
+  hitEnemies?: string[]; // IDs of enemies already hit
+  pierceRemaining?: number; // how many more enemies can be pierced
 }
 export interface XpOrb {
   id: string;
@@ -154,6 +184,15 @@ export interface Teleporter {
   position: Vector2D;
   radius: number;
 }
+export interface Explosion {
+  id: string;
+  position: Vector2D;
+  radius: number;
+  timestamp: number;
+  damage: number;
+  ownerId: string;
+}
+
 export type GameStatus = 'playing' | 'gameOver' | 'won';
 export interface GameState {
   gameId: string;
@@ -165,4 +204,5 @@ export interface GameState {
   levelingUpPlayerId?: string | null;
   wave: number;
   teleporter: Teleporter | null;
+  explosions?: Explosion[];
 }

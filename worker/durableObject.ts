@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion } from '@shared/types';
 import { getRandomUpgrades } from './upgrades';
+import { applyUpgradeEffect } from './upgradeEffects';
 const MAX_PLAYERS = 4;
 const ARENA_WIDTH = 1600;
 const ARENA_HEIGHT = 900;
@@ -99,40 +100,20 @@ export class GlobalDurableObject extends DurableObject {
         const choices = this.upgradeChoices.get(playerId);
         const choice = choices?.find(c => c.id === upgradeId);
         if (!player || !choice) return;
-        switch (choice.type) {
-            case 'attackSpeed':
-                player.attackSpeed = Math.max(60, player.attackSpeed * 0.8);
-                break;
-            case 'projectileDamage':
-                player.projectileDamage += 5;
-                break;
-            case 'playerSpeed':
-                player.speed *= 1.15;
-                break;
-            case 'maxHealth':
-                player.maxHealth += 20;
-                player.health = Math.min(player.maxHealth, player.health + 20);
-                break;
-            case 'pickupRadius':
-                player.pickupRadius = Math.min(120, player.pickupRadius * 1.2);
-                break;
-            case 'multiShot':
-                player.projectilesPerShot = Math.min(5, player.projectilesPerShot + 1);
-                break;
-            case 'critChance':
-                player.critChance = Math.min(0.5, player.critChance + 0.10);
-                break;
-            case 'lifeSteal':
-                player.lifeSteal = Math.min(0.30, player.lifeSteal + 0.05);
-                break;
-            case 'bananarang':
-                if (!player.hasBananarang) {
-                    player.hasBananarang = true;
-                    player.bananarangsPerShot = 1;
-                } else {
-                    player.bananarangsPerShot = Math.min(5, (player.bananarangsPerShot || 1) + 1);
-                }
-                break;
+        applyUpgradeEffect(player, choice.type);
+        // Track collected upgrade
+        if (!player.collectedUpgrades) player.collectedUpgrades = [];
+        const existing = player.collectedUpgrades.find(u => u.type === choice.type);
+        if (existing) {
+            existing.count++;
+        } else {
+            player.collectedUpgrades.push({
+                type: choice.type,
+                title: choice.title,
+                rarity: choice.rarity,
+                emoji: choice.emoji,
+                count: 1,
+            });
         }
         if (gameState) gameState.levelingUpPlayerId = null;
         this.upgradeChoices.delete(playerId);
@@ -160,10 +141,13 @@ export class GlobalDurableObject extends DurableObject {
         for (const [gameId, state] of this.gameStates.entries()) {
             if (state.status !== 'playing' || state.levelingUpPlayerId) continue;
             this.updatePlayerMovement(state, timeFactor);
+            this.updatePlayerEffects(state, delta);
             this.updateRevives(state, delta);
             this.updateEnemyAI(state, now, delta, timeFactor);
             this.updatePlayerAttacks(state, delta);
             this.updateProjectiles(state, now, delta, timeFactor);
+            this.updateStatusEffects(state, delta);
+            this.updateExplosions(state, now);
             this.updateXPOrbs(state);
             this.updateWaves(state, delta);
             this.updateGameStatus(state);
@@ -179,6 +163,20 @@ export class GlobalDurableObject extends DurableObject {
                 if (p.lastInput.right) p.position.x += p.speed * timeFactor;
                 p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
                 p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+            }
+        });
+    }
+    updatePlayerEffects(state: GameState, delta: number) {
+        state.players.forEach(p => {
+            if (p.status !== 'alive') return;
+            // Regeneration
+            if (p.regeneration && p.regeneration > 0) {
+                p.health = Math.min(p.maxHealth, p.health + (p.regeneration * delta / 1000));
+            }
+            // Shield recharge (slowly)
+            if (p.maxShield && p.maxShield > 0) {
+                if (!p.shield) p.shield = 0;
+                p.shield = Math.min(p.maxShield, p.shield + (10 * delta / 1000));
             }
         });
     }
@@ -216,7 +214,28 @@ export class GlobalDurableObject extends DurableObject {
             if (closestPlayer.player) {
                 const p = closestPlayer.player;
                 if (closestPlayer.dist < 20) {
-                    p.health = Math.max(0, p.health - (enemy.damage * (delta / 1000)));
+                    // Calculate incoming damage
+                    let incomingDamage = enemy.damage * (delta / 1000);
+                    // Dodge check
+                    if (p.dodge && Math.random() < p.dodge) {
+                        incomingDamage = 0; // Dodged!
+                    } else {
+                        // Armor reduction
+                        if (p.armor && p.armor > 0) {
+                            incomingDamage *= (1 - p.armor);
+                        }
+                        // Shield absorption
+                        if (p.shield && p.shield > 0) {
+                            const absorbed = Math.min(p.shield, incomingDamage);
+                            p.shield -= absorbed;
+                            incomingDamage -= absorbed;
+                        }
+                        // Thorns reflection
+                        if (p.thorns && p.thorns > 0) {
+                            enemy.health -= incomingDamage * p.thorns;
+                        }
+                    }
+                    p.health = Math.max(0, p.health - incomingDamage);
                     p.lastHitTimestamp = now;
                     if (p.health <= 0) p.status = 'dead';
                 } else {
@@ -248,6 +267,8 @@ export class GlobalDurableObject extends DurableObject {
                         const isCrit = Math.random() < (p.critChance || 0);
                         const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
                         const newBullet: Projectile = {
+                            hitEnemies: [],
+                            pierceRemaining: p.pierceCount || 0,
                             id: uuidv4(),
                             ownerId: p.id,
                             position: { ...p.position },
@@ -337,20 +358,61 @@ export class GlobalDurableObject extends DurableObject {
 
             // Collisions: persistent hitbox; do NOT remove on hit for bananarang
             for (const enemy of state.enemies) {
+                // Skip if already hit (for pierce)
+                if (proj.hitEnemies && proj.hitEnemies.includes(enemy.id)) continue;
                 if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < (radius + 10)) {
-                    enemy.health -= proj.damage;
+                    // Calculate final damage with berserker bonus
+                    let finalDamage = proj.damage;
+                    if (owner && owner.armor) {
+                        // Armor is already applied to player, not enemy
+                    }
+                    // Berserker: extra damage when owner is low HP
+                    if (owner && owner.health < owner.maxHealth * 0.3) {
+                        finalDamage *= 1.5;
+                    }
+                    // Executioner: instant kill if enemy below 15% HP
+                    if (owner && enemy.health < enemy.maxHealth * 0.15) {
+                        finalDamage = enemy.health;
+                    }
+                    enemy.health -= finalDamage;
+                    // Knockback
+                    if (owner && owner.knockbackForce && owner.knockbackForce > 0) {
+                        const angle = Math.atan2(enemy.position.y - proj.position.y, enemy.position.x - proj.position.x);
+                        enemy.position.x += Math.cos(angle) * owner.knockbackForce;
+                        enemy.position.y += Math.sin(angle) * owner.knockbackForce;
+                    }
                     if (owner && owner.lifeSteal && owner.lifeSteal > 0) {
                         owner.health = Math.min(owner.maxHealth, owner.health + proj.damage * owner.lifeSteal);
                         owner.lastHealedTimestamp = now;
                     }
                     enemy.lastHitTimestamp = now;
                     if (proj.isCrit) enemy.lastCritTimestamp = now;
+                    // Apply status effects
+                    if (owner) {
+                        if (!enemy.statusEffects) enemy.statusEffects = [];
+                        if (owner.fireDamage && owner.fireDamage > 0) {
+                            enemy.statusEffects.push({ type: 'burning', damage: owner.fireDamage * proj.damage, duration: 2000 });
+                        }
+                        if (owner.poisonDamage && owner.poisonDamage > 0) {
+                            enemy.statusEffects.push({ type: 'poisoned', damage: owner.poisonDamage * proj.damage, duration: 3000 });
+                        }
+                        if (owner.iceSlow && owner.iceSlow > 0) {
+                            enemy.statusEffects.push({ type: 'slowed', slowAmount: owner.iceSlow, duration: 2000 });
+                        }
+                    }
                     // Add damage number
                     if (!enemy.damageNumbers) enemy.damageNumbers = [];
                     enemy.damageNumbers.push({ id: uuidv4(), damage: proj.damage, isCrit: proj.isCrit || false, position: { ...enemy.position }, timestamp: now });
                     if (proj.kind !== 'bananarang') {
-                        // bullets disappear on hit
-                        return false;
+                        // Track hit enemy for pierce
+                        if (!proj.hitEnemies) proj.hitEnemies = [];
+                        proj.hitEnemies.push(enemy.id);
+                        // Check if bullet should disappear
+                        if (!proj.pierceRemaining || proj.pierceRemaining <= 0) {
+                            return false; // bullet disappears
+                        } else {
+                            proj.pierceRemaining--;
+                        }
                     }
                 }
             }
@@ -365,8 +427,52 @@ export class GlobalDurableObject extends DurableObject {
             }
         });
         const deadEnemies = state.enemies.filter(e => e.health <= 0);
-        deadEnemies.forEach(dead => state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue }));
+        deadEnemies.forEach(dead => {
+            state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue });
+            // Create explosion if owner has explosion upgrade
+            const killer = state.players.find(p => state.projectiles.some(proj => proj.ownerId === p.id));
+            if (killer && killer.explosionDamage && killer.explosionDamage > 0) {
+                if (!state.explosions) state.explosions = [];
+                state.explosions.push({
+                    id: uuidv4(),
+                    position: { ...dead.position },
+                    radius: 80,
+                    timestamp: now,
+                    damage: dead.maxHealth * killer.explosionDamage,
+                    ownerId: killer.id
+                });
+            }
+        });
         state.enemies = state.enemies.filter(e => e.health > 0);
+    }
+    updateStatusEffects(state: GameState, delta: number) {
+        state.enemies.forEach(enemy => {
+            if (!enemy.statusEffects || enemy.statusEffects.length === 0) return;
+            enemy.statusEffects = enemy.statusEffects.filter(effect => {
+                effect.duration -= delta;
+                if (effect.duration <= 0) return false;
+                // Apply DoT damage
+                if (effect.damage && effect.damage > 0) {
+                    const dotDamage = (effect.damage / (effect.type === 'burning' ? 2000 : 3000)) * delta;
+                    enemy.health -= dotDamage;
+                }
+                return true;
+            });
+        });
+    }
+    updateExplosions(state: GameState, now: number) {
+        if (!state.explosions) return;
+        state.explosions.forEach(explosion => {
+            state.enemies.forEach(enemy => {
+                const dist = Math.hypot(enemy.position.x - explosion.position.x, enemy.position.y - explosion.position.y);
+                if (dist < explosion.radius) {
+                    enemy.health -= explosion.damage;
+                    enemy.lastHitTimestamp = now;
+                }
+            });
+        });
+        // Clean up old explosions (after 500ms)
+        state.explosions = state.explosions.filter(exp => (now - exp.timestamp) < 500);
     }
     updateXPOrbs(state: GameState) {
         state.players.forEach(p => {
@@ -416,6 +522,22 @@ export class GlobalDurableObject extends DurableObject {
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

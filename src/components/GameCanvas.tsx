@@ -15,7 +15,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [] } = gameState || {};
   const now = Date.now();
   return (
     <Stage width={ARENA_WIDTH} height={ARENA_HEIGHT} className="bg-gray-900 border-4 border-neon-pink shadow-glow-pink">
@@ -50,6 +50,9 @@ export default function GameCanvas() {
         {players.map((player) => {
           const isHit = player.lastHitTimestamp && (now - player.lastHitTimestamp < HIT_FLASH_DURATION);
           const isHealed = player.lastHealedTimestamp && (now - player.lastHealedTimestamp < HEAL_FLASH_DURATION);
+          const isBerserker = player.health < player.maxHealth * 0.3;
+          const hasShield = player.shield && player.shield > 0;
+          
           return (
             <React.Fragment key={player.id}>
               {/* Pickup radius (local player only) */}
@@ -64,6 +67,30 @@ export default function GameCanvas() {
                   dash={[6, 6]}
                 />
               )}
+              {/* Shield ring */}
+              {hasShield && player.status === 'alive' && (
+                <Circle
+                  x={player.position.x}
+                  y={player.position.y}
+                  radius={18}
+                  fillEnabled={false}
+                  stroke="#00CCFF"
+                  strokeWidth={2}
+                  opacity={0.7}
+                />
+              )}
+              {/* Berserker glow */}
+              {isBerserker && player.status === 'alive' && (
+                <Circle
+                  x={player.position.x}
+                  y={player.position.y}
+                  radius={20}
+                  fillEnabled={false}
+                  stroke="#FF0000"
+                  strokeWidth={2}
+                  opacity={0.6 + Math.sin(now / 100) * 0.3}
+                />
+              )}
               <Circle
                 x={player.position.x}
                 y={player.position.y}
@@ -71,8 +98,8 @@ export default function GameCanvas() {
                 fill={isHit ? '#FFFFFF' : player.color}
                 stroke={player.id === localPlayerId && player.status === 'alive' ? '#FFFFFF' : player.color}
                 strokeWidth={player.id === localPlayerId && player.status === 'alive' ? 3 : 2}
-                shadowColor={player.color}
-                shadowBlur={20}
+                shadowColor={isBerserker ? '#FF0000' : player.color}
+                shadowBlur={isBerserker ? 30 : 20}
                 opacity={player.status === 'dead' ? 0.3 : 1}
               />
               {/* Heal flash */}
@@ -104,8 +131,31 @@ export default function GameCanvas() {
         {enemies.map((enemy) => {
           const isHit = enemy.lastHitTimestamp && (now - enemy.lastHitTimestamp < HIT_FLASH_DURATION);
           const isCrit = enemy.lastCritTimestamp && (now - enemy.lastCritTimestamp < CRIT_FLASH_DURATION);
-          const fill = isCrit ? '#FF5A5A' : isHit ? '#FFFFFF' : '#FFFF00';
-          const shadow = isCrit ? '#FF5A5A' : '#FFFF00';
+          
+          // Check for status effects
+          const isBurning = enemy.statusEffects?.some(e => e.type === 'burning');
+          const isPoisoned = enemy.statusEffects?.some(e => e.type === 'poisoned');
+          const isSlowed = enemy.statusEffects?.some(e => e.type === 'slowed');
+          
+          let fill = '#FFFF00'; // default yellow
+          let shadow = '#FFFF00';
+          
+          if (isCrit) {
+            fill = '#FF5A5A';
+            shadow = '#FF5A5A';
+          } else if (isHit) {
+            fill = '#FFFFFF';
+          } else if (isBurning) {
+            fill = '#FF6600'; // orange/red for fire
+            shadow = '#FF6600';
+          } else if (isPoisoned) {
+            fill = '#00FF00'; // green for poison
+            shadow = '#00FF00';
+          } else if (isSlowed) {
+            fill = '#00CCFF'; // cyan/blue for ice
+            shadow = '#00CCFF';
+          }
+          
           return (
             <React.Fragment key={enemy.id}>
               <Rect x={enemy.position.x - 10} y={enemy.position.y - 10} width={20} height={20} fill={fill} shadowColor={shadow} shadowBlur={18} />
@@ -166,6 +216,27 @@ export default function GameCanvas() {
               fill={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
               shadowColor={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
               shadowBlur={12}
+            />
+          );
+        })}
+        {/* Render Explosions */}
+        {explosions.map((explosion) => {
+          const age = now - explosion.timestamp;
+          const maxDuration = 500; // ms
+          if (age > maxDuration) return null;
+          const progress = age / maxDuration;
+          const currentRadius = explosion.radius * (0.3 + progress * 0.7);
+          const opacity = 1 - progress;
+          return (
+            <Circle
+              key={explosion.id}
+              x={explosion.position.x}
+              y={explosion.position.y}
+              radius={currentRadius}
+              fill="#FF6600"
+              opacity={opacity * 0.6}
+              shadowColor="#FF6600"
+              shadowBlur={30}
             />
           );
         })}
