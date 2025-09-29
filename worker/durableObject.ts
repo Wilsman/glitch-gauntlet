@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion, ChainLightning } from '@shared/types';
 import { getRandomUpgrades } from './upgrades';
 import { applyUpgradeEffect } from './upgradeEffects';
 const MAX_PLAYERS = 4;
@@ -148,6 +148,7 @@ export class GlobalDurableObject extends DurableObject {
             this.updateProjectiles(state, now, delta, timeFactor);
             this.updateStatusEffects(state, delta);
             this.updateExplosions(state, now);
+            this.updateChainLightning(state, now);
             this.updateXPOrbs(state);
             this.updateWaves(state, delta);
             this.updateGameStatus(state);
@@ -269,6 +270,7 @@ export class GlobalDurableObject extends DurableObject {
                         const newBullet: Projectile = {
                             hitEnemies: [],
                             pierceRemaining: p.pierceCount || 0,
+                            ricochetRemaining: p.ricochetCount || 0,
                             id: uuidv4(),
                             ownerId: p.id,
                             position: { ...p.position },
@@ -352,6 +354,28 @@ export class GlobalDurableObject extends DurableObject {
                 }
             }
 
+            // Homing behavior for bullets
+            if (proj.kind === 'bullet' && owner && owner.homingStrength && owner.homingStrength > 0) {
+                const nearestEnemy = state.enemies.reduce((closest, enemy) => {
+                    const dist = Math.hypot(enemy.position.x - proj.position.x, enemy.position.y - proj.position.y);
+                    return dist < closest.dist ? { enemy, dist } : closest;
+                }, { enemy: null as Enemy | null, dist: Infinity });
+                
+                if (nearestEnemy.enemy && nearestEnemy.dist < 300) {
+                    const dx = nearestEnemy.enemy.position.x - proj.position.x;
+                    const dy = nearestEnemy.enemy.position.y - proj.position.y;
+                    const dist = Math.hypot(dx, dy) || 1;
+                    const currentSpeed = Math.hypot(proj.velocity.x, proj.velocity.y);
+                    const homingForce = owner.homingStrength * 0.5;
+                    proj.velocity.x += (dx / dist) * homingForce;
+                    proj.velocity.y += (dy / dist) * homingForce;
+                    // Normalize to maintain speed
+                    const newSpeed = Math.hypot(proj.velocity.x, proj.velocity.y);
+                    proj.velocity.x = (proj.velocity.x / newSpeed) * currentSpeed;
+                    proj.velocity.y = (proj.velocity.y / newSpeed) * currentSpeed;
+                }
+            }
+
             // Integrate position
             proj.position.x += proj.velocity.x * timeFactor;
             proj.position.y += proj.velocity.y * timeFactor;
@@ -403,12 +427,91 @@ export class GlobalDurableObject extends DurableObject {
                     // Add damage number
                     if (!enemy.damageNumbers) enemy.damageNumbers = [];
                     enemy.damageNumbers.push({ id: uuidv4(), damage: proj.damage, isCrit: proj.isCrit || false, position: { ...enemy.position }, timestamp: now });
+                    
+                    // Chain lightning effect
+                    if (owner && owner.chainCount && owner.chainCount > 0) {
+                        const chainRange = 150;
+                        const chainDamage = finalDamage * 0.7; // 70% damage per chain
+                        let currentTarget = enemy;
+                        const hitByChain = new Set([enemy.id]);
+                        
+                        for (let i = 0; i < owner.chainCount; i++) {
+                            const nearbyEnemies = state.enemies.filter(e => 
+                                !hitByChain.has(e.id) && 
+                                Math.hypot(e.position.x - currentTarget.position.x, e.position.y - currentTarget.position.y) < chainRange
+                            );
+                            
+                            if (nearbyEnemies.length === 0) break;
+                            
+                            const nextTarget = nearbyEnemies.reduce((closest, e) => {
+                                const dist = Math.hypot(e.position.x - currentTarget.position.x, e.position.y - currentTarget.position.y);
+                                return dist < closest.dist ? { enemy: e, dist } : closest;
+                            }, { enemy: null as Enemy | null, dist: Infinity }).enemy;
+                            
+                            if (!nextTarget) break;
+                            
+                            // Deal chain damage
+                            nextTarget.health -= chainDamage;
+                            nextTarget.lastHitTimestamp = now;
+                            if (!nextTarget.damageNumbers) nextTarget.damageNumbers = [];
+                            nextTarget.damageNumbers.push({ 
+                                id: uuidv4(), 
+                                damage: Math.round(chainDamage), 
+                                isCrit: false, 
+                                position: { ...nextTarget.position }, 
+                                timestamp: now 
+                            });
+                            
+                            // Create visual lightning bolt
+                            if (!state.chainLightning) state.chainLightning = [];
+                            state.chainLightning.push({
+                                id: uuidv4(),
+                                from: { ...currentTarget.position },
+                                to: { ...nextTarget.position },
+                                timestamp: now
+                            });
+                            
+                            hitByChain.add(nextTarget.id);
+                            currentTarget = nextTarget;
+                        }
+                    }
+                    
                     if (proj.kind !== 'bananarang') {
                         // Track hit enemy for pierce
                         if (!proj.hitEnemies) proj.hitEnemies = [];
                         proj.hitEnemies.push(enemy.id);
-                        // Check if bullet should disappear
-                        if (!proj.pierceRemaining || proj.pierceRemaining <= 0) {
+                        
+                        // Ricochet: seek next nearest enemy
+                        if (proj.ricochetRemaining && proj.ricochetRemaining > 0) {
+                            const nearbyEnemies = state.enemies.filter(e => 
+                                !proj.hitEnemies!.includes(e.id) && 
+                                e.health > 0
+                            );
+                            
+                            if (nearbyEnemies.length > 0) {
+                                const nextTarget = nearbyEnemies.reduce((closest, e) => {
+                                    const dist = Math.hypot(e.position.x - proj.position.x, e.position.y - proj.position.y);
+                                    return dist < closest.dist ? { enemy: e, dist } : closest;
+                                }, { enemy: null as Enemy | null, dist: Infinity }).enemy;
+                                
+                                if (nextTarget) {
+                                    // Redirect bullet toward next target
+                                    const dx = nextTarget.position.x - proj.position.x;
+                                    const dy = nextTarget.position.y - proj.position.y;
+                                    const dist = Math.hypot(dx, dy) || 1;
+                                    const speed = Math.hypot(proj.velocity.x, proj.velocity.y);
+                                    proj.velocity.x = (dx / dist) * speed;
+                                    proj.velocity.y = (dy / dist) * speed;
+                                    proj.ricochetRemaining--;
+                                    // Don't remove bullet, let it continue
+                                } else {
+                                    return false; // No more targets
+                                }
+                            } else {
+                                return false; // No more targets
+                            }
+                        } else if (!proj.pierceRemaining || proj.pierceRemaining <= 0) {
+                            // Check if bullet should disappear (no pierce or ricochet left)
                             return false; // bullet disappears
                         } else {
                             proj.pierceRemaining--;
@@ -473,6 +576,11 @@ export class GlobalDurableObject extends DurableObject {
         });
         // Clean up old explosions (after 500ms)
         state.explosions = state.explosions.filter(exp => (now - exp.timestamp) < 500);
+    }
+    updateChainLightning(state: GameState, now: number) {
+        if (!state.chainLightning) return;
+        // Clean up old chain lightning visuals (after 200ms)
+        state.chainLightning = state.chainLightning.filter(chain => (now - chain.timestamp) < 200);
     }
     updateXPOrbs(state: GameState) {
         state.players.forEach(p => {

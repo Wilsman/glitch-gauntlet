@@ -113,6 +113,8 @@ export interface Projectile {
   // Pierce tracking
   hitEnemies?: string[]; // IDs of enemies already hit
   pierceRemaining?: number; // how many more enemies can be pierced
+  // Ricochet tracking
+  ricochetRemaining?: number; // how many more bounces
 }
 export interface XpOrb {
   id: string;
@@ -193,6 +195,13 @@ export interface Explosion {
   ownerId: string;
 }
 
+export interface ChainLightning {
+  id: string;
+  from: Vector2D;
+  to: Vector2D;
+  timestamp: number;
+}
+
 export type GameStatus = 'playing' | 'gameOver' | 'won';
 export interface GameState {
   gameId: string;
@@ -205,4 +214,5 @@ export interface GameState {
   wave: number;
   teleporter: Teleporter | null;
   explosions?: Explosion[];
+  chainLightning?: ChainLightning[];
 }

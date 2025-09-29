@@ -71,9 +71,9 @@ This document provides a comprehensive overview of all upgrades in the game, the
 | **knockback** | Uncommon | Push enemies back +30 units | ✅ | Enemies pushed |
 | **explosion** | Legendary | 200% AoE damage on kill | ✅ | Expanding orange circle |
 | **bananarang** | Legendary | Add returning banana projectile | ✅ | Yellow spinning ring |
-| **chain** | Uncommon | Chain to +2 nearby enemies | ✅ | Lightning effect (TODO) |
-| **ricochet** | Legendary | Bullets bounce +3 times | ✅ | Bouncing bullets (TODO) |
-| **homingShots** | Uncommon | +0.3 homing strength (max 1.0) | ✅ | Bullets curve (TODO) |
+| **chain** | Uncommon | Chain to +2 nearby enemies | ✅ | Yellow lightning bolts |
+| **ricochet** | Legendary | Bullets bounce +3 times | ✅ | Magenta seeking bullets |
+| **homingShots** | Uncommon | +0.3 homing strength (max 1.0) | ✅ | Cyan curving bullets |
 
 ### 🎲 Special Effects
 
@@ -88,10 +88,11 @@ These upgrades are defined but need full implementation:
 
 | Upgrade Type | Rarity | Planned Effect |
 |-------------|--------|----------------|
-| **ghostBullets** | Lunar | Bullets phase through walls, +20% damage taken |
-| **clone** | Legendary | Summon a clone that fights with you |
-| **orbital** | Legendary | Spinning death orbs protect you |
+| **timeWarp** | Legendary | Slow all enemies by 30% globally |
 | **invincibility** | Legendary | Survive lethal damage once per wave |
+| **orbital** | Legendary | Spinning death orbs protect you |
+| **clone** | Legendary | Summon a clone that fights with you |
+| **ghostBullets** | Lunar | Bullets phase through walls, +20% damage taken |
 | **aura** | Boss | Enemies near you deal 30% less damage |
 | **pet** | Boss | Summon a familiar that attacks enemies |
 | **turret** | Boss | Deploy a turret that shoots enemies |
@@ -219,6 +220,9 @@ interface Projectile {
 - All basic offensive, defensive, and elemental upgrades implemented
 - Pierce, knockback, shield, armor, dodge, regeneration, thorns, berserker, executioner fully functional
 - Fire, poison, ice, and explosion visual effects complete
+- **Chain Lightning**: Implemented with jagged yellow lightning bolts between enemies (70% damage per chain)
+- **Ricochet**: Implemented with magenta bullets that seek nearest enemy after each bounce
+- **Homing Shots**: Implemented with cyan bullets that curve toward enemies within 300 units
 
 ---
 

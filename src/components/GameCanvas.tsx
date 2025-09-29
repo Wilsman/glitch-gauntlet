@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Stage, Layer, Rect, Circle, Text, Ring } from 'react-konva';
+import { Stage, Layer, Rect, Circle, Text, Ring, Line } from 'react-konva';
 import { useGameStore } from '@/hooks/useGameStore';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -41,7 +41,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [] } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [] } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -233,6 +233,10 @@ export default function GameCanvas() {
         })}
         {/* Render Projectiles */}
         {projectiles.map((p) => {
+          const owner = players.find(pl => pl.id === p.ownerId);
+          const hasHoming = owner?.homingStrength && owner.homingStrength > 0;
+          const hasRicochet = owner?.ricochetCount && owner.ricochetCount > 0;
+          
           if (p.kind === 'bananarang') {
             const color = p.isCrit ? '#FFD166' : '#FFF176';
             return (
@@ -250,16 +254,90 @@ export default function GameCanvas() {
               />
             );
           }
+          
+          // Enhanced bullet visuals for upgrades
+          let bulletColor = p.isCrit ? '#FF3B3B' : '#FFFFFF';
+          let bulletRadius = p.isCrit ? 5 : 4;
+          let bulletGlow = 12;
+          
+          if (hasRicochet) {
+            bulletColor = '#FF00FF'; // Magenta for ricochet
+            bulletGlow = 16;
+          } else if (hasHoming) {
+            bulletColor = '#00FFFF'; // Cyan for homing
+            bulletGlow = 14;
+          }
+          
           return (
             <Circle
               key={p.id}
               x={p.position.x}
               y={p.position.y}
-              radius={p.isCrit ? 5 : 4}
-              fill={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
-              shadowColor={p.isCrit ? '#FF3B3B' : '#FFFFFF'}
-              shadowBlur={12}
+              radius={bulletRadius}
+              fill={bulletColor}
+              shadowColor={bulletColor}
+              shadowBlur={bulletGlow}
             />
+          );
+        })}
+        {/* Render Chain Lightning */}
+        {chainLightning.map((chain) => {
+          const age = now - chain.timestamp;
+          const maxDuration = 200; // ms
+          if (age > maxDuration) return null;
+          const progress = age / maxDuration;
+          const opacity = 1 - progress;
+          
+          // Create jagged lightning effect with multiple segments
+          const segments = 5;
+          const points: number[] = [];
+          const dx = chain.to.x - chain.from.x;
+          const dy = chain.to.y - chain.from.y;
+          
+          points.push(chain.from.x, chain.from.y);
+          
+          for (let i = 1; i < segments; i++) {
+            const t = i / segments;
+            const baseX = chain.from.x + dx * t;
+            const baseY = chain.from.y + dy * t;
+            // Add random offset perpendicular to the line
+            const perpX = -dy;
+            const perpY = dx;
+            const length = Math.hypot(perpX, perpY) || 1;
+            const offset = (Math.random() - 0.5) * 20;
+            points.push(
+              baseX + (perpX / length) * offset,
+              baseY + (perpY / length) * offset
+            );
+          }
+          
+          points.push(chain.to.x, chain.to.y);
+          
+          return (
+            <React.Fragment key={chain.id}>
+              {/* Outer glow */}
+              <Line
+                points={points}
+                stroke="#FFFF00"
+                strokeWidth={4}
+                opacity={opacity * 0.3}
+                shadowColor="#FFFF00"
+                shadowBlur={20}
+                lineCap="round"
+                lineJoin="round"
+              />
+              {/* Inner bolt */}
+              <Line
+                points={points}
+                stroke="#FFFFFF"
+                strokeWidth={2}
+                opacity={opacity * 0.8}
+                shadowColor="#FFFF00"
+                shadowBlur={10}
+                lineCap="round"
+                lineJoin="round"
+              />
+            </React.Fragment>
           );
         })}
         {/* Render Explosions */}
