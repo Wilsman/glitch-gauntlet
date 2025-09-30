@@ -47,6 +47,18 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     baseProjectileSpeed: 5, // Slightly faster projectiles
     attackSpeedScaling: 0.95, // -5% per wave (faster)
   },
+  hellhound: {
+    type: 'hellhound',
+    baseHealth: 40,
+    baseDamage: 8,
+    baseSpeed: 4.0, // Very fast - faster than before
+    baseXpValue: 15,
+    healthScaling: 1.35, // +35% per wave
+    damageScaling: 1.25, // +25% per wave
+    speedScaling: 1.05, // +5% per wave (faster scaling)
+    xpScaling: 1.3, // +30% per wave
+    spawnWeight: 0, // Never spawns in normal rounds
+  },
 };
 
 export function createEnemy(

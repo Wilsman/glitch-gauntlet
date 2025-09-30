@@ -53,7 +53,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [] } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0 } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -90,6 +90,17 @@ export default function GameCanvas() {
       <Layer>
         {/* Background Grid */}
         <BackgroundGrid />
+        {/* Hellhound Round Dim Overlay */}
+        {isHellhoundRound && (
+          <Rect
+            x={0}
+            y={0}
+            width={SERVER_ARENA_WIDTH}
+            height={SERVER_ARENA_HEIGHT}
+            fill="#000000"
+            opacity={0.4}
+          />
+        )}
         {/* Teleporter */}
         {teleporter && (
           <Circle
@@ -252,6 +263,10 @@ export default function GameCanvas() {
             fill = '#FF8800'; // orange for slugger
             shadow = '#FF8800';
             size = 24; // slightly larger
+          } else if (enemy.type === 'hellhound') {
+            fill = '#8B0000'; // dark red for hellhound
+            shadow = '#FF0000';
+            size = 22; // medium size
           }
           
           if (isCrit) {
@@ -272,7 +287,31 @@ export default function GameCanvas() {
           
           return (
             <React.Fragment key={enemy.id}>
-              <Rect x={enemy.position.x - size/2} y={enemy.position.y - size/2} width={size} height={size} fill={fill} shadowColor={shadow} shadowBlur={18} />
+              {enemy.type === 'hellhound' ? (
+                // Hellhound with dog emoji and wiggle animation
+                <>
+                  <Circle
+                    x={enemy.position.x}
+                    y={enemy.position.y}
+                    radius={size/2}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={18}
+                    opacity={isHit ? 1 : 0.8}
+                  />
+                  <Text
+                    text="🐕"
+                    x={enemy.position.x}
+                    y={enemy.position.y}
+                    fontSize={24}
+                    offsetX={12}
+                    offsetY={12}
+                    rotation={Math.sin(now / 100 + enemy.position.x) * 15}
+                  />
+                </>
+              ) : (
+                <Rect x={enemy.position.x - size/2} y={enemy.position.y - size/2} width={size} height={size} fill={fill} shadowColor={shadow} shadowBlur={18} />
+              )}
               {/* Damage Numbers */}
               {enemy.damageNumbers?.map((dmg) => {
                 const age = now - dmg.timestamp;
@@ -450,6 +489,31 @@ export default function GameCanvas() {
         })}
         {/* Game ID Text */}
         <Text text={`Game Code: ${gameId}`} x={20} y={SERVER_ARENA_HEIGHT - 30} fontFamily='"Press Start 2P"' fontSize={14} fill="#FF00FF" />
+        {/* Hellhound Round Indicator */}
+        {isHellhoundRound && (
+          <>
+            <Text 
+              text="🐺 HELLHOUND ROUND 🐺" 
+              x={SERVER_ARENA_WIDTH / 2} 
+              y={30} 
+              fontFamily='"Press Start 2P"' 
+              fontSize={20} 
+              fill="#FF0000" 
+              shadowColor="#FF0000"
+              shadowBlur={20}
+              offsetX={150}
+            />
+            <Text 
+              text={`${hellhoundsKilled} / ${totalHellhoundsInRound} Killed`} 
+              x={SERVER_ARENA_WIDTH / 2} 
+              y={60} 
+              fontFamily='"Press Start 2P"' 
+              fontSize={14} 
+              fill="#FFFFFF" 
+              offsetX={100}
+            />
+          </>
+        )}
       </Layer>
     </Stage>
   );

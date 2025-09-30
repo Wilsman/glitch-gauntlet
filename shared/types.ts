@@ -96,7 +96,7 @@ export interface StatusEffect {
   slowAmount?: number; // movement speed multiplier (0-1)
 }
 
-export type EnemyType = 'grunt' | 'slugger';
+export type EnemyType = 'grunt' | 'slugger' | 'hellhound';
 
 export interface Enemy {
   id: string;
@@ -241,4 +241,9 @@ export interface GameState {
   explosions?: Explosion[];
   chainLightning?: ChainLightning[];
   pets?: Pet[];
+  isHellhoundRound?: boolean;
+  hellhoundRoundComplete?: boolean;
+  totalHellhoundsInRound?: number;
+  hellhoundsKilled?: number;
+  hellhoundSpawnTimer?: number;
 }

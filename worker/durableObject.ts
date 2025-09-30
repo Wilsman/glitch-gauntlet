@@ -11,6 +11,8 @@ const TICK_RATE = 50; // ms
 const WAVE_DURATION = 30000; // 30 seconds per wave
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
+const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
+const HELLHOUND_ROUND_START = 5; // First hellhound round at wave 5
 function uuidv4() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
         let r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -284,14 +286,73 @@ export class GlobalDurableObject extends DurableObject {
         });
     }
     updateEnemyAI(state: GameState, now: number, delta: number, timeFactor: number) {
-        const enemySpawnRate = 0.05 + (state.wave * 0.01);
-        if (state.enemies.length < 10 * state.players.length && Math.random() < enemySpawnRate) {
-            const enemyType = selectRandomEnemyType();
-            const spawnX = Math.random() * ARENA_WIDTH;
-            const spawnY = Math.random() > 0.5 ? -20 : ARENA_HEIGHT + 20;
-            const newEnemy = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, enemyType, state.wave);
-            console.log(`Spawned ${enemyType} at wave ${state.wave}:`, newEnemy);
-            state.enemies.push(newEnemy);
+        // Check if this is a hellhound round
+        const isHellhoundRound = state.isHellhoundRound || false;
+        
+        if (isHellhoundRound) {
+            // Hellhound round spawning logic with pack mechanics
+            const totalHellhounds = state.totalHellhoundsInRound || 0;
+            const hellhoundsKilled = state.hellhoundsKilled || 0;
+            const currentHellhounds = state.enemies.filter(e => e.type === 'hellhound').length;
+            const hellhoundsSpawned = (currentHellhounds + hellhoundsKilled);
+            
+            // Initialize spawn timer if not set
+            if (state.hellhoundSpawnTimer === undefined) {
+                state.hellhoundSpawnTimer = 0;
+            }
+            
+            // Update spawn timer
+            state.hellhoundSpawnTimer -= delta;
+            
+            // Spawn packs of hellhounds with 3-5 second delays between packs
+            if (state.hellhoundSpawnTimer <= 0 && hellhoundsSpawned < totalHellhounds) {
+                // Spawn a pack of 3-5 hellhounds
+                const packSize = Math.min(
+                    Math.floor(Math.random() * 3) + 3, // 3-5 dogs
+                    totalHellhounds - hellhoundsSpawned // Don't exceed total
+                );
+                
+                // Pick a random side for the entire pack
+                const side = Math.floor(Math.random() * 4);
+                
+                for (let i = 0; i < packSize; i++) {
+                    let spawnX, spawnY;
+                    
+                    // Spawn pack from same side but spread out
+                    if (side === 0) { // top
+                        spawnX = Math.random() * ARENA_WIDTH;
+                        spawnY = -20 - (Math.random() * 30); // Spread vertically
+                    } else if (side === 1) { // bottom
+                        spawnX = Math.random() * ARENA_WIDTH;
+                        spawnY = ARENA_HEIGHT + 20 + (Math.random() * 30);
+                    } else if (side === 2) { // left
+                        spawnX = -20 - (Math.random() * 30);
+                        spawnY = Math.random() * ARENA_HEIGHT;
+                    } else { // right
+                        spawnX = ARENA_WIDTH + 20 + (Math.random() * 30);
+                        spawnY = Math.random() * ARENA_HEIGHT;
+                    }
+                    
+                    const newHellhound = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, 'hellhound', state.wave);
+                    state.enemies.push(newHellhound);
+                }
+                
+                console.log(`🐺 Spawned pack of ${packSize} hellhounds (${hellhoundsSpawned + packSize}/${totalHellhounds}) at wave ${state.wave}`);
+                
+                // Set delay for next pack (3-5 seconds)
+                state.hellhoundSpawnTimer = 3000 + Math.random() * 2000; // 3000-5000ms
+            }
+        } else {
+            // Normal round spawning
+            const enemySpawnRate = 0.05 + (state.wave * 0.01);
+            if (state.enemies.length < 10 * state.players.length && Math.random() < enemySpawnRate) {
+                const enemyType = selectRandomEnemyType();
+                const spawnX = Math.random() * ARENA_WIDTH;
+                const spawnY = Math.random() > 0.5 ? -20 : ARENA_HEIGHT + 20;
+                const newEnemy = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, enemyType, state.wave);
+                console.log(`Spawned ${enemyType} at wave ${state.wave}:`, newEnemy);
+                state.enemies.push(newEnemy);
+            }
         }
         state.enemies.forEach(enemy => {
             const alivePlayers = state.players.filter(p => p.status === 'alive');
@@ -691,6 +752,13 @@ export class GlobalDurableObject extends DurableObject {
         const deadEnemies = state.enemies.filter(e => e.health <= 0);
         deadEnemies.forEach(dead => {
             state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue });
+            
+            // Track hellhound kills
+            if (dead.type === 'hellhound' && state.isHellhoundRound) {
+                state.hellhoundsKilled = (state.hellhoundsKilled || 0) + 1;
+                console.log(`🐺 Hellhound killed: ${state.hellhoundsKilled}/${state.totalHellhoundsInRound}`);
+            }
+            
             // Create explosion if owner has explosion upgrade
             const killer = state.players.find(p => state.projectiles.some(proj => proj.ownerId === p.id));
             if (killer && killer.explosionDamage && killer.explosionDamage > 0) {
@@ -706,6 +774,12 @@ export class GlobalDurableObject extends DurableObject {
             }
         });
         state.enemies = state.enemies.filter(e => e.health > 0);
+        
+        // Check if hellhound round is complete
+        if (state.isHellhoundRound && state.hellhoundsKilled === state.totalHellhoundsInRound && state.enemies.length === 0) {
+            state.hellhoundRoundComplete = true;
+            console.log('🎉 Hellhound round complete! All players get legendary upgrades!');
+        }
     }
     updateStatusEffects(state: GameState, delta: number) {
         state.enemies.forEach(enemy => {
@@ -763,11 +837,54 @@ export class GlobalDurableObject extends DurableObject {
         });
     }
     updateWaves(state: GameState, delta: number) {
+        // Handle hellhound round completion
+        if (state.hellhoundRoundComplete) {
+            // Give all players legendary upgrades
+            const alivePlayers = state.players.filter(p => p.status === 'alive');
+            if (alivePlayers.length > 0 && !state.levelingUpPlayerId) {
+                // Give legendary upgrade to first alive player (they'll cycle through)
+                const player = alivePlayers[0];
+                state.levelingUpPlayerId = player.id;
+                const legendaryUpgrades = getRandomUpgrades(3, 'legendary');
+                this.upgradeChoices.set(player.id, legendaryUpgrades.map(o => ({ ...o, id: uuidv4() })));
+                console.log(`🎁 ${player.id} gets legendary upgrade from hellhound round!`);
+            }
+            
+            // Check if all players got their upgrades
+            const playersWhoGotUpgrades = alivePlayers.filter(p => 
+                p.collectedUpgrades?.some(u => u.rarity === 'legendary')
+            );
+            
+            if (playersWhoGotUpgrades.length === alivePlayers.length || !state.levelingUpPlayerId) {
+                // Move to next wave
+                state.isHellhoundRound = false;
+                state.hellhoundRoundComplete = false;
+                state.hellhoundsKilled = 0;
+                state.totalHellhoundsInRound = 0;
+                state.wave++;
+                this.waveTimers.set(state.gameId, 0);
+                console.log(`✅ Moving to wave ${state.wave} after hellhound round`);
+            }
+            return;
+        }
+        
         let waveTimer = this.waveTimers.get(state.gameId) || 0;
         waveTimer += delta;
         if (waveTimer >= WAVE_DURATION) {
             state.wave++;
             waveTimer = 0;
+            
+            // Check if next wave should be a hellhound round
+            if (state.wave >= HELLHOUND_ROUND_START && (state.wave - HELLHOUND_ROUND_START) % HELLHOUND_ROUND_INTERVAL === 0) {
+                state.isHellhoundRound = true;
+                state.hellhoundsKilled = 0;
+                state.hellhoundRoundComplete = false;
+                state.hellhoundSpawnTimer = 0; // Spawn first pack immediately
+                // Calculate total hellhounds for this round (scales with wave)
+                state.totalHellhoundsInRound = Math.min(24, 8 + (state.wave - HELLHOUND_ROUND_START) * 2);
+                console.log(`🐺🐺🐺 HELLHOUND ROUND ${state.wave}! Total hellhounds: ${state.totalHellhoundsInRound}`);
+            }
+            
             if (state.wave > WIN_WAVE && !state.teleporter) {
                 state.teleporter = { id: 'teleporter', position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 }, radius: 50 };
             }

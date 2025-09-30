@@ -100,9 +100,20 @@ export const RARITY_WEIGHTS = {
   void: 2,
 };
 
-export function getRandomUpgrades(count: number = 3): Omit<UpgradeOption, 'id'>[] {
-  const totalWeight = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
+export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'): Omit<UpgradeOption, 'id'>[] {
   const selected: Omit<UpgradeOption, 'id'>[] = [];
+  
+  if (forceRarity) {
+    // Force specific rarity (for hellhound rounds)
+    const upgradesOfRarity = ALL_UPGRADES.filter(u => u.rarity === forceRarity);
+    for (let i = 0; i < count && upgradesOfRarity.length > 0; i++) {
+      const randomUpgrade = upgradesOfRarity[Math.floor(Math.random() * upgradesOfRarity.length)];
+      selected.push(randomUpgrade);
+    }
+    return selected;
+  }
+  
+  const totalWeight = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
   
   for (let i = 0; i < count; i++) {
     // Pick a rarity based on weights
