@@ -1,7 +1,9 @@
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, StatusEffect, Explosion, ChainLightning, Pet } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, StatusEffect, Explosion, ChainLightning, Pet, CharacterType } from '@shared/types';
 import { getRandomUpgrades } from '@shared/upgrades';
 import { applyUpgradeEffect } from '@shared/upgradeEffects';
 import { createEnemy, selectRandomEnemyType } from '@shared/enemyConfig';
+import { getCharacter } from '@shared/characterConfig';
+import { incrementLevel10Count, checkUnlocks, saveLastRunStats } from './progressionStorage';
 
 const MAX_PLAYERS = 4;
 const ARENA_WIDTH = 1280;
@@ -11,6 +13,7 @@ const TICK_RATE = 50; // ms
 const WAVE_DURATION = 30000; // 30 seconds per wave
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
+const EXTRACTION_DURATION = 5000; // 5 seconds to extract
 const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
 const HELLHOUND_ROUND_START = 5; // First hellhound round at wave 5
 
@@ -28,17 +31,42 @@ export class LocalGameEngine {
     private upgradeChoices: Map<string, UpgradeOption[]> = new Map();
     private waveTimer: number = 0;
     private inputState: InputState = { up: false, down: false, left: false, right: false };
+    private level10Tracked: Set<string> = new Set(); // Track which players already counted for level 10
+    private onUnlock?: (characterType: CharacterType) => void;
+    private gameStartTime: number = 0;
+    private enemiesKilledCount: number = 0;
+    private characterType: CharacterType;
 
-    constructor(playerId: string) {
+    constructor(playerId: string, characterType: CharacterType = 'spray-n-pray') {
+        const character = getCharacter(characterType);
+        this.characterType = characterType;
+        this.gameStartTime = Date.now();
+        
         const initialPlayer: Player = {
             id: playerId,
             position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
-            health: 100, maxHealth: 100, level: 1, xp: 0, xpToNextLevel: 10,
-            color: PLAYER_COLORS[0], attackCooldown: 0, attackSpeed: 500,
-            status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
-            pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
-            hasBananarang: false, bananarangsPerShot: 0,
+            health: character.baseHealth,
+            maxHealth: character.baseHealth,
+            level: 1,
+            xp: 0,
+            xpToNextLevel: 10,
+            color: PLAYER_COLORS[0],
+            attackCooldown: 0,
+            attackSpeed: character.baseAttackSpeed,
+            status: 'alive',
+            speed: character.baseSpeed,
+            projectileDamage: character.baseDamage,
+            reviveProgress: 0,
+            pickupRadius: 30,
+            projectilesPerShot: 1,
+            critChance: 0,
+            critMultiplier: characterType === 'glass-cannon-carl' ? 3 : 2,
+            lifeSteal: 0,
+            hasBananarang: false,
+            bananarangsPerShot: 0,
             collectedUpgrades: [],
+            characterType: character.type,
+            weaponType: character.weaponType,
         };
 
         this.gameState = {
@@ -50,7 +78,30 @@ export class LocalGameEngine {
             xpOrbs: [],
             wave: 1,
             teleporter: null,
+            pets: [],
         };
+
+        // Pet Pal Percy starts with a pet
+        if (character.startsWithPet) {
+            const petEmojis = ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐨', '🦁'];
+            const randomEmoji = petEmojis[Math.floor(Math.random() * petEmojis.length)];
+            const startingPet: Pet = {
+                id: uuidv4(),
+                ownerId: playerId,
+                position: { ...initialPlayer.position },
+                health: 50,
+                maxHealth: 50,
+                level: 1,
+                xp: 0,
+                xpToNextLevel: 10,
+                damage: 5,
+                attackSpeed: 800,
+                attackCooldown: 0,
+                emoji: randomEmoji,
+            };
+            this.gameState.pets = [startingPet];
+            initialPlayer.hasPet = true;
+        }
     }
 
     start() {
@@ -69,6 +120,10 @@ export class LocalGameEngine {
     getGameState(): GameState {
         // Return a deep clone to prevent external mutations
         return JSON.parse(JSON.stringify(this.gameState));
+    }
+
+    setOnUnlockCallback(callback: (characterType: CharacterType) => void) {
+        this.onUnlock = callback;
     }
 
     updateInput(input: InputState) {
@@ -155,6 +210,7 @@ export class LocalGameEngine {
         this.updateExplosions(state, now);
         this.updateChainLightning(state, now);
         this.updateXPOrbs(state);
+        this.updateExtraction(state, delta);
         this.updateWaves(state, delta);
         this.updateGameStatus(state);
     }
@@ -403,27 +459,50 @@ export class LocalGameEngine {
                 }, { enemy: null as Enemy | null, dist: Infinity });
                 if (closestEnemy.enemy) {
                     const baseAngle = Math.atan2(closestEnemy.enemy.position.y - p.position.y, closestEnemy.enemy.position.x - p.position.x);
-                    const shots = Math.max(1, p.projectilesPerShot || 1);
-                    const spread = 10 * Math.PI / 180;
-                    for (let i = 0; i < shots; i++) {
-                        const offset = (i - (shots - 1) / 2) * spread;
-                        const angle = baseAngle + offset;
+                    
+                    // Weapon-specific behavior
+                    if (p.weaponType === 'grenade-launcher') {
+                        // Boom Bringer: Single grenade with built-in explosion
                         const isCrit = Math.random() < (p.critChance || 0);
                         const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
-                        const newBullet: Projectile = {
+                        const grenade: Projectile = {
                             hitEnemies: [],
-                            pierceRemaining: p.pierceCount || 0,
-                            ricochetRemaining: p.ricochetCount || 0,
+                            pierceRemaining: 0,
+                            ricochetRemaining: 0,
                             id: uuidv4(),
                             ownerId: p.id,
                             position: { ...p.position },
-                            velocity: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
+                            velocity: { x: Math.cos(baseAngle) * 7, y: Math.sin(baseAngle) * 7 },
                             damage,
                             isCrit,
                             kind: 'bullet',
-                            radius: 5,
+                            radius: 8,
                         };
-                        state.projectiles.push(newBullet);
+                        state.projectiles.push(grenade);
+                    } else {
+                        // Standard shooting (rapid-fire and sniper-shot)
+                        const shots = Math.max(1, p.projectilesPerShot || 1);
+                        const spread = 10 * Math.PI / 180;
+                        for (let i = 0; i < shots; i++) {
+                            const offset = (i - (shots - 1) / 2) * spread;
+                            const angle = baseAngle + offset;
+                            const isCrit = Math.random() < (p.critChance || 0);
+                            const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
+                            const newBullet: Projectile = {
+                                hitEnemies: [],
+                                pierceRemaining: p.pierceCount || 0,
+                                ricochetRemaining: p.ricochetCount || 0,
+                                id: uuidv4(),
+                                ownerId: p.id,
+                                position: { ...p.position },
+                                velocity: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
+                                damage,
+                                isCrit,
+                                kind: 'bullet',
+                                radius: 5,
+                            };
+                            state.projectiles.push(newBullet);
+                        }
                     }
 
                     const bananaShots = p.hasBananarang ? Math.max(0, p.bananarangsPerShot || 0) : 0;
@@ -554,6 +633,19 @@ export class LocalGameEngine {
                             finalDamage = enemy.health;
                         }
                         enemy.health -= finalDamage;
+                        
+                        // Boom Bringer grenade explosion on hit
+                        if (owner && owner.weaponType === 'grenade-launcher') {
+                            if (!state.explosions) state.explosions = [];
+                            state.explosions.push({
+                                id: uuidv4(),
+                                position: { ...proj.position },
+                                radius: 60,
+                                timestamp: now,
+                                damage: finalDamage * 0.5,
+                                ownerId: owner.id
+                            });
+                        }
                         if (owner && owner.knockbackForce && owner.knockbackForce > 0) {
                             const angle = Math.atan2(enemy.position.y - proj.position.y, enemy.position.x - proj.position.x);
                             enemy.position.x += Math.cos(angle) * owner.knockbackForce;
@@ -679,6 +771,9 @@ export class LocalGameEngine {
         deadEnemies.forEach(dead => {
             state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue });
             
+            // Track enemy kills
+            this.enemiesKilledCount++;
+            
             if (dead.type === 'hellhound' && state.isHellhoundRound) {
                 state.hellhoundsKilled = (state.hellhoundsKilled || 0) + 1;
             }
@@ -750,11 +845,60 @@ export class LocalGameEngine {
             });
             if (p.xp >= p.xpToNextLevel) {
                 p.level++;
+                
+                // Track level 10 achievement (only once per game per player)
+                if (p.level === 10 && !this.level10Tracked.has(p.id)) {
+                    this.level10Tracked.add(p.id);
+                    incrementLevel10Count();
+                    
+                    // Check for unlocks
+                    const newlyUnlocked = checkUnlocks();
+                    if (newlyUnlocked.length > 0 && this.onUnlock) {
+                        newlyUnlocked.forEach(charType => this.onUnlock!(charType));
+                    }
+                }
+                
                 p.xp -= p.xpToNextLevel;
                 p.xpToNextLevel = Math.floor(p.xpToNextLevel * 1.5);
                 state.levelingUpPlayerId = p.id;
                 const choices = getRandomUpgrades(3).map(o => ({ ...o, id: uuidv4() }));
                 this.upgradeChoices.set(p.id, choices);
+            }
+        });
+    }
+
+    private updateExtraction(state: GameState, delta: number) {
+        if (!state.teleporter) return;
+        
+        const alivePlayers = state.players.filter(p => p.status === 'alive');
+        
+        alivePlayers.forEach(player => {
+            const distToTeleporter = Math.hypot(
+                player.position.x - state.teleporter!.position.x,
+                player.position.y - state.teleporter!.position.y
+            );
+            
+            const isInTeleporter = distToTeleporter < state.teleporter!.radius;
+            
+            if (isInTeleporter) {
+                // Player is in extraction zone - increase progress
+                if (!player.extractionProgress) player.extractionProgress = 0;
+                player.extractionProgress += delta;
+                
+                // Check if extraction is complete
+                if (player.extractionProgress >= EXTRACTION_DURATION) {
+                    // Check if all alive players have completed extraction
+                    const allExtracted = alivePlayers.every(p => 
+                        (p.extractionProgress || 0) >= EXTRACTION_DURATION
+                    );
+                    
+                    if (allExtracted) {
+                        state.status = 'won';
+                    }
+                }
+            } else {
+                // Player left extraction zone - reset progress
+                player.extractionProgress = 0;
             }
         });
     }
@@ -804,15 +948,27 @@ export class LocalGameEngine {
     }
 
     private updateGameStatus(state: GameState) {
+        const previousStatus = state.status;
+        
         if (state.players.every(p => p.status === 'dead')) {
             state.status = 'gameOver';
         }
-        if (state.teleporter) {
-            const alivePlayers = state.players.filter(p => p.status === 'alive');
-            const allInTeleporter = alivePlayers.length > 0 && alivePlayers.every(p => Math.hypot(p.position.x - state.teleporter!.position.x, p.position.y - state.teleporter!.position.y) < state.teleporter!.radius);
-            if (allInTeleporter) {
-                state.status = 'won';
-            }
+
+        // Save stats when game ends
+        if (previousStatus === 'playing' && (state.status === 'gameOver' || state.status === 'won')) {
+            this.saveGameStats(state);
         }
+    }
+
+    private saveGameStats(state: GameState) {
+        const survivalTimeMs = Date.now() - this.gameStartTime;
+        saveLastRunStats({
+            characterType: this.characterType,
+            waveReached: state.wave,
+            enemiesKilled: this.enemiesKilledCount,
+            survivalTimeMs,
+            isVictory: state.status === 'won',
+            timestamp: Date.now(),
+        });
     }
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGameStore } from '@/hooks/useGameStore';
 import GameCanvas from '@/components/GameCanvas';
-import type { ApiResponse, GameState, UpgradeOption, Player } from '@shared/types';
+import type { ApiResponse, GameState, UpgradeOption, Player, CharacterType } from '@shared/types';
 import { Loader2 } from 'lucide-react';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useLocalGameLoop } from '@/hooks/useLocalGameLoop';
@@ -14,6 +14,10 @@ import PlayerListPanel from '@/components/PlayerListPanel';
 import CollectedUpgradesPanel from '@/components/CollectedUpgradesPanel';
 import PetStatsPanel from '@/components/PetStatsPanel';
 import { LocalGameEngine } from '@/lib/LocalGameEngine';
+import { toast } from '@/components/ui/sonner';
+import { getCharacter } from '@shared/characterConfig';
+import { submitLeaderboardScore } from '@/lib/leaderboardApi';
+import { getPlayerName, getLastRunStats } from '@/lib/progressionStorage';
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -63,12 +67,36 @@ export default function GamePage() {
   useEffect(() => {
     if (!gameStatus || !gameId) return;
 
-    if (gameStatus === 'gameOver') {
-      navigate(`/gameover/${gameId}`);
-    } else if (gameStatus === 'won') {
-      navigate(`/gamewon/${gameId}`);
+    if (gameStatus === 'gameOver' || gameStatus === 'won') {
+      // Submit to leaderboard if in local mode and player has a name
+      if (isLocalMode) {
+        const playerName = getPlayerName();
+        const lastRun = getLastRunStats();
+        
+        if (playerName && lastRun) {
+          submitLeaderboardScore({
+            playerName,
+            characterType: lastRun.characterType,
+            waveReached: lastRun.waveReached,
+            enemiesKilled: lastRun.enemiesKilled,
+            survivalTimeMs: lastRun.survivalTimeMs,
+            isVictory: lastRun.isVictory,
+          }).then((result) => {
+            console.log('Score submitted to leaderboard:', result);
+          }).catch((error) => {
+            console.error('Failed to submit score:', error);
+          });
+        }
+      }
+      
+      // Navigate to appropriate end screen
+      if (gameStatus === 'gameOver') {
+        navigate(`/gameover/${gameId}`);
+      } else {
+        navigate(`/gamewon/${gameId}`);
+      }
     }
-  }, [gameStatus, navigate, gameId]);
+  }, [gameStatus, navigate, gameId, isLocalMode]);
 
   useEffect(() => {
     if (!gameId) {
@@ -91,8 +119,21 @@ export default function GamePage() {
         return;
       }
 
-      const engine = new LocalGameEngine(playerIdFromUrl);
+      const characterFromUrl = searchParams.get('character') as CharacterType | null;
+      const characterType = characterFromUrl || 'spray-n-pray';
+      
+      const engine = new LocalGameEngine(playerIdFromUrl, characterType);
       localEngineRef.current = engine;
+      
+      // Set unlock callback
+      engine.setOnUnlockCallback((unlockedChar) => {
+        const char = getCharacter(unlockedChar);
+        toast.success(`🎉 Character Unlocked: ${char.name}!`, {
+          description: 'Check character selection to play as them!',
+          duration: 5000,
+        });
+      });
+      
       engine.start();
       setGameState(engine.getGameState());
       setIsLoading(false);

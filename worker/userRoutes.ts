@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import { Env } from './core-utils';
 import type { ApiResponse, GameState, InputState, UpgradeOption } from '@shared/types';
+import { leaderboardRoutes } from './leaderboardRoutes';
+
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
+    // Register leaderboard routes
+    leaderboardRoutes(app);
+    
     app.post('/api/game/create', async (c) => {
         const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
         const { gameId, playerId } = await durableObjectStub.createGameSession();

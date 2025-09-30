@@ -46,6 +46,7 @@ const HIT_FLASH_DURATION = 100; // ms
 const CRIT_FLASH_DURATION = 160; // ms
 const HEAL_FLASH_DURATION = 180; // ms
 const REVIVE_DURATION = 3000;
+const EXTRACTION_DURATION = 5000;
 const DAMAGE_NUMBER_DURATION = 800; // ms
 const selectGameState = (state) => ({
   gameState: state.gameState,
@@ -103,18 +104,69 @@ export default function GameCanvas() {
         )}
         {/* Teleporter */}
         {teleporter && (
-          <Circle
-            x={teleporter.position.x}
-            y={teleporter.position.y}
-            radius={teleporter.radius}
-            fillRadialGradientStartPoint={{ x: 0, y: 0 }}
-            fillRadialGradientEndPoint={{ x: 0, y: 0 }}
-            fillRadialGradientStartRadius={0}
-            fillRadialGradientEndRadius={teleporter.radius}
-            fillRadialGradientColorStops={[0, '#00FFFF', 0.8, '#00FFFF55', 1, '#00FFFF00']}
-            shadowColor="#00FFFF"
-            shadowBlur={30}
-          />
+          <>
+            <Circle
+              x={teleporter.position.x}
+              y={teleporter.position.y}
+              radius={teleporter.radius}
+              fillRadialGradientStartPoint={{ x: 0, y: 0 }}
+              fillRadialGradientEndPoint={{ x: 0, y: 0 }}
+              fillRadialGradientStartRadius={0}
+              fillRadialGradientEndRadius={teleporter.radius}
+              fillRadialGradientColorStops={[0, '#00FFFF', 0.8, '#00FFFF55', 1, '#00FFFF00']}
+              shadowColor="#00FFFF"
+              shadowBlur={30}
+            />
+            {/* Extraction countdown for players in teleporter */}
+            {players.filter(p => p.status === 'alive' && p.extractionProgress && p.extractionProgress > 0).map(player => {
+              const progress = (player.extractionProgress || 0) / EXTRACTION_DURATION;
+              const timeRemaining = Math.ceil((EXTRACTION_DURATION - (player.extractionProgress || 0)) / 1000);
+              const pulseOpacity = 0.7 + Math.sin(now / 100) * 0.3;
+              
+              return (
+                <React.Fragment key={`extraction-${player.id}`}>
+                  {/* Progress ring */}
+                  <Ring
+                    x={player.position.x}
+                    y={player.position.y}
+                    innerRadius={20}
+                    outerRadius={26}
+                    fill="#00FFFF"
+                    angle={progress * 360}
+                    rotation={-90}
+                    opacity={pulseOpacity}
+                    shadowColor="#00FFFF"
+                    shadowBlur={15}
+                  />
+                  {/* Countdown text */}
+                  <Text
+                    text={timeRemaining.toString()}
+                    x={player.position.x}
+                    y={player.position.y - 40}
+                    fontSize={24}
+                    fontFamily='"Press Start 2P"'
+                    fill="#00FFFF"
+                    fontStyle="bold"
+                    offsetX={12}
+                    shadowColor="#00FFFF"
+                    shadowBlur={20}
+                    opacity={pulseOpacity}
+                  />
+                  {/* "EXTRACTING" label */}
+                  <Text
+                    text="EXTRACTING"
+                    x={player.position.x}
+                    y={player.position.y - 60}
+                    fontSize={10}
+                    fontFamily='"Press Start 2P"'
+                    fill="#FFFFFF"
+                    offsetX={45}
+                    opacity={0.9}
+                  />
+                </React.Fragment>
+              );
+            })}
+          </>
         )}
         {/* Render XP Orbs */}
         {xpOrbs.map((orb) => (
@@ -170,6 +222,13 @@ export default function GameCanvas() {
           const isBerserker = player.health < player.maxHealth * 0.3;
           const hasShield = player.shield && player.shield > 0;
           
+          // Character-specific emoji
+          const characterEmoji = player.characterType === 'spray-n-pray' ? '🔫' 
+            : player.characterType === 'boom-bringer' ? '💣'
+            : player.characterType === 'glass-cannon-carl' ? '🎯'
+            : player.characterType === 'pet-pal-percy' ? '🐾'
+            : '🔫';
+          
           return (
             <React.Fragment key={player.id}>
               {/* Pickup radius (local player only) */}
@@ -217,6 +276,16 @@ export default function GameCanvas() {
                 strokeWidth={player.id === localPlayerId && player.status === 'alive' ? 3 : 2}
                 shadowColor={isBerserker ? '#FF0000' : player.color}
                 shadowBlur={isBerserker ? 30 : 20}
+                opacity={player.status === 'dead' ? 0.3 : 1}
+              />
+              {/* Character emoji indicator */}
+              <Text
+                text={characterEmoji}
+                x={player.position.x}
+                y={player.position.y}
+                fontSize={20}
+                offsetX={10}
+                offsetY={10}
                 opacity={player.status === 'dead' ? 0.3 : 1}
               />
               {/* Heal flash */}

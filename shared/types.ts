@@ -16,6 +16,56 @@ export type InputState = {
   right: boolean;
 };
 export type PlayerStatus = 'alive' | 'dead';
+
+export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl' | 'pet-pal-percy';
+
+export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot';
+
+export type UnlockCriteriaType = 'level10Count' | 'waveReached' | 'gamesPlayed';
+
+export interface UnlockCriteria {
+  type: UnlockCriteriaType;
+  required: number;
+  description: string;
+}
+
+export interface CharacterStats {
+  type: CharacterType;
+  name: string;
+  emoji: string;
+  weaponType: WeaponType;
+  baseHealth: number;
+  baseDamage: number;
+  baseAttackSpeed: number;
+  baseSpeed: number;
+  description: string;
+  pro: string;
+  con: string;
+  locked?: boolean;
+  unlockCriteria?: UnlockCriteria;
+  startsWithPet?: boolean;
+}
+
+export interface LastRunStats {
+  characterType: CharacterType;
+  waveReached: number;
+  enemiesKilled: number;
+  survivalTimeMs: number;
+  isVictory: boolean;
+  timestamp: number;
+}
+
+export interface PlayerProgression {
+  playerName?: string;
+  timesReachedLevel10: number;
+  unlockedCharacters: CharacterType[];
+  highestWaveReached: number;
+  totalGamesPlayed: number;
+  totalEnemiesKilled: number;
+  lastUpdated: number;
+  lastRunStats?: LastRunStats;
+}
+
 export interface Pet {
   id: string;
   ownerId: string;
@@ -49,6 +99,9 @@ export interface Player {
   projectileDamage: number;
   lastHitTimestamp?: number;
   reviveProgress: number;
+  // Character system
+  characterType?: CharacterType;
+  weaponType?: WeaponType;
   // Upgrades
   pickupRadius: number; // XP pickup radius
   projectilesPerShot: number; // Multishot count
@@ -81,6 +134,8 @@ export interface Player {
   knockbackForce?: number; // knockback distance
   // Pet
   hasPet?: boolean;
+  // Extraction
+  extractionProgress?: number; // ms in extraction zone
 }
 export interface DamageNumber {
   id: string;
@@ -228,6 +283,38 @@ export interface ChainLightning {
 }
 
 export type GameStatus = 'playing' | 'gameOver' | 'won';
+
+export interface LeaderboardEntry {
+  id: number;
+  playerName: string;
+  characterType: CharacterType;
+  waveReached: number;
+  enemiesKilled: number;
+  survivalTimeMs: number;
+  isVictory: boolean;
+  createdAt: number;
+}
+
+export interface LeaderboardSubmission {
+  playerName: string;
+  characterType: CharacterType;
+  waveReached: number;
+  enemiesKilled: number;
+  survivalTimeMs: number;
+  isVictory: boolean;
+}
+
+export type LeaderboardCategory = 
+  | 'highest-wave' 
+  | 'most-kills' 
+  | 'longest-survival' 
+  | 'fastest-victory';
+
+export interface LeaderboardResponse {
+  category: LeaderboardCategory;
+  entries: LeaderboardEntry[];
+  total?: number;
+}
 export interface GameState {
   gameId: string;
   status: GameStatus;

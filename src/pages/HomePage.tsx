@@ -5,16 +5,26 @@ import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { AudioSettingsPanel } from "@/components/AudioSettingsPanel";
-import type { ApiResponse } from "@shared/types";
+import { CharacterSelect } from "@/components/CharacterSelect";
+import { UnlockNotification } from "@/components/UnlockNotification";
+import { PlayerNameDialog } from "@/components/PlayerNameDialog";
+import { LastRunStatsCard } from "@/components/LastRunStatsCard";
+import { LeaderboardPanel } from "@/components/LeaderboardPanel";
+import type { ApiResponse, CharacterType } from "@shared/types";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
 import { AudioManager } from "@/lib/audio/AudioManager";
+import { hasPlayerName, setPlayerName, getPlayerName } from "@/lib/progressionStorage";
 
 export function HomePage() {
   const navigate = useNavigate();
   const [isHosting, setIsHosting] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [joinCode, setJoinCode] = useState("");
+  const [showCharacterSelect, setShowCharacterSelect] = useState(false);
+  const [showNameDialog, setShowNameDialog] = useState(false);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterType | null>(null);
+  const [unlockedCharacter, setUnlockedCharacter] = useState<CharacterType | null>(null);
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
 
@@ -22,6 +32,10 @@ export function HomePage() {
 
   useEffect(() => {
     resetGameState();
+    // Check if player needs to set their name
+    if (!hasPlayerName()) {
+      setShowNameDialog(true);
+    }
   }, [resetGameState]);
 
   useEffect(() => {
@@ -34,10 +48,28 @@ export function HomePage() {
   }, []);
 
   const handleLocalGame = () => {
+    if (!hasPlayerName()) {
+      setShowNameDialog(true);
+      return;
+    }
+    setShowCharacterSelect(true);
+  };
+
+  const handleNameSubmit = (name: string) => {
+    setPlayerName(name);
+    setShowNameDialog(false);
+    toast.success(`Welcome, ${name}!`, {
+      description: "Your name has been saved for the leaderboard.",
+    });
+  };
+
+  const handleCharacterSelected = (characterType: CharacterType) => {
     const playerId = `local-${Date.now()}`;
     setLocalPlayerId(playerId);
+    setSelectedCharacter(characterType);
+    setShowCharacterSelect(false);
     toast.success("Starting local game!");
-    navigate(`/game/local?playerId=${playerId}`);
+    navigate(`/game/local?playerId=${playerId}&character=${characterType}`);
   };
 
   const handleHostGame = async () => {
@@ -100,9 +132,43 @@ export function HomePage() {
   };
 
   return (
-    <main className="min-h-screen w-full flex flex-col items-center justify-center p-4 overflow-hidden relative text-neon-cyan">
+    <main className="min-h-screen w-full flex items-center justify-center p-4 overflow-hidden relative text-neon-cyan">
       <div className="absolute inset-0 bg-black opacity-80 z-0" />
       <div className="w-full h-full absolute inset-0 border-4 border-neon-pink shadow-glow-pink z-10 pointer-events-none" />
+      
+      {/* Player Name Dialog */}
+      <PlayerNameDialog
+        open={showNameDialog}
+        onNameSubmit={handleNameSubmit}
+        initialName={getPlayerName() || ''}
+      />
+
+      {/* Unlock Notification */}
+      {unlockedCharacter && (
+        <UnlockNotification
+          characterType={unlockedCharacter}
+          onClose={() => setUnlockedCharacter(null)}
+        />
+      )}
+
+      {/* Character Selection Modal */}
+      {showCharacterSelect && (
+        <CharacterSelect
+          onSelect={handleCharacterSelected}
+          onCancel={() => setShowCharacterSelect(false)}
+        />
+      )}
+      
+      {/* Last Run Stats - Left Side */}
+      <div className="absolute left-8 top-1/2 -translate-y-1/2 z-20 w-80 hidden lg:block">
+        <LastRunStatsCard />
+      </div>
+
+      {/* Leaderboard - Right Side */}
+      <div className="absolute right-8 top-1/2 -translate-y-1/2 z-20 w-96 h-[600px] hidden lg:block">
+        <LeaderboardPanel />
+      </div>
+
       <div className="relative z-20 flex flex-col items-center justify-center text-center space-y-12">
         <h1
           className="font-press-start text-5xl md:text-7xl text-neon-yellow"

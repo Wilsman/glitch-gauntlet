@@ -2,32 +2,42 @@
  * Wrangler config for the Cloudflare Durable Object template
  * STRICTLY DO NOT MODIFY THIS FILE - Hidden from AI to prevent breaking core functionality
  */
- {
+{
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "cnk",
 	"main": "worker/index.ts",
 	"compatibility_date": "2025-04-24",
 	"assets": {
 		"not_found_handling": "single-page-application",
-		"run_worker_first": ["/api/*", "!/api/docs/*"]
+		"run_worker_first": [
+			"/api/*",
+			"!/api/docs/*"
+		]
 	},
 	"observability": {
 		"enabled": true
 	},
-    "durable_objects": {
-      "bindings": [
-        {
-          "name": "GlobalDurableObject",
-          "class_name": "GlobalDurableObject"
-        }
-      ]
-    },
-    "migrations": [
-      {
-        "tag": "v1",
-        "new_sqlite_classes": [
-          "GlobalDurableObject"
-        ]
-      }
-    ]
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "GlobalDurableObject",
+				"class_name": "GlobalDurableObject"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"GlobalDurableObject"
+			]
+		}
+	],
+	"d1_databases": [
+		{
+			"binding": "prod_d1_cnk",
+			"database_name": "prod-d1-cnk",
+			"database_id": "55f8f607-15d0-43b9-8b94-83bf69207e5b"
+		}
+	]
 }

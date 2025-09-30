@@ -8,4 +8,5 @@ export { GlobalDurableObject };
 
 export type Env = {
     GlobalDurableObject: DurableObjectNamespace<GlobalDurableObject>;
+    prod_d1_cnk: D1Database;
 }
