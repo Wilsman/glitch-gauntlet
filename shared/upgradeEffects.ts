@@ -108,18 +108,20 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       // Handled in damage calculation
       break;
     case 'magnetic':
-      player.pickupRadius = Math.min(150, player.pickupRadius * 1.3);
+      player.pickupRadius = Math.min(150, player.pickupRadius * 1.5);
       break;
     
     // ===== ADVANCED =====
     case 'pet':
       player.hasPet = true;
       break;
+    case 'orbital':
+      player.orbitalCount = (player.orbitalCount || 0) + 1;
+      break;
     
     // ===== ADVANCED (Not yet implemented) =====
     case 'ghostBullets':
     case 'clone':
-    case 'orbital':
     case 'invincibility':
     case 'aura':
     case 'turret':

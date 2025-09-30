@@ -49,6 +49,7 @@ export default function GamePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const localEngineRef = useRef<LocalGameEngine | null>(null);
+  const lastLevelUpPlayerRef = useRef<string | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
@@ -164,7 +165,10 @@ export default function GamePage() {
 
   useEffect(() => {
     const fetchUpgrades = async () => {
-      if (isLocalPlayerLevelingUp && !isUpgradeModalOpen && gameId) {
+      // Only fetch if player is leveling up, modal is not open, and we haven't already fetched for this level-up
+      if (isLocalPlayerLevelingUp && !isUpgradeModalOpen && gameId && lastLevelUpPlayerRef.current !== levelingUpPlayerId) {
+        lastLevelUpPlayerRef.current = levelingUpPlayerId;
+        
         if (isLocalMode) {
           // Local mode - get upgrades from engine
           const engine = localEngineRef.current;
@@ -194,10 +198,15 @@ export default function GamePage() {
           }
         }
       }
+      
+      // Reset tracking when player is no longer leveling up
+      if (!isLocalPlayerLevelingUp && lastLevelUpPlayerRef.current !== null) {
+        lastLevelUpPlayerRef.current = null;
+      }
     };
 
     fetchUpgrades();
-  }, [isLocalPlayerLevelingUp, gameId, openUpgradeModal, isUpgradeModalOpen, isLocalMode]);
+  }, [isLocalPlayerLevelingUp, levelingUpPlayerId, gameId, openUpgradeModal, isUpgradeModalOpen, isLocalMode]);
 
   const handleSelectUpgrade = async (upgradeId: string) => {
     if (!gameId || !localPlayerId) return;

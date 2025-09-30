@@ -1,4 +1,4 @@
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, StatusEffect, Explosion, ChainLightning, Pet, CharacterType } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, StatusEffect, Explosion, ChainLightning, Pet, CharacterType, OrbitalSkull, FireTrail } from '@shared/types';
 import { getRandomUpgrades } from '@shared/upgrades';
 import { applyUpgradeEffect } from '@shared/upgradeEffects';
 import { createEnemy, selectRandomEnemyType } from '@shared/enemyConfig';
@@ -79,6 +79,8 @@ export class LocalGameEngine {
             wave: 1,
             teleporter: null,
             pets: [],
+            orbitalSkulls: [],
+            fireTrails: [],
         };
 
         // Pet Pal Percy starts with a pet
@@ -165,6 +167,21 @@ export class LocalGameEngine {
             this.gameState.pets.push(newPet);
         }
         
+        // Spawn orbital skull if orbital upgrade selected
+        if (choice.type === 'orbital') {
+            if (!this.gameState.orbitalSkulls) this.gameState.orbitalSkulls = [];
+            const orbitalCount = player.orbitalCount || 0;
+            const angleOffset = (Math.PI * 2) / orbitalCount;
+            const newSkull: OrbitalSkull = {
+                id: uuidv4(),
+                ownerId: player.id,
+                angle: angleOffset * (orbitalCount - 1), // Evenly space skulls
+                radius: 60,
+                damage: 10 + (player.level * 2), // Scales with level
+            };
+            this.gameState.orbitalSkulls.push(newSkull);
+        }
+        
         // Track collected upgrade
         if (!player.collectedUpgrades) player.collectedUpgrades = [];
         const existing = player.collectedUpgrades.find(u => u.type === choice.type);
@@ -203,6 +220,8 @@ export class LocalGameEngine {
         this.updatePlayerEffects(state, delta);
         this.updateRevives(state, delta);
         this.updatePets(state, now, delta, timeFactor);
+        this.updateOrbitalSkulls(state, now, delta);
+        this.updateFireTrails(state, now, delta);
         this.updateEnemyAI(state, now, delta, timeFactor);
         this.updatePlayerAttacks(state, delta);
         this.updateProjectiles(state, now, delta, timeFactor);
@@ -830,6 +849,110 @@ export class LocalGameEngine {
     private updateChainLightning(state: GameState, now: number) {
         if (!state.chainLightning) return;
         state.chainLightning = state.chainLightning.filter(chain => (now - chain.timestamp) < 200);
+    }
+
+    private updateOrbitalSkulls(state: GameState, now: number, delta: number) {
+        if (!state.orbitalSkulls) state.orbitalSkulls = [];
+        if (!state.fireTrails) state.fireTrails = [];
+        
+        const ORBITAL_SPEED = 2; // radians per second
+        const FIRE_TRAIL_INTERVAL = 100; // ms between trail spawns
+        const SKULL_DAMAGE_COOLDOWN = 200; // ms between damage ticks
+        
+        state.orbitalSkulls = state.orbitalSkulls.filter(skull => {
+            const owner = state.players.find(p => p.id === skull.ownerId);
+            if (!owner || owner.status === 'dead') return false;
+            
+            // Rotate skull
+            skull.angle += (ORBITAL_SPEED * delta / 1000);
+            if (skull.angle > Math.PI * 2) skull.angle -= Math.PI * 2;
+            
+            // Calculate skull position
+            const skullX = owner.position.x + Math.cos(skull.angle) * skull.radius;
+            const skullY = owner.position.y + Math.sin(skull.angle) * skull.radius;
+            
+            // Spawn fire trail periodically
+            if (!skull.lastDamageTimestamp || (now - skull.lastDamageTimestamp) >= FIRE_TRAIL_INTERVAL) {
+                const fireTrail: FireTrail = {
+                    id: uuidv4(),
+                    position: { x: skullX, y: skullY },
+                    timestamp: now,
+                    radius: 25,
+                    damage: skull.damage * 0.5, // Trail does 50% of skull damage
+                    ownerId: owner.id,
+                };
+                state.fireTrails.push(fireTrail);
+                skull.lastDamageTimestamp = now;
+            }
+            
+            // Check collision with enemies
+            state.enemies.forEach(enemy => {
+                const dist = Math.hypot(enemy.position.x - skullX, enemy.position.y - skullY);
+                if (dist < 20) { // Skull hitbox radius
+                    enemy.health -= skull.damage;
+                    enemy.lastHitTimestamp = now;
+                    
+                    // Apply burning status effect
+                    if (owner.fireDamage || true) { // Always apply fire from skulls
+                        if (!enemy.statusEffects) enemy.statusEffects = [];
+                        const burnDamage = skull.damage * 0.5; // 50% of skull damage as burn
+                        const existing = enemy.statusEffects.find(e => e.type === 'burning');
+                        if (existing) {
+                            existing.duration = 2000; // Refresh duration
+                            existing.damage = Math.max(existing.damage || 0, burnDamage);
+                        } else {
+                            enemy.statusEffects.push({
+                                type: 'burning',
+                                damage: burnDamage,
+                                duration: 2000,
+                            });
+                        }
+                    }
+                }
+            });
+            
+            return true;
+        });
+    }
+
+    private updateFireTrails(state: GameState, now: number, delta: number) {
+        if (!state.fireTrails) return;
+        
+        const FIRE_TRAIL_DURATION = 2000; // 2 seconds
+        const FIRE_TRAIL_DAMAGE_INTERVAL = 200; // Damage every 200ms
+        
+        state.fireTrails.forEach(trail => {
+            // Check if enough time has passed for next damage tick
+            const timeSinceSpawn = now - trail.timestamp;
+            
+            // Damage enemies in trail
+            state.enemies.forEach(enemy => {
+                const dist = Math.hypot(enemy.position.x - trail.position.x, enemy.position.y - trail.position.y);
+                if (dist < trail.radius) {
+                    // Apply damage periodically
+                    if (timeSinceSpawn % FIRE_TRAIL_DAMAGE_INTERVAL < 50) { // Small window for damage tick
+                        enemy.health -= trail.damage * (delta / 1000);
+                        enemy.lastHitTimestamp = now;
+                        
+                        // Apply burning status
+                        if (!enemy.statusEffects) enemy.statusEffects = [];
+                        const existing = enemy.statusEffects.find(e => e.type === 'burning');
+                        if (existing) {
+                            existing.duration = 2000;
+                        } else {
+                            enemy.statusEffects.push({
+                                type: 'burning',
+                                damage: trail.damage * 0.3,
+                                duration: 2000,
+                            });
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Remove old fire trails
+        state.fireTrails = state.fireTrails.filter(trail => (now - trail.timestamp) < FIRE_TRAIL_DURATION);
     }
 
     private updateXPOrbs(state: GameState) {

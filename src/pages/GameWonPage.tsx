@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
 import { AudioManager } from '@/lib/audio/AudioManager';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,11 @@ import type { ApiResponse, GameState } from '@shared/types';
 import { motion } from 'framer-motion';
 export default function GameWonPage() {
   const { gameId } = useParams<{ gameId: string }>();
+  const navigate = useNavigate();
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showCoinAnimation, setShowCoinAnimation] = useState(false);
+  const [coins, setCoins] = useState<Array<{ id: number; x: number; y: number }>>([]);
 
   useSyncAudioSettings();
   useEffect(() => {
@@ -43,6 +46,23 @@ export default function GameWonPage() {
     };
     fetchGameState();
   }, [gameId]);
+
+  function handleInsertCoin() {
+    setShowCoinAnimation(true);
+    
+    // Generate multiple coins
+    const newCoins = Array.from({ length: 8 }, (_, i) => ({
+      id: Date.now() + i,
+      x: Math.random() * 100 - 50,
+      y: Math.random() * 100 - 50
+    }));
+    setCoins(newCoins);
+    
+    // Navigate after animation
+    setTimeout(() => {
+      navigate('/');
+    }, 1200);
+  }
   return (
     <main className="min-h-screen w-full flex flex-col items-center justify-center p-4 overflow-hidden relative text-neon-cyan">
       <div className="absolute inset-0 bg-black opacity-80 z-0" />
@@ -94,12 +114,49 @@ export default function GameWonPage() {
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.8, duration: 0.5 }}
+          className="relative"
         >
-          <Link to="/">
-            <Button className="w-64 font-press-start text-lg bg-transparent border-2 border-neon-cyan text-neon-cyan h-16 hover:bg-neon-cyan hover:text-black hover:shadow-glow-cyan transition-all duration-300">
-              MAIN MENU
-            </Button>
-          </Link>
+          <Button 
+            onClick={handleInsertCoin}
+            disabled={showCoinAnimation}
+            className="w-64 font-press-start text-lg bg-transparent border-2 border-neon-yellow text-neon-yellow h-16 hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow transition-all duration-300 disabled:opacity-50"
+          >
+            {showCoinAnimation ? 'INSERTING...' : '🪙 INSERT COIN'}
+          </Button>
+          
+          {showCoinAnimation && (
+            <div className="absolute inset-0 pointer-events-none overflow-visible">
+              {coins.map((coin) => (
+                <motion.div
+                  key={coin.id}
+                  initial={{ 
+                    x: coin.x, 
+                    y: coin.y, 
+                    scale: 0,
+                    rotate: 0,
+                    opacity: 1
+                  }}
+                  animate={{ 
+                    x: 0, 
+                    y: -200, 
+                    scale: [0, 1.5, 1],
+                    rotate: 720,
+                    opacity: [1, 1, 0]
+                  }}
+                  transition={{ 
+                    duration: 1,
+                    ease: 'easeOut'
+                  }}
+                  className="absolute left-1/2 top-1/2 text-4xl"
+                  style={{
+                    textShadow: '0 0 20px #FFD700, 0 0 40px #FFD700'
+                  }}
+                >
+                  🪙
+                </motion.div>
+              ))}
+            </div>
+          )}
         </motion.div>
       </div>
       <AudioSettingsPanel className="absolute right-4 top-4 z-30" />

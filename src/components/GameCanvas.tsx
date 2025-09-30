@@ -54,7 +54,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0 } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0 } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -531,6 +531,88 @@ export default function GameCanvas() {
                 shadowBlur={10}
                 lineCap="round"
                 lineJoin="round"
+              />
+            </React.Fragment>
+          );
+        })}
+        {/* Render Fire Trails */}
+        {fireTrails.map((trail) => {
+          const age = now - trail.timestamp;
+          const maxDuration = 2000; // 2 seconds
+          if (age > maxDuration) return null;
+          const progress = age / maxDuration;
+          const opacity = (1 - progress) * 0.5; // Fade out over time
+          const pulseScale = 1 + Math.sin(now / 100) * 0.1; // Pulsing effect
+          
+          return (
+            <React.Fragment key={trail.id}>
+              {/* Outer glow */}
+              <Circle
+                x={trail.position.x}
+                y={trail.position.y}
+                radius={trail.radius * pulseScale}
+                fill="#FF6600"
+                opacity={opacity * 0.3}
+                shadowColor="#FF6600"
+                shadowBlur={25}
+              />
+              {/* Inner fire */}
+              <Circle
+                x={trail.position.x}
+                y={trail.position.y}
+                radius={trail.radius * 0.6 * pulseScale}
+                fill="#FF3300"
+                opacity={opacity * 0.6}
+                shadowColor="#FF9900"
+                shadowBlur={15}
+              />
+            </React.Fragment>
+          );
+        })}
+        {/* Render Orbital Skulls */}
+        {orbitalSkulls.map((skull) => {
+          const owner = players.find(p => p.id === skull.ownerId);
+          if (!owner) return null;
+          
+          // Calculate skull position
+          const skullX = owner.position.x + Math.cos(skull.angle) * skull.radius;
+          const skullY = owner.position.y + Math.sin(skull.angle) * skull.radius;
+          
+          // Pulsing fire glow effect
+          const pulseIntensity = 0.7 + Math.sin(now / 150) * 0.3;
+          
+          return (
+            <React.Fragment key={skull.id}>
+              {/* Fire aura around skull */}
+              <Circle
+                x={skullX}
+                y={skullY}
+                radius={18}
+                fill="#FF6600"
+                opacity={pulseIntensity * 0.4}
+                shadowColor="#FF3300"
+                shadowBlur={30}
+              />
+              {/* Inner fire glow */}
+              <Circle
+                x={skullX}
+                y={skullY}
+                radius={12}
+                fill="#FF9900"
+                opacity={pulseIntensity * 0.6}
+                shadowColor="#FFAA00"
+                shadowBlur={20}
+              />
+              {/* Skull emoji */}
+              <Text
+                text="💀"
+                x={skullX}
+                y={skullY}
+                fontSize={24}
+                offsetX={12}
+                offsetY={12}
+                shadowColor="#FF0000"
+                shadowBlur={15}
               />
             </React.Fragment>
           );

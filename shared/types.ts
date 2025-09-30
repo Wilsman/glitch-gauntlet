@@ -134,6 +134,8 @@ export interface Player {
   knockbackForce?: number; // knockback distance
   // Pet
   hasPet?: boolean;
+  // Orbital
+  orbitalCount?: number; // number of flaming skulls orbiting
   // Extraction
   extractionProgress?: number; // ms in extraction zone
 }
@@ -282,6 +284,24 @@ export interface ChainLightning {
   timestamp: number;
 }
 
+export interface OrbitalSkull {
+  id: string;
+  ownerId: string;
+  angle: number; // current angle in radians
+  radius: number; // distance from player
+  damage: number; // damage per tick
+  lastDamageTimestamp?: number;
+}
+
+export interface FireTrail {
+  id: string;
+  position: Vector2D;
+  timestamp: number;
+  radius: number;
+  damage: number; // damage per tick
+  ownerId: string;
+}
+
 export type GameStatus = 'playing' | 'gameOver' | 'won';
 
 export interface LeaderboardEntry {
@@ -328,6 +348,8 @@ export interface GameState {
   explosions?: Explosion[];
   chainLightning?: ChainLightning[];
   pets?: Pet[];
+  orbitalSkulls?: OrbitalSkull[];
+  fireTrails?: FireTrail[];
   isHellhoundRound?: boolean;
   hellhoundRoundComplete?: boolean;
   totalHellhoundsInRound?: number;
