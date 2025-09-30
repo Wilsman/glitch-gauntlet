@@ -96,14 +96,17 @@ export interface StatusEffect {
   slowAmount?: number; // movement speed multiplier (0-1)
 }
 
+export type EnemyType = 'grunt' | 'slugger';
+
 export interface Enemy {
   id: string;
   position: Vector2D;
   health: number;
   maxHealth: number;
-  type: 'grunt';
+  type: EnemyType;
   xpValue: number;
   damage: number;
+  speed: number;
   lastHitTimestamp?: number;
   // UI cues
   lastCritTimestamp?: number;
@@ -111,6 +114,10 @@ export interface Enemy {
   // Status effects
   statusEffects?: StatusEffect[];
   baseSpeed?: number; // for calculating slow effects
+  // Shooting enemies
+  attackCooldown?: number;
+  attackSpeed?: number;
+  projectileSpeed?: number;
 }
 export interface Projectile {
   id: string;

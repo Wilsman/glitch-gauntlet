@@ -243,8 +243,16 @@ export default function GameCanvas() {
           const isPoisoned = enemy.statusEffects?.some(e => e.type === 'poisoned');
           const isSlowed = enemy.statusEffects?.some(e => e.type === 'slowed');
           
-          let fill = '#FFFF00'; // default yellow
+          // Enemy type specific colors and sizes
+          let fill = '#FFFF00'; // default yellow for grunt
           let shadow = '#FFFF00';
+          let size = 20;
+          
+          if (enemy.type === 'slugger') {
+            fill = '#FF8800'; // orange for slugger
+            shadow = '#FF8800';
+            size = 24; // slightly larger
+          }
           
           if (isCrit) {
             fill = '#FF5A5A';
@@ -264,7 +272,7 @@ export default function GameCanvas() {
           
           return (
             <React.Fragment key={enemy.id}>
-              <Rect x={enemy.position.x - 10} y={enemy.position.y - 10} width={20} height={20} fill={fill} shadowColor={shadow} shadowBlur={18} />
+              <Rect x={enemy.position.x - size/2} y={enemy.position.y - size/2} width={size} height={size} fill={fill} shadowColor={shadow} shadowBlur={18} />
               {/* Damage Numbers */}
               {enemy.damageNumbers?.map((dmg) => {
                 const age = now - dmg.timestamp;
@@ -297,6 +305,7 @@ export default function GameCanvas() {
         {/* Render Projectiles */}
         {projectiles.map((p) => {
           const owner = players.find(pl => pl.id === p.ownerId);
+          const isEnemyProjectile = enemies.some(e => e.id === p.ownerId);
           const hasHoming = owner?.homingStrength && owner.homingStrength > 0;
           const hasRicochet = owner?.ricochetCount && owner.ricochetCount > 0;
           
@@ -314,6 +323,21 @@ export default function GameCanvas() {
                 shadowColor={color}
                 shadowBlur={14}
                 rotation={((Date.now() / 10) % 360)}
+              />
+            );
+          }
+          
+          // Enemy projectiles have distinct appearance
+          if (isEnemyProjectile) {
+            return (
+              <Circle
+                key={p.id}
+                x={p.position.x}
+                y={p.position.y}
+                radius={5}
+                fill="#FF0000"
+                shadowColor="#FF0000"
+                shadowBlur={10}
               />
             );
           }

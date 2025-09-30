@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion, ChainLightning, Pet } from '@shared/types';
 import { getRandomUpgrades } from './upgrades';
 import { applyUpgradeEffect } from './upgradeEffects';
+import { createEnemy, selectRandomEnemyType } from './enemyConfig';
 const MAX_PLAYERS = 4;
 const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
@@ -285,8 +286,11 @@ export class GlobalDurableObject extends DurableObject {
     updateEnemyAI(state: GameState, now: number, delta: number, timeFactor: number) {
         const enemySpawnRate = 0.05 + (state.wave * 0.01);
         if (state.enemies.length < 10 * state.players.length && Math.random() < enemySpawnRate) {
-            const health = 20 + (state.wave * 5);
-            const newEnemy: Enemy = { id: uuidv4(), position: { x: Math.random() * ARENA_WIDTH, y: Math.random() > 0.5 ? -20 : ARENA_HEIGHT + 20 }, health, maxHealth: health, type: 'grunt', xpValue: 5, damage: 5 };
+            const enemyType = selectRandomEnemyType();
+            const spawnX = Math.random() * ARENA_WIDTH;
+            const spawnY = Math.random() > 0.5 ? -20 : ARENA_HEIGHT + 20;
+            const newEnemy = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, enemyType, state.wave);
+            console.log(`Spawned ${enemyType} at wave ${state.wave}:`, newEnemy);
             state.enemies.push(newEnemy);
         }
         state.enemies.forEach(enemy => {
@@ -298,6 +302,34 @@ export class GlobalDurableObject extends DurableObject {
             }, { player: null as Player | null, dist: Infinity });
             if (closestPlayer.player) {
                 const p = closestPlayer.player;
+                
+                // Handle shooting enemies
+                if (enemy.attackSpeed && enemy.attackCooldown !== undefined) {
+                    enemy.attackCooldown -= delta;
+                    if (enemy.attackCooldown <= 0 && closestPlayer.dist < 400) {
+                        enemy.attackCooldown = enemy.attackSpeed;
+                        const angle = Math.atan2(p.position.y - enemy.position.y, p.position.x - enemy.position.x);
+                        const enemyProjectile: Projectile = {
+                            id: uuidv4(),
+                            ownerId: enemy.id,
+                            position: { ...enemy.position },
+                            velocity: { 
+                                x: Math.cos(angle) * (enemy.projectileSpeed || 4), 
+                                y: Math.sin(angle) * (enemy.projectileSpeed || 4) 
+                            },
+                            damage: enemy.damage,
+                            isCrit: false,
+                            kind: 'bullet',
+                            radius: 6,
+                            hitEnemies: [],
+                            pierceRemaining: 0,
+                            ricochetRemaining: 0,
+                        };
+                        state.projectiles.push(enemyProjectile);
+                        console.log(`${enemy.type} (${enemy.id.substring(0, 8)}) shot projectile at player from distance ${Math.round(closestPlayer.dist)}`);
+                    }
+                }
+                
                 if (closestPlayer.dist < 20) {
                     // Calculate incoming damage
                     let incomingDamage = enemy.damage * (delta / 1000);
@@ -324,9 +356,18 @@ export class GlobalDurableObject extends DurableObject {
                     p.lastHitTimestamp = now;
                     if (p.health <= 0) p.status = 'dead';
                 } else {
+                    // Apply slow effects if present
+                    let effectiveSpeed = enemy.speed;
+                    if (enemy.statusEffects && enemy.statusEffects.length > 0) {
+                        const slowEffect = enemy.statusEffects.find(e => e.type === 'frozen' || e.type === 'slowed');
+                        if (slowEffect && slowEffect.slowAmount) {
+                            effectiveSpeed *= slowEffect.slowAmount;
+                        }
+                    }
+                    
                     const angle = Math.atan2(p.position.y - enemy.position.y, p.position.x - enemy.position.x);
-                    enemy.position.x += Math.cos(angle) * 2 * timeFactor;
-                    enemy.position.y += Math.sin(angle) * 2 * timeFactor;
+                    enemy.position.x += Math.cos(angle) * effectiveSpeed * timeFactor;
+                    enemy.position.y += Math.sin(angle) * effectiveSpeed * timeFactor;
                 }
             }
         });
@@ -464,10 +505,43 @@ export class GlobalDurableObject extends DurableObject {
             proj.position.x += proj.velocity.x * timeFactor;
             proj.position.y += proj.velocity.y * timeFactor;
 
+            // Check if this is an enemy projectile hitting a player
+            const isEnemyProjectile = state.enemies.some(e => e.id === proj.ownerId);
+            if (isEnemyProjectile) {
+                for (const player of state.players) {
+                    if (player.status !== 'alive') continue;
+                    if (Math.hypot(proj.position.x - player.position.x, proj.position.y - player.position.y) < (radius + 15)) {
+                        // Calculate incoming damage
+                        let incomingDamage = proj.damage;
+                        // Dodge check
+                        if (player.dodge && Math.random() < player.dodge) {
+                            incomingDamage = 0; // Dodged!
+                        } else {
+                            // Armor reduction
+                            if (player.armor && player.armor > 0) {
+                                incomingDamage *= (1 - player.armor);
+                            }
+                            // Shield absorption
+                            if (player.shield && player.shield > 0) {
+                                const absorbed = Math.min(player.shield, incomingDamage);
+                                player.shield -= absorbed;
+                                incomingDamage -= absorbed;
+                            }
+                        }
+                        player.health = Math.max(0, player.health - incomingDamage);
+                        player.lastHitTimestamp = now;
+                        if (player.health <= 0) player.status = 'dead';
+                        return false; // Remove projectile after hitting player
+                    }
+                }
+            }
+
             // Collisions: persistent hitbox; do NOT remove on hit for bananarang
-            for (const enemy of state.enemies) {
-                // Skip if already hit (for pierce)
-                if (proj.hitEnemies && proj.hitEnemies.includes(enemy.id)) continue;
+            // Skip enemy collision if this is an enemy projectile
+            if (!isEnemyProjectile) {
+                for (const enemy of state.enemies) {
+                    // Skip if already hit (for pierce)
+                    if (proj.hitEnemies && proj.hitEnemies.includes(enemy.id)) continue;
                 if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < (radius + 10)) {
                     // Calculate final damage with berserker bonus
                     let finalDamage = proj.damage;
@@ -601,6 +675,7 @@ export class GlobalDurableObject extends DurableObject {
                             proj.pierceRemaining--;
                         }
                     }
+                }
                 }
             }
             // Keep inside loose bounds; bananarang may briefly go off-screen
