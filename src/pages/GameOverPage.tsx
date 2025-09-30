@@ -71,21 +71,116 @@ export default function GameOverPage() {
                 YOU SURVIVED UNTIL WAVE:{' '}
                 <span className="font-press-start text-4xl text-neon-yellow">{gameState.wave}</span>
               </p>
-              <div className="pt-4">
-                <h2 className="font-press-start text-2xl text-neon-pink mb-2">FINAL STATS</h2>
-                <ul className="text-2xl">
-                  {gameState.players.map((player, index) => (
-                     <motion.li
-                        key={player.id}
-                        initial={{ x: -20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: 0.5 + index * 0.1 }}
-                     >
-                      <span style={{ color: player.color }}>P{player.id.substring(0, 2).toUpperCase()}</span> - LVL{' '}
-                      {player.level}
-                    </motion.li>
-                  ))}
-                </ul>
+              <div className="pt-8 space-y-8">
+                <h2 className="font-press-start text-2xl text-neon-pink mb-4">FINAL STATS</h2>
+                {gameState.players.map((player, index) => (
+                  <motion.div
+                    key={player.id}
+                    initial={{ x: -20, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    transition={{ delay: 0.5 + index * 0.15 }}
+                    className="bg-black/60 border-2 p-6 rounded-lg"
+                    style={{ borderColor: player.color }}
+                  >
+                    <h3 className="font-press-start text-2xl mb-4" style={{ color: player.color }}>
+                      PLAYER {player.id.substring(0, 2).toUpperCase()}
+                    </h3>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-left text-xl">
+                      <div><span className="text-neon-cyan">Level:</span> <span className="text-white">{player.level}</span></div>
+                      <div><span className="text-neon-cyan">XP:</span> <span className="text-white">{player.xp}</span></div>
+                      <div><span className="text-neon-cyan">Health:</span> <span className="text-white">{player.health}/{player.maxHealth}</span></div>
+                      <div><span className="text-neon-cyan">Speed:</span> <span className="text-white">{player.speed.toFixed(1)}</span></div>
+                      <div><span className="text-neon-cyan">Damage:</span> <span className="text-white">{player.projectileDamage}</span></div>
+                      <div><span className="text-neon-cyan">Attack Speed:</span> <span className="text-white">{(1000 / player.attackSpeed).toFixed(1)}/s</span></div>
+                      <div><span className="text-neon-cyan">Multishot:</span> <span className="text-white">x{player.projectilesPerShot}</span></div>
+                      <div><span className="text-neon-cyan">Crit Chance:</span> <span className="text-white">{(player.critChance * 100).toFixed(0)}%</span></div>
+                      <div><span className="text-neon-cyan">Crit Damage:</span> <span className="text-white">{player.critMultiplier.toFixed(1)}x</span></div>
+                      <div><span className="text-neon-cyan">Life Steal:</span> <span className="text-white">{(player.lifeSteal * 100).toFixed(0)}%</span></div>
+                      <div><span className="text-neon-cyan">Pickup Radius:</span> <span className="text-white">{player.pickupRadius}</span></div>
+                      {player.armor && player.armor > 0 && (
+                        <div><span className="text-neon-cyan">Armor:</span> <span className="text-white">{(player.armor * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.dodge && player.dodge > 0 && (
+                        <div><span className="text-neon-cyan">Dodge:</span> <span className="text-white">{(player.dodge * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.regeneration && player.regeneration > 0 && (
+                        <div><span className="text-neon-cyan">Regen:</span> <span className="text-white">{player.regeneration.toFixed(1)}/s</span></div>
+                      )}
+                      {player.thorns && player.thorns > 0 && (
+                        <div><span className="text-neon-cyan">Thorns:</span> <span className="text-white">{(player.thorns * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.shield && player.shield > 0 && (
+                        <div><span className="text-neon-cyan">Shield:</span> <span className="text-white">{player.shield}/{player.maxShield}</span></div>
+                      )}
+                      {player.fireDamage && player.fireDamage > 0 && (
+                        <div><span className="text-neon-cyan">Fire DoT:</span> <span className="text-white">{(player.fireDamage * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.poisonDamage && player.poisonDamage > 0 && (
+                        <div><span className="text-neon-cyan">Poison DoT:</span> <span className="text-white">{(player.poisonDamage * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.iceSlow && player.iceSlow > 0 && (
+                        <div><span className="text-neon-cyan">Ice Slow:</span> <span className="text-white">{(player.iceSlow * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.explosionDamage && player.explosionDamage > 0 && (
+                        <div><span className="text-neon-cyan">Explosion:</span> <span className="text-white">{player.explosionDamage.toFixed(1)}x</span></div>
+                      )}
+                      {player.pierceCount && player.pierceCount > 0 && (
+                        <div><span className="text-neon-cyan">Pierce:</span> <span className="text-white">{player.pierceCount}</span></div>
+                      )}
+                      {player.chainCount && player.chainCount > 0 && (
+                        <div><span className="text-neon-cyan">Chain:</span> <span className="text-white">{player.chainCount}</span></div>
+                      )}
+                      {player.ricochetCount && player.ricochetCount > 0 && (
+                        <div><span className="text-neon-cyan">Ricochet:</span> <span className="text-white">{player.ricochetCount}</span></div>
+                      )}
+                      {player.homingStrength && player.homingStrength > 0 && (
+                        <div><span className="text-neon-cyan">Homing:</span> <span className="text-white">{(player.homingStrength * 100).toFixed(0)}%</span></div>
+                      )}
+                      {player.knockbackForce && player.knockbackForce > 0 && (
+                        <div><span className="text-neon-cyan">Knockback:</span> <span className="text-white">{player.knockbackForce.toFixed(0)}</span></div>
+                      )}
+                      {player.hasBananarang && (
+                        <div><span className="text-neon-cyan">Bananarangs:</span> <span className="text-white">x{player.bananarangsPerShot || 1}</span></div>
+                      )}
+                      {player.hasPet && (
+                        <div className="col-span-2"><span className="text-neon-cyan">Pet:</span> <span className="text-white">Active 🐾</span></div>
+                      )}
+                    </div>
+                    {player.collectedUpgrades && player.collectedUpgrades.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-700">
+                        <h4 className="font-press-start text-lg text-neon-yellow mb-2">
+                          UPGRADES ({player.collectedUpgrades.length})
+                        </h4>
+                        <div className="flex flex-wrap gap-2">
+                          {player.collectedUpgrades.map((upgrade, idx) => (
+                            <div
+                              key={idx}
+                              className="px-3 py-1 rounded border text-sm"
+                              style={{
+                                borderColor: 
+                                  upgrade.rarity === 'legendary' ? '#FFD700' :
+                                  upgrade.rarity === 'boss' ? '#FF00FF' :
+                                  upgrade.rarity === 'lunar' ? '#00FFFF' :
+                                  upgrade.rarity === 'void' ? '#9333EA' :
+                                  upgrade.rarity === 'uncommon' ? '#10B981' :
+                                  '#6B7280',
+                                color:
+                                  upgrade.rarity === 'legendary' ? '#FFD700' :
+                                  upgrade.rarity === 'boss' ? '#FF00FF' :
+                                  upgrade.rarity === 'lunar' ? '#00FFFF' :
+                                  upgrade.rarity === 'void' ? '#9333EA' :
+                                  upgrade.rarity === 'uncommon' ? '#10B981' :
+                                  '#9CA3AF'
+                              }}
+                            >
+                              {upgrade.emoji} {upgrade.title} {upgrade.count > 1 && `x${upgrade.count}`}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                ))}
               </div>
             </motion.div>
           )

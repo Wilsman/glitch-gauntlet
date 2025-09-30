@@ -66,6 +66,18 @@ export default function GameCanvas() {
   
   const scale = displaySize.scaleX; // Use same scale for both X and Y to maintain aspect ratio
   
+  // Guard: Don't render Stage until we have valid game state
+  if (!gameState) {
+    return (
+      <div 
+        className="bg-gray-900 border-4 border-neon-pink shadow-glow-pink flex items-center justify-center"
+        style={{ width: displaySize.width, height: displaySize.height }}
+      >
+        <p className="text-neon-pink font-pixel">Loading game...</p>
+      </div>
+    );
+  }
+  
   return (
     <Stage 
       width={displaySize.width} 
