@@ -33,6 +33,13 @@ export function HomePage() {
     };
   }, []);
 
+  const handleLocalGame = () => {
+    const playerId = `local-${Date.now()}`;
+    setLocalPlayerId(playerId);
+    toast.success("Starting local game!");
+    navigate(`/game/local?playerId=${playerId}`);
+  };
+
   const handleHostGame = async () => {
     setIsHosting(true);
     try {
@@ -112,6 +119,13 @@ export function HomePage() {
           <p className="font-press-start text-lg text-neon-pink">The game</p>
         </div>
         <div className="space-y-6 w-full max-w-sm">
+          <Button
+            onClick={handleLocalGame}
+            disabled={isHosting || isJoining}
+            className="w-full font-press-start text-lg bg-transparent border-2 border-neon-yellow text-neon-yellow h-16 hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow transition-all duration-300"
+          >
+            Play Local
+          </Button>
           <Button
             onClick={handleHostGame}
             disabled={isHosting || isJoining}

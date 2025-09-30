@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGameStore } from '@/hooks/useGameStore';
 import GameCanvas from '@/components/GameCanvas';
 import type { ApiResponse, GameState, UpgradeOption, Player } from '@shared/types';
 import { Loader2 } from 'lucide-react';
 import { useGameLoop } from '@/hooks/useGameLoop';
+import { useLocalGameLoop } from '@/hooks/useLocalGameLoop';
 import { useGameAudio } from '@/hooks/useGameAudio';
 import UpgradeModal from '@/components/UpgradeModal';
 import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
@@ -12,12 +13,15 @@ import StatsPanel from '@/components/StatsPanel';
 import PlayerListPanel from '@/components/PlayerListPanel';
 import CollectedUpgradesPanel from '@/components/CollectedUpgradesPanel';
 import PetStatsPanel from '@/components/PetStatsPanel';
+import { LocalGameEngine } from '@/lib/LocalGameEngine';
 
 const EMPTY_PLAYERS: Player[] = [];
 
 export default function GamePage() {
   const { gameId } = useParams<{ gameId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const isLocalMode = gameId === 'local';
 
   const setGameState = useGameStore((state) => state.setGameState);
   const localPlayerId = useGameStore((state) => state.localPlayerId);
@@ -28,8 +32,10 @@ export default function GamePage() {
 
   const activeGameState = useMemo(() => {
     if (!rawGameState || !gameId) return null;
+    // For local mode, always use the game state since gameId is always 'local'
+    if (isLocalMode) return rawGameState;
     return rawGameState.gameId === gameId ? rawGameState : null;
-  }, [rawGameState, gameId]);
+  }, [rawGameState, gameId, isLocalMode]);
 
   const players = activeGameState?.players ?? EMPTY_PLAYERS;
   const levelingUpPlayerId = activeGameState?.levelingUpPlayerId ?? null;
@@ -38,6 +44,7 @@ export default function GamePage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const localEngineRef = useRef<LocalGameEngine | null>(null);
 
   useEffect(() => {
     setIsLoading(true);
@@ -47,7 +54,9 @@ export default function GamePage() {
   const isPaused = !!levelingUpPlayerId;
   const isLocalPlayerLevelingUp = levelingUpPlayerId === localPlayerId;
 
-  useGameLoop(gameId, isPaused);
+  // Use appropriate game loop based on mode
+  useGameLoop(isLocalMode ? undefined : gameId, isPaused);
+  useLocalGameLoop(isLocalMode ? localEngineRef.current : null, isPaused);
 
   useGameAudio();
 
@@ -73,69 +82,112 @@ export default function GamePage() {
       return;
     }
 
-    const fetchInitialState = async () => {
-      try {
-        const response = await fetch(`/api/game/${gameId}`);
-        if (!response.ok) throw new Error(`Game not found or server error.`);
-        const result = (await response.json()) as ApiResponse<GameState>;
-        if (result.success && result.data) setGameState(result.data);
-        else throw new Error(result.error || 'Invalid game state received.');
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
-        setError(errorMessage);
-      } finally {
+    if (isLocalMode) {
+      // Local mode - create local game engine
+      const playerIdFromUrl = searchParams.get('playerId');
+      if (!playerIdFromUrl) {
+        setError('No player ID provided for local game.');
         setIsLoading(false);
+        return;
       }
-    };
 
-    fetchInitialState();
-  }, [gameId, setGameState, localPlayerId, navigate]);
+      const engine = new LocalGameEngine(playerIdFromUrl);
+      localEngineRef.current = engine;
+      engine.start();
+      setGameState(engine.getGameState());
+      setIsLoading(false);
+
+      return () => {
+        engine.stop();
+      };
+    } else {
+      // Host mode - fetch from server
+      const fetchInitialState = async () => {
+        try {
+          const response = await fetch(`/api/game/${gameId}`);
+          if (!response.ok) throw new Error(`Game not found or server error.`);
+          const result = (await response.json()) as ApiResponse<GameState>;
+          if (result.success && result.data) setGameState(result.data);
+          else throw new Error(result.error || 'Invalid game state received.');
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred.';
+          setError(errorMessage);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      fetchInitialState();
+    }
+  }, [gameId, setGameState, localPlayerId, navigate, isLocalMode, searchParams]);
 
   useEffect(() => {
     const fetchUpgrades = async () => {
       if (isLocalPlayerLevelingUp && !isUpgradeModalOpen && gameId) {
-        try {
-          const res = await fetch(`/api/game/${gameId}/upgrades`);
-          if (res.status === 404) {
-            console.warn('Upgrades not yet available for this player.');
-            return;
+        if (isLocalMode) {
+          // Local mode - get upgrades from engine
+          const engine = localEngineRef.current;
+          if (engine) {
+            const upgrades = engine.getUpgradeOptions();
+            if (upgrades) {
+              openUpgradeModal(upgrades);
+            }
           }
-          if (!res.ok) throw new Error('Failed to fetch upgrades');
-          const result = (await res.json()) as ApiResponse<UpgradeOption[]>;
-          if (result.success && result.data) {
-            openUpgradeModal(result.data);
-          } else {
-            console.error(result.error || 'Could not load upgrades.');
+        } else {
+          // Host mode - fetch from server
+          try {
+            const res = await fetch(`/api/game/${gameId}/upgrades`);
+            if (res.status === 404) {
+              console.warn('Upgrades not yet available for this player.');
+              return;
+            }
+            if (!res.ok) throw new Error('Failed to fetch upgrades');
+            const result = (await res.json()) as ApiResponse<UpgradeOption[]>;
+            if (result.success && result.data) {
+              openUpgradeModal(result.data);
+            } else {
+              console.error(result.error || 'Could not load upgrades.');
+            }
+          } catch (e) {
+            console.error('Failed to fetch upgrades', e);
           }
-        } catch (e) {
-          console.error('Failed to fetch upgrades', e);
         }
       }
     };
 
     fetchUpgrades();
-  }, [isLocalPlayerLevelingUp, gameId, openUpgradeModal, isUpgradeModalOpen]);
+  }, [isLocalPlayerLevelingUp, gameId, openUpgradeModal, isUpgradeModalOpen, isLocalMode]);
 
   const handleSelectUpgrade = async (upgradeId: string) => {
     if (!gameId || !localPlayerId) return;
 
     try {
-      const response = await fetch(`/api/game/${gameId}/upgrade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId: localPlayerId, upgradeId }),
-      });
+      if (isLocalMode) {
+        // Local mode - apply upgrade directly
+        const engine = localEngineRef.current;
+        if (engine) {
+          engine.selectUpgrade(upgradeId);
+          setGameState(engine.getGameState());
+        }
+      } else {
+        // Host mode - send to server
+        const response = await fetch(`/api/game/${gameId}/upgrade`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: localPlayerId, upgradeId }),
+        });
 
-      if (!response.ok) {
-        console.error('Failed to submit selected upgrade');
-        return;
-      }
+        if (!response.ok) {
+          console.error('Failed to submit selected upgrade');
+          return;
+        }
 
-      const stateResponse = await fetch(`/api/game/${gameId}`);
-      if (stateResponse.ok) {
-        const stateResult = (await stateResponse.json()) as ApiResponse<GameState>;
-        if (stateResult.success && stateResult.data) {
-          setGameState(stateResult.data);
+        const stateResponse = await fetch(`/api/game/${gameId}`);
+        if (stateResponse.ok) {
+          const stateResult = (await stateResponse.json()) as ApiResponse<GameState>;
+          if (stateResult.success && stateResult.data) {
+            setGameState(stateResult.data);
+          }
         }
       }
     } catch (err) {
