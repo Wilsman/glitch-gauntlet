@@ -48,13 +48,14 @@ const HEAL_FLASH_DURATION = 180; // ms
 const REVIVE_DURATION = 3000;
 const EXTRACTION_DURATION = 5000;
 const DAMAGE_NUMBER_DURATION = 800; // ms
+const WAVE_DURATION = 20000; // 20 seconds per wave (must match LocalGameEngine)
 const selectGameState = (state) => ({
   gameState: state.gameState,
   localPlayerId: state.localPlayerId,
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], turrets = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0 } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], turrets = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0, waveTimer = 0 } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -735,6 +736,45 @@ export default function GameCanvas() {
         })}
         {/* Game ID Text */}
         <Text text={`Game Code: ${gameId}`} x={20} y={SERVER_ARENA_HEIGHT - 30} fontFamily='"Press Start 2P"' fontSize={14} fill="#FF00FF" />
+        {/* Wave Timer Progress Bar */}
+        {!isHellhoundRound && (
+          <>
+            {/* Progress bar background */}
+            <Rect
+              x={SERVER_ARENA_WIDTH / 2 - 300}
+              y={20}
+              width={600}
+              height={20}
+              fill="#1a1a1a"
+              stroke="#FF00FF"
+              strokeWidth={2}
+              cornerRadius={10}
+            />
+            {/* Progress bar fill */}
+            <Rect
+              x={SERVER_ARENA_WIDTH / 2 - 298}
+              y={22}
+              width={596 * Math.min(1, waveTimer / WAVE_DURATION)}
+              height={16}
+              fill="#00FFFF"
+              cornerRadius={8}
+              shadowColor="#00FFFF"
+              shadowBlur={10}
+            />
+            {/* Timer text */}
+            <Text
+              text={`${Math.ceil((WAVE_DURATION - waveTimer) / 1000)}s`}
+              x={SERVER_ARENA_WIDTH / 2}
+              y={23}
+              fontSize={14}
+              fontFamily='"Press Start 2P"'
+              fill="#FFFFFF"
+              offsetX={15}
+              shadowColor="#000000"
+              shadowBlur={4}
+            />
+          </>
+        )}
         {/* Hellhound Round Indicator */}
         {isHellhoundRound && (
           <>

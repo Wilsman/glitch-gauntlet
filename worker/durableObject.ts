@@ -8,7 +8,7 @@ const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
 const PLAYER_COLORS = ['#00FFFF', '#FF00FF', '#FFFF00', '#00FF00'];
 const TICK_RATE = 50; // ms
-const WAVE_DURATION = 30000; // 30 seconds per wave
+const WAVE_DURATION = 20000; // 20 seconds per wave
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
 const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
@@ -870,9 +870,11 @@ export class GlobalDurableObject extends DurableObject {
         
         let waveTimer = this.waveTimers.get(state.gameId) || 0;
         waveTimer += delta;
+        state.waveTimer = waveTimer; // Sync to game state for UI
         if (waveTimer >= WAVE_DURATION) {
             state.wave++;
             waveTimer = 0;
+            state.waveTimer = 0;
             
             // Check if next wave should be a hellhound round
             if (state.wave >= HELLHOUND_ROUND_START && (state.wave - HELLHOUND_ROUND_START) % HELLHOUND_ROUND_INTERVAL === 0) {

@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertTriangle, RefreshCw, Home, Copy, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -22,6 +22,8 @@ export function ErrorFallback({
   showErrorDetails = true,
   statusMessage = "Our team has been notified"
 }: ErrorFallbackProps) {
+  const [copied, setCopied] = useState(false);
+
   const handleRetry = () => {
     if (onRetry) {
       onRetry();
@@ -35,6 +37,29 @@ export function ErrorFallback({
       onGoHome();
     } else {
       window.location.href = '/';
+    }
+  };
+
+  const handleCopyError = async () => {
+    try {
+      const errorDetails = [
+        `Title: ${title}`,
+        `Message: ${message}`,
+        `URL: ${window.location.href}`,
+        `User Agent: ${navigator.userAgent}`,
+        `Timestamp: ${new Date().toISOString()}`,
+        '',
+        'Error Details:',
+        error?.message || error?.toString() || 'No error details available',
+        '',
+        error?.stack ? `Stack Trace:\n${error.stack}` : ''
+      ].filter(Boolean).join('\n');
+
+      await navigator.clipboard.writeText(errorDetails);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy error to clipboard:', err);
     }
   };
 
@@ -73,6 +98,19 @@ export function ErrorFallback({
               <Button onClick={handleGoHome} variant="secondary" className="w-full">
                 <Home className="w-4 h-4 mr-2" />
                 Go to Homepage
+              </Button>
+              <Button onClick={handleCopyError} variant="outline" className="w-full">
+                {copied ? (
+                  <>
+                    <Check className="w-4 h-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy Error to Clipboard
+                  </>
+                )}
               </Button>
             </div>
 

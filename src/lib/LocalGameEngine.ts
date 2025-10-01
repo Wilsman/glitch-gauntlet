@@ -10,7 +10,7 @@ const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
 const PLAYER_COLORS = ['#00FFFF', '#FF00FF', '#FFFF00', '#00FF00'];
 const TICK_RATE = 50; // ms
-const WAVE_DURATION = 30000; // 30 seconds per wave
+const WAVE_DURATION = 20000; // 20 seconds per wave
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
 const EXTRACTION_DURATION = 5000; // 5 seconds to extract
@@ -82,6 +82,7 @@ export class LocalGameEngine {
             orbitalSkulls: [],
             fireTrails: [],
             turrets: [],
+            waveTimer: 0,
         };
 
         // Pet Pal Percy starts with a pet
@@ -1370,9 +1371,11 @@ export class LocalGameEngine {
         }
         
         this.waveTimer += delta;
+        state.waveTimer = this.waveTimer; // Sync to game state for UI
         if (this.waveTimer >= WAVE_DURATION) {
             state.wave++;
             this.waveTimer = 0;
+            state.waveTimer = 0;
             
             if (state.wave >= HELLHOUND_ROUND_START && (state.wave - HELLHOUND_ROUND_START) % HELLHOUND_ROUND_INTERVAL === 0) {
                 state.isHellhoundRound = true;

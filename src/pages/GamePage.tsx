@@ -3,7 +3,8 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useGameStore } from '@/hooks/useGameStore';
 import GameCanvas from '@/components/GameCanvas';
 import type { ApiResponse, GameState, UpgradeOption, Player, CharacterType } from '@shared/types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Copy, Check } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useGameLoop } from '@/hooks/useGameLoop';
 import { useLocalGameLoop } from '@/hooks/useLocalGameLoop';
 import { useGameAudio } from '@/hooks/useGameAudio';
@@ -48,6 +49,7 @@ export default function GamePage() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorCopied, setErrorCopied] = useState(false);
   const localEngineRef = useRef<LocalGameEngine | null>(null);
   const lastLevelUpPlayerRef = useRef<string | null>(null);
 
@@ -262,11 +264,50 @@ export default function GamePage() {
     );
   }
 
+  const handleCopyError = async () => {
+    try {
+      const errorDetails = [
+        'Glitch Gauntlet Error Report',
+        '='.repeat(40),
+        `Error: ${error}`,
+        `URL: ${window.location.href}`,
+        `Game ID: ${gameId}`,
+        `Local Mode: ${isLocalMode}`,
+        `Player ID: ${localPlayerId || 'N/A'}`,
+        `User Agent: ${navigator.userAgent}`,
+        `Timestamp: ${new Date().toISOString()}`,
+      ].join('\n');
+
+      await navigator.clipboard.writeText(errorDetails);
+      setErrorCopied(true);
+      setTimeout(() => setErrorCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy error to clipboard:', err);
+    }
+  };
+
   if (error) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-neon-pink p-4">
         <h1 className="font-press-start text-4xl text-neon-pink">ERROR</h1>
-        <p className="font-vt323 text-2xl mt-4 text-center">{error}</p>
+        <p className="font-vt323 text-2xl mt-4 text-center max-w-2xl">{error}</p>
+        <Button 
+          onClick={handleCopyError} 
+          variant="outline" 
+          className="mt-6 font-press-start text-sm"
+        >
+          {errorCopied ? (
+            <>
+              <Check className="w-4 h-4 mr-2" />
+              Copied!
+            </>
+          ) : (
+            <>
+              <Copy className="w-4 h-4 mr-2" />
+              Copy Error to Clipboard
+            </>
+          )}
+        </Button>
       </div>
     );
   }

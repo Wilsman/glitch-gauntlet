@@ -374,4 +374,5 @@ export interface GameState {
   totalHellhoundsInRound?: number;
   hellhoundsKilled?: number;
   hellhoundSpawnTimer?: number;
+  waveTimer?: number; // Current wave elapsed time in ms
 }
