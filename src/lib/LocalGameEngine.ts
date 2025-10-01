@@ -212,25 +212,32 @@ export class LocalGameEngine {
         this.lastTick = now;
 
         const state = this.gameState;
-        if (state.status !== 'playing' || state.levelingUpPlayerId) return;
+        
+        // Pause game loop if player is leveling up
+        if (state.levelingUpPlayerId) return;
 
         const timeFactor = delta / (1000 / 60);
 
-        this.updatePlayerMovement(state, timeFactor);
-        this.updatePlayerEffects(state, delta);
-        this.updateRevives(state, delta);
-        this.updatePets(state, now, delta, timeFactor);
-        this.updateOrbitalSkulls(state, now, delta);
-        this.updateFireTrails(state, now, delta);
-        this.updateEnemyAI(state, now, delta, timeFactor);
-        this.updatePlayerAttacks(state, delta);
-        this.updateProjectiles(state, now, delta, timeFactor);
-        this.updateStatusEffects(state, delta);
-        this.updateExplosions(state, now);
-        this.updateChainLightning(state, now);
-        this.updateXPOrbs(state);
-        this.updateExtraction(state, delta);
-        this.updateWaves(state, delta);
+        // Only update game mechanics if still playing
+        if (state.status === 'playing') {
+            this.updatePlayerMovement(state, timeFactor);
+            this.updatePlayerEffects(state, delta);
+            this.updateRevives(state, delta);
+            this.updatePets(state, now, delta, timeFactor);
+            this.updateOrbitalSkulls(state, now, delta);
+            this.updateFireTrails(state, now, delta);
+            this.updateEnemyAI(state, now, delta, timeFactor);
+            this.updatePlayerAttacks(state, delta);
+            this.updateProjectiles(state, now, delta, timeFactor);
+            this.updateStatusEffects(state, delta);
+            this.updateExplosions(state, now);
+            this.updateChainLightning(state, now);
+            this.updateXPOrbs(state);
+            this.updateExtraction(state, delta);
+            this.updateWaves(state, delta);
+        }
+        
+        // Always check game status to save stats when game ends
         this.updateGameStatus(state);
     }
 
@@ -1100,13 +1107,15 @@ export class LocalGameEngine {
 
     private saveGameStats(state: GameState) {
         const survivalTimeMs = Date.now() - this.gameStartTime;
-        saveLastRunStats({
+        const stats = {
             characterType: this.characterType,
             waveReached: state.wave,
             enemiesKilled: this.enemiesKilledCount,
             survivalTimeMs,
             isVictory: state.status === 'won',
             timestamp: Date.now(),
-        });
+        };
+        console.log('Saving game stats:', stats, 'Game status:', state.status);
+        saveLastRunStats(stats);
     }
 }

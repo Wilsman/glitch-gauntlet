@@ -74,15 +74,21 @@ export default function GamePage() {
         const playerName = getPlayerName();
         const lastRun = getLastRunStats();
         
+        console.log('Game ended with status:', gameStatus);
+        console.log('Last run stats:', lastRun);
+        
         if (playerName && lastRun) {
-          submitLeaderboardScore({
+          const submission = {
             playerName,
             characterType: lastRun.characterType,
             waveReached: lastRun.waveReached,
             enemiesKilled: lastRun.enemiesKilled,
             survivalTimeMs: lastRun.survivalTimeMs,
             isVictory: lastRun.isVictory,
-          }).then((result) => {
+          };
+          console.log('Submitting to leaderboard:', submission);
+          
+          submitLeaderboardScore(submission).then((result) => {
             console.log('Score submitted to leaderboard:', result);
           }).catch((error) => {
             console.error('Failed to submit score:', error);
