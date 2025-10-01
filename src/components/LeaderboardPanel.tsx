@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { getCharacter } from '@shared/characterConfig';
 import type { LeaderboardCategory, LeaderboardEntry } from '@shared/types';
 import { getLeaderboard } from '@/lib/leaderboardApi';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 
 
 function formatTime(ms: number): string {
@@ -97,13 +98,18 @@ export function LeaderboardPanel() {
     'fastest-victory': false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<number>(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
 
-  const fetchLeaderboard = useCallback(async (category: LeaderboardCategory) => {
+  const fetchLeaderboard = useCallback(async (category: LeaderboardCategory, updateRefreshTime = false) => {
     setLoading(prev => ({ ...prev, [category]: true }));
     setError(null);
     try {
       const response = await getLeaderboard(category, 10);
       setEntries(prev => ({ ...prev, [category]: response.entries }));
+      if (updateRefreshTime) {
+        setLastRefresh(Date.now());
+      }
     } catch (err) {
       console.error('Failed to fetch leaderboard:', err);
       setError('Failed to load leaderboard');
@@ -113,21 +119,46 @@ export function LeaderboardPanel() {
   }, []);
 
   useEffect(() => {
-    void fetchLeaderboard(activeCategory);
+    void fetchLeaderboard(activeCategory, true);
   }, [activeCategory, fetchLeaderboard]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      void fetchLeaderboard(activeCategory);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [activeCategory, fetchLeaderboard]);
+    if (cooldownRemaining <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownRemaining(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownRemaining]);
+
+  const handleRefresh = () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefresh;
+    const cooldownMs = 30000;
+    
+    if (timeSinceLastRefresh < cooldownMs) {
+      const remainingSeconds = Math.ceil((cooldownMs - timeSinceLastRefresh) / 1000);
+      setCooldownRemaining(remainingSeconds);
+      return;
+    }
+    
+    void fetchLeaderboard(activeCategory, true);
+  };
 
   return (
     <div className="bg-black border-2 border-neon-pink p-6 rounded-lg shadow-glow-pink h-full flex flex-col">
-      <h2 className="font-press-start text-lg text-neon-yellow mb-4">
-        🏆 LEADERBOARDS
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-press-start text-lg text-neon-yellow">
+          🏆 LEADERBOARDS
+        </h2>
+        <Button
+          onClick={handleRefresh}
+          disabled={cooldownRemaining > 0 || loading[activeCategory]}
+          size="sm"
+          className="font-press-start text-xs bg-transparent border border-neon-cyan text-neon-cyan hover:bg-neon-cyan hover:text-black disabled:opacity-50 disabled:cursor-not-allowed h-8 w-8 p-0"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading[activeCategory] ? 'animate-spin' : ''}`} />
+        </Button>
+      </div>
 
       <Tabs 
         value={activeCategory} 
