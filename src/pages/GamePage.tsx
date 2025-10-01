@@ -8,7 +8,7 @@ import { useGameLoop } from '@/hooks/useGameLoop';
 import { useLocalGameLoop } from '@/hooks/useLocalGameLoop';
 import { useGameAudio } from '@/hooks/useGameAudio';
 import UpgradeModal from '@/components/UpgradeModal';
-import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
+import { SettingsPanel } from '@/components/SettingsPanel';
 import StatsPanel from '@/components/StatsPanel';
 import PlayerListPanel from '@/components/PlayerListPanel';
 import CollectedUpgradesPanel from '@/components/CollectedUpgradesPanel';
@@ -287,7 +287,7 @@ export default function GamePage() {
           <PetStatsPanel pet={localPlayerPet} />
         </div>
       )}
-      <AudioSettingsPanel className="fixed right-4 top-4 z-40" />
+      <SettingsPanel className="fixed right-4 top-1 z-40" />
 
       <div className="absolute top-4 text-center w-full pointer-events-none">
         <p className="font-press-start text-4xl text-neon-yellow" style={{ textShadow: '0 0 10px #FFFF00' }}>

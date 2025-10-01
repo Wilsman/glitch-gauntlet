@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import { Toaster, toast } from "@/components/ui/sonner";
-import { AudioSettingsPanel } from "@/components/AudioSettingsPanel";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { CharacterSelect } from "@/components/CharacterSelect";
 import { UnlockNotification } from "@/components/UnlockNotification";
 import { PlayerNameDialog } from "@/components/PlayerNameDialog";
@@ -230,7 +230,7 @@ export function HomePage() {
         <p>Built with ❤️ from Wilsman</p>
       </footer>
       <Toaster richColors theme="dark" />
-      <AudioSettingsPanel className="absolute right-4 top-4 z-30" />
+      <SettingsPanel className="absolute right-4 top-1 z-30" />
     </main>
   );
 }

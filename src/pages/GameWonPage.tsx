@@ -3,7 +3,7 @@ import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
 import { AudioManager } from '@/lib/audio/AudioManager';
 import { Button } from '@/components/ui/button';
-import { AudioSettingsPanel } from '@/components/AudioSettingsPanel';
+import { SettingsPanel } from '@/components/SettingsPanel';
 import { Loader2 } from 'lucide-react';
 import type { ApiResponse, GameState } from '@shared/types';
 import { motion } from 'framer-motion';
@@ -159,7 +159,7 @@ export default function GameWonPage() {
           )}
         </motion.div>
       </div>
-      <AudioSettingsPanel className="absolute right-4 top-4 z-30" />
+      <SettingsPanel className="absolute right-4 top-1 z-30" />
       <footer className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20">
         <p>Built with ❤️ from Wilsman</p>
       </footer>

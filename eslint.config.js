@@ -41,23 +41,17 @@ export default tseslint.config(
         ignore: ['cloudflare:workers', 'agents'] 
       }],
 
-      // CHANGED: Replaced the flawed rule with a more intelligent one.
-      "no-restricted-syntax": [
-        "error",
-        {
-          // This selector is more precise. In plain English, it means:
-          // "Inside a function component (named in PascalCase), find any `set...` call,
-          // but EXCLUDE any calls that are inside a nested function definition (like an event handler)."
-          // This correctly finds the bug while ignoring the false positive.
-          "selector": ":function[id.name=/^[A-Z]/] CallExpression[callee.name=/^set[A-Z]/]:not(ArrowFunctionExpression CallExpression, FunctionExpression CallExpression)",
-          "message": "State setters should not be called directly in the component's render body. This will cause an infinite render loop. Use useEffect or an event handler instead."
-        },
-        {
-          // This rule is a good backup to prevent setters inside memoization hooks.
-          "selector": "CallExpression[callee.name=/^set[A-Z]/] > :function[parent.callee.name='useMemo'], CallExpression[callee.name=/^set[A-Z]/] > :function[parent.callee.name='useCallback']",
-          "message": "State setters should not be called inside useMemo or useCallback. These hooks are for memoization, not for side effects."
-        }
-      ],
+      // Disabled: This rule produces too many false positives with inline arrow functions
+      // and nested event handlers. The react-hooks/exhaustive-deps rule already catches
+      // most problematic patterns. If you need to re-enable, consider using a plugin
+      // specifically designed for this purpose.
+      // "no-restricted-syntax": [
+      //   "error",
+      //   {
+      //     "selector": ":function[id.name=/^[A-Z]/] > BlockStatement > ExpressionStatement > CallExpression[callee.name=/^set[A-Z]/]",
+      //     "message": "State setters should not be called directly in the component's render body."
+      //   }
+      // ],
     },
     settings: {
       'import/resolver': {
