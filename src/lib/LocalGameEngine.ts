@@ -541,47 +541,54 @@ export class LocalGameEngine {
         const isHellhoundRound = state.isHellhoundRound || false;
         
         if (isHellhoundRound) {
-            const totalHellhounds = state.totalHellhoundsInRound || 0;
-            const hellhoundsKilled = state.hellhoundsKilled || 0;
-            const currentHellhounds = state.enemies.filter(e => e.type === 'hellhound').length;
-            const hellhoundsSpawned = (currentHellhounds + hellhoundsKilled);
+            // Check if all normal enemies are dead
+            const normalEnemies = state.enemies.filter(e => e.type !== 'hellhound');
+            const allNormalEnemiesDead = normalEnemies.length === 0;
             
-            if (state.hellhoundSpawnTimer === undefined) {
-                state.hellhoundSpawnTimer = 0;
-            }
-            
-            state.hellhoundSpawnTimer -= delta;
-            
-            if (state.hellhoundSpawnTimer <= 0 && hellhoundsSpawned < totalHellhounds) {
-                const packSize = Math.min(
-                    Math.floor(Math.random() * 3) + 3,
-                    totalHellhounds - hellhoundsSpawned
-                );
+            // Only spawn hellhounds after all normal enemies are dead
+            if (allNormalEnemiesDead) {
+                const totalHellhounds = state.totalHellhoundsInRound || 0;
+                const hellhoundsKilled = state.hellhoundsKilled || 0;
+                const currentHellhounds = state.enemies.filter(e => e.type === 'hellhound').length;
+                const hellhoundsSpawned = (currentHellhounds + hellhoundsKilled);
                 
-                const side = Math.floor(Math.random() * 4);
-                
-                for (let i = 0; i < packSize; i++) {
-                    let spawnX, spawnY;
-                    
-                    if (side === 0) {
-                        spawnX = Math.random() * ARENA_WIDTH;
-                        spawnY = -20 - (Math.random() * 30);
-                    } else if (side === 1) {
-                        spawnX = Math.random() * ARENA_WIDTH;
-                        spawnY = ARENA_HEIGHT + 20 + (Math.random() * 30);
-                    } else if (side === 2) {
-                        spawnX = -20 - (Math.random() * 30);
-                        spawnY = Math.random() * ARENA_HEIGHT;
-                    } else {
-                        spawnX = ARENA_WIDTH + 20 + (Math.random() * 30);
-                        spawnY = Math.random() * ARENA_HEIGHT;
-                    }
-                    
-                    const newHellhound = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, 'hellhound', state.wave);
-                    state.enemies.push(newHellhound);
+                if (state.hellhoundSpawnTimer === undefined) {
+                    state.hellhoundSpawnTimer = 0;
                 }
                 
-                state.hellhoundSpawnTimer = 3000 + Math.random() * 2000;
+                state.hellhoundSpawnTimer -= delta;
+                
+                if (state.hellhoundSpawnTimer <= 0 && hellhoundsSpawned < totalHellhounds) {
+                    const packSize = Math.min(
+                        Math.floor(Math.random() * 3) + 3,
+                        totalHellhounds - hellhoundsSpawned
+                    );
+                    
+                    const side = Math.floor(Math.random() * 4);
+                    
+                    for (let i = 0; i < packSize; i++) {
+                        let spawnX, spawnY;
+                        
+                        if (side === 0) {
+                            spawnX = Math.random() * ARENA_WIDTH;
+                            spawnY = -20 - (Math.random() * 30);
+                        } else if (side === 1) {
+                            spawnX = Math.random() * ARENA_WIDTH;
+                            spawnY = ARENA_HEIGHT + 20 + (Math.random() * 30);
+                        } else if (side === 2) {
+                            spawnX = -20 - (Math.random() * 30);
+                            spawnY = Math.random() * ARENA_HEIGHT;
+                        } else {
+                            spawnX = ARENA_WIDTH + 20 + (Math.random() * 30);
+                            spawnY = Math.random() * ARENA_HEIGHT;
+                        }
+                        
+                        const newHellhound = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, 'hellhound', state.wave);
+                        state.enemies.push(newHellhound);
+                    }
+                    
+                    state.hellhoundSpawnTimer = 3000 + Math.random() * 2000;
+                }
             }
         } else {
             const enemySpawnRate = 0.05 + (state.wave * 0.01);
