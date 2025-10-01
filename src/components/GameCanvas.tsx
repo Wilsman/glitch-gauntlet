@@ -423,6 +423,14 @@ export default function GameCanvas() {
             fill = '#8B0000'; // dark red for hellhound
             shadow = '#FF0000';
             size = 22; // medium size
+          } else if (enemy.type === 'splitter') {
+            fill = '#9D00FF'; // purple/magenta for splitter
+            shadow = '#9D00FF';
+            size = 26; // medium-large
+          } else if (enemy.type === 'mini-splitter') {
+            fill = '#C77DFF'; // lighter purple for mini-splitter
+            shadow = '#C77DFF';
+            size = 16; // smaller
           }
           
           if (isCrit) {
@@ -529,10 +537,10 @@ export default function GameCanvas() {
                 key={p.id}
                 x={p.position.x}
                 y={p.position.y}
-                radius={5}
-                fill="#FF0000"
-                shadowColor="#FF0000"
-                shadowBlur={10}
+                radius={6}
+                fill="#FF8800"
+                shadowColor="#FF8800"
+                shadowBlur={15}
               />
             );
           }

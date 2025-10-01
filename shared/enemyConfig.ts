@@ -59,6 +59,30 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     xpScaling: 1.3, // +30% per wave
     spawnWeight: 0, // Never spawns in normal rounds
   },
+  splitter: {
+    type: 'splitter',
+    baseHealth: 35,
+    baseDamage: 6,
+    baseSpeed: 1.5, // Slower than grunt, faster than slugger
+    baseXpValue: 12,
+    healthScaling: 1.35, // +35% per wave
+    damageScaling: 1.2, // +20% per wave
+    speedScaling: 1.04, // +4% per wave
+    xpScaling: 1.25, // +25% per wave
+    spawnWeight: 0.4, // Rare spawn - tactical challenge
+  },
+  'mini-splitter': {
+    type: 'mini-splitter',
+    baseHealth: 10, // 30% of splitter's 35 (rounded down)
+    baseDamage: 3, // 50% of splitter's 6
+    baseSpeed: 1.8, // 120% of splitter's 1.5
+    baseXpValue: 2, // 20% of splitter's 12 (rounded down)
+    healthScaling: 1.35, // Same as parent
+    damageScaling: 1.2, // Same as parent
+    speedScaling: 1.04, // Same as parent
+    xpScaling: 1.25, // Same as parent
+    spawnWeight: 0, // Never spawns naturally - only from splitting
+  },
 };
 
 export function createEnemy(
@@ -101,8 +125,15 @@ export function createEnemy(
   return enemy;
 }
 
-export function selectRandomEnemyType(): EnemyType {
-  const types = Object.keys(ENEMY_CONFIGS) as EnemyType[];
+export function selectRandomEnemyType(wave: number = 1): EnemyType {
+  const types = (Object.keys(ENEMY_CONFIGS) as EnemyType[]).filter(type => {
+    // Splitters only spawn after wave 5 (after first hellhound round)
+    if (type === 'splitter' && wave < 6) {
+      return false;
+    }
+    return ENEMY_CONFIGS[type].spawnWeight > 0;
+  });
+  
   const totalWeight = types.reduce((sum, type) => sum + ENEMY_CONFIGS[type].spawnWeight, 0);
   
   let random = Math.random() * totalWeight;

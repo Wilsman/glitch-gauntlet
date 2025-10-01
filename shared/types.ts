@@ -158,7 +158,7 @@ export interface StatusEffect {
   slowAmount?: number; // movement speed multiplier (0-1)
 }
 
-export type EnemyType = 'grunt' | 'slugger' | 'hellhound';
+export type EnemyType = 'grunt' | 'slugger' | 'hellhound' | 'splitter' | 'mini-splitter';
 
 export interface Enemy {
   id: string;

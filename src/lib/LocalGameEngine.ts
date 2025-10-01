@@ -593,7 +593,7 @@ export class LocalGameEngine {
         } else {
             const enemySpawnRate = 0.05 + (state.wave * 0.01);
             if (state.enemies.length < 10 * state.players.length && Math.random() < enemySpawnRate) {
-                const enemyType = selectRandomEnemyType();
+                const enemyType = selectRandomEnemyType(state.wave);
                 const spawnX = Math.random() * ARENA_WIDTH;
                 const spawnY = Math.random() > 0.5 ? -20 : ARENA_HEIGHT + 20;
                 const newEnemy = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, enemyType, state.wave);
@@ -1083,6 +1083,21 @@ export class LocalGameEngine {
             
             if (dead.type === 'hellhound' && state.isHellhoundRound) {
                 state.hellhoundsKilled = (state.hellhoundsKilled || 0) + 1;
+            }
+            
+            // Splitter mechanic: spawn mini-splitters when killed
+            if (dead.type === 'splitter') {
+                const splitCount = 2 + Math.floor(Math.random() * 2); // 2-3 mini-splitters
+                for (let i = 0; i < splitCount; i++) {
+                    const angle = (Math.PI * 2 / splitCount) * i + Math.random() * 0.5;
+                    const distance = 30 + Math.random() * 20;
+                    const spawnPos = {
+                        x: dead.position.x + Math.cos(angle) * distance,
+                        y: dead.position.y + Math.sin(angle) * distance
+                    };
+                    const miniSplitter = createEnemy(uuidv4(), spawnPos, 'mini-splitter', state.wave);
+                    state.enemies.push(miniSplitter);
+                }
             }
             
             const killer = state.players.find(p => state.projectiles.some(proj => proj.ownerId === p.id));
