@@ -132,7 +132,7 @@ export function LeaderboardPanel() {
       <Tabs 
         value={activeCategory} 
         onValueChange={(value) => setActiveCategory(value as LeaderboardCategory)}
-        className="flex-1 flex flex-col"
+        className="flex-1 flex flex-col min-h-0"
       >
         <TabsList className="grid grid-cols-2 gap-2 bg-transparent mb-4">
           <TabsTrigger 
@@ -161,7 +161,7 @@ export function LeaderboardPanel() {
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 overflow-y-auto mt-4">
+        <div className="flex-1 overflow-y-auto mt-4 min-h-0">
           {(['highest-wave', 'most-kills', 'longest-survival', 'fastest-victory'] as LeaderboardCategory[]).map(category => (
             <TabsContent key={category} value={category} className="mt-0 space-y-2">
               {loading[category] ? (

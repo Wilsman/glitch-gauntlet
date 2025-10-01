@@ -892,21 +892,19 @@ export class LocalGameEngine {
                     enemy.health -= skull.damage;
                     enemy.lastHitTimestamp = now;
                     
-                    // Apply burning status effect
-                    if (owner.fireDamage || true) { // Always apply fire from skulls
-                        if (!enemy.statusEffects) enemy.statusEffects = [];
-                        const burnDamage = skull.damage * 0.5; // 50% of skull damage as burn
-                        const existing = enemy.statusEffects.find(e => e.type === 'burning');
-                        if (existing) {
-                            existing.duration = 2000; // Refresh duration
-                            existing.damage = Math.max(existing.damage || 0, burnDamage);
-                        } else {
-                            enemy.statusEffects.push({
-                                type: 'burning',
-                                damage: burnDamage,
-                                duration: 2000,
-                            });
-                        }
+                    // Apply burning status effect from skulls
+                    if (!enemy.statusEffects) enemy.statusEffects = [];
+                    const burnDamage = skull.damage * 0.5; // 50% of skull damage as burn
+                    const existing = enemy.statusEffects.find(e => e.type === 'burning');
+                    if (existing) {
+                        existing.duration = 2000; // Refresh duration
+                        existing.damage = Math.max(existing.damage || 0, burnDamage);
+                    } else {
+                        enemy.statusEffects.push({
+                            type: 'burning',
+                            damage: burnDamage,
+                            duration: 2000,
+                        });
                     }
                 }
             });
@@ -958,14 +956,31 @@ export class LocalGameEngine {
     private updateXPOrbs(state: GameState) {
         state.players.forEach(p => {
             if (p.status !== 'alive') return;
-            state.xpOrbs = state.xpOrbs.filter(orb => {
+            
+            // First, move orbs within pickup radius directly to player
+            state.xpOrbs.forEach(orb => {
+                const dx = p.position.x - orb.position.x;
+                const dy = p.position.y - orb.position.y;
+                const distance = Math.hypot(dx, dy);
                 const radius = p.pickupRadius || 30;
-                if (Math.hypot(p.position.x - orb.position.x, p.position.y - orb.position.y) < radius) {
+                
+                if (distance < radius && distance > 0) {
+                    // Snap directly to player position - no overshooting
+                    orb.position.x = p.position.x;
+                    orb.position.y = p.position.y;
+                }
+            });
+            
+            // Then collect orbs at player position
+            state.xpOrbs = state.xpOrbs.filter(orb => {
+                const distance = Math.hypot(p.position.x - orb.position.x, p.position.y - orb.position.y);
+                if (distance < 5) {
                     p.xp += orb.value;
                     return false;
                 }
                 return true;
             });
+            
             if (p.xp >= p.xpToNextLevel) {
                 p.level++;
                 
