@@ -117,7 +117,32 @@ export function checkUnlocks(): CharacterType[] {
     newlyUnlocked.push('pet-pal-percy');
   }
 
-  // Future unlock checks can be added here
+  // Check Vampire Vex unlock (reach wave 10)
+  if (
+    progression.highestWaveReached >= 10 &&
+    !progression.unlockedCharacters.includes('vampire-vex')
+  ) {
+    unlockCharacter('vampire-vex');
+    newlyUnlocked.push('vampire-vex');
+  }
+
+  // Check Turret Tina unlock (500 total enemies killed)
+  if (
+    progression.totalEnemiesKilled >= 500 &&
+    !progression.unlockedCharacters.includes('turret-tina')
+  ) {
+    unlockCharacter('turret-tina');
+    newlyUnlocked.push('turret-tina');
+  }
+
+  // Check Dash Dynamo unlock (reach wave 15)
+  if (
+    progression.highestWaveReached >= 15 &&
+    !progression.unlockedCharacters.includes('dash-dynamo')
+  ) {
+    unlockCharacter('dash-dynamo');
+    newlyUnlocked.push('dash-dynamo');
+  }
 
   return newlyUnlocked;
 }
@@ -133,6 +158,21 @@ export function getUnlockProgress(characterType: CharacterType): { current: numb
       return {
         current: progression.timesReachedLevel10,
         required: 3,
+      };
+    case 'vampire-vex':
+      return {
+        current: progression.highestWaveReached,
+        required: 10,
+      };
+    case 'turret-tina':
+      return {
+        current: progression.totalEnemiesKilled,
+        required: 500,
+      };
+    case 'dash-dynamo':
+      return {
+        current: progression.highestWaveReached,
+        required: 15,
       };
     default:
       return null;

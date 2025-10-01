@@ -17,11 +17,11 @@ export type InputState = {
 };
 export type PlayerStatus = 'alive' | 'dead';
 
-export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl' | 'pet-pal-percy';
+export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl' | 'pet-pal-percy' | 'vampire-vex' | 'turret-tina' | 'dash-dynamo';
 
-export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot';
+export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot' | 'burst-fire' | 'heavy-cannon' | 'shotgun';
 
-export type UnlockCriteriaType = 'level10Count' | 'waveReached' | 'gamesPlayed';
+export type UnlockCriteriaType = 'level10Count' | 'waveReached' | 'gamesPlayed' | 'enemiesKilled' | 'surviveWithoutHealth';
 
 export interface UnlockCriteria {
   type: UnlockCriteriaType;
@@ -138,6 +138,11 @@ export interface Player {
   orbitalCount?: number; // number of flaming skulls orbiting
   // Extraction
   extractionProgress?: number; // ms in extraction zone
+  // Character-specific abilities
+  vampireDrainRadius?: number; // Vampire Vex: drain radius
+  blinkCooldown?: number; // Dash Dynamo: blink ability cooldown
+  blinkReady?: boolean; // Dash Dynamo: is blink ready
+  burstShotsFired?: number; // Burst fire: track shots in current burst
 }
 export interface DamageNumber {
   id: string;
@@ -302,6 +307,19 @@ export interface FireTrail {
   ownerId: string;
 }
 
+export interface Turret {
+  id: string;
+  ownerId: string;
+  position: Vector2D;
+  health: number;
+  maxHealth: number;
+  damage: number;
+  attackSpeed: number;
+  attackCooldown: number;
+  range: number;
+  expiresAt: number; // timestamp when turret expires
+}
+
 export type GameStatus = 'playing' | 'gameOver' | 'won';
 
 export interface LeaderboardEntry {
@@ -350,6 +368,7 @@ export interface GameState {
   pets?: Pet[];
   orbitalSkulls?: OrbitalSkull[];
   fireTrails?: FireTrail[];
+  turrets?: Turret[];
   isHellhoundRound?: boolean;
   hellhoundRoundComplete?: boolean;
   totalHellhoundsInRound?: number;

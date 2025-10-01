@@ -1,4 +1,4 @@
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, StatusEffect, Explosion, ChainLightning, Pet, CharacterType, OrbitalSkull, FireTrail } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, StatusEffect, Explosion, ChainLightning, Pet, CharacterType, OrbitalSkull, FireTrail, Turret } from '@shared/types';
 import { getRandomUpgrades } from '@shared/upgrades';
 import { applyUpgradeEffect } from '@shared/upgradeEffects';
 import { createEnemy, selectRandomEnemyType } from '@shared/enemyConfig';
@@ -81,6 +81,7 @@ export class LocalGameEngine {
             pets: [],
             orbitalSkulls: [],
             fireTrails: [],
+            turrets: [],
         };
 
         // Pet Pal Percy starts with a pet
@@ -103,6 +104,18 @@ export class LocalGameEngine {
             };
             this.gameState.pets = [startingPet];
             initialPlayer.hasPet = true;
+        }
+
+        // Character-specific initialization
+        if (characterType === 'vampire-vex') {
+            initialPlayer.vampireDrainRadius = 50; // Base drain radius
+        }
+        if (characterType === 'dash-dynamo') {
+            initialPlayer.blinkCooldown = 0;
+            initialPlayer.blinkReady = true;
+        }
+        if (character.weaponType === 'burst-fire') {
+            initialPlayer.burstShotsFired = 0;
         }
     }
 
@@ -135,6 +148,75 @@ export class LocalGameEngine {
         if (player) {
             player.lastInput = { ...input };
         }
+    }
+
+    useBlink() {
+        const player = this.gameState.players[0];
+        if (!player || player.characterType !== 'dash-dynamo') return;
+        if (!player.blinkReady || player.blinkCooldown! > 0) return;
+        
+        // Blink 150 units in the direction of movement or toward mouse
+        const input = player.lastInput;
+        if (!input) return;
+        
+        let dx = 0;
+        let dy = 0;
+        if (input.up) dy -= 1;
+        if (input.down) dy += 1;
+        if (input.left) dx -= 1;
+        if (input.right) dx += 1;
+        
+        // If no movement input, blink forward (right)
+        if (dx === 0 && dy === 0) {
+            dx = 1;
+        }
+        
+        // Normalize and apply blink distance
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0) {
+            dx = (dx / dist) * 150;
+            dy = (dy / dist) * 150;
+            
+            // Apply blink with bounds checking
+            player.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, player.position.x + dx));
+            player.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, player.position.y + dy));
+            
+            // Set cooldown (5 seconds)
+            player.blinkCooldown = 5000;
+            player.blinkReady = false;
+        }
+    }
+
+    placeTurret() {
+        const player = this.gameState.players[0];
+        if (!player || player.characterType !== 'turret-tina') return;
+        if (!this.gameState.turrets) this.gameState.turrets = [];
+        
+        // Limit to 3 turrets
+        const playerTurrets = this.gameState.turrets.filter(t => t.ownerId === player.id);
+        if (playerTurrets.length >= 3) {
+            // Remove oldest turret
+            const oldest = playerTurrets[0];
+            this.gameState.turrets = this.gameState.turrets.filter(t => t.id !== oldest.id);
+        }
+        
+        const now = Date.now();
+        // Scale turret attack speed with player's attack speed (turrets are 50% slower than player)
+        const turretAttackSpeed = Math.max(300, player.attackSpeed * 1.5);
+        
+        const newTurret: Turret = {
+            id: uuidv4(),
+            ownerId: player.id,
+            position: { ...player.position },
+            health: 50,
+            maxHealth: 50,
+            damage: 8 + (player.level * 2),
+            attackSpeed: turretAttackSpeed,
+            attackCooldown: 0,
+            range: 300,
+            expiresAt: now + 20000, // 20 seconds duration
+        };
+        this.gameState.turrets.push(newTurret);
     }
 
     selectUpgrade(upgradeId: string) {
@@ -222,10 +304,13 @@ export class LocalGameEngine {
         if (state.status === 'playing') {
             this.updatePlayerMovement(state, timeFactor);
             this.updatePlayerEffects(state, delta);
+            this.updateVampireDrain(state, delta, now);
+            this.updateBlinkCooldown(state, delta);
             this.updateRevives(state, delta);
             this.updatePets(state, now, delta, timeFactor);
             this.updateOrbitalSkulls(state, now, delta);
             this.updateFireTrails(state, now, delta);
+            this.updateTurrets(state, now, delta);
             this.updateEnemyAI(state, now, delta, timeFactor);
             this.updatePlayerAttacks(state, delta);
             this.updateProjectiles(state, now, delta, timeFactor);
@@ -265,6 +350,114 @@ export class LocalGameEngine {
             if (p.maxShield && p.maxShield > 0) {
                 if (!p.shield) p.shield = 0;
                 p.shield = Math.min(p.maxShield, p.shield + (10 * delta / 1000));
+            }
+        });
+    }
+
+    private updateVampireDrain(state: GameState, delta: number, now: number) {
+        state.players.forEach(p => {
+            if (p.status !== 'alive' || p.characterType !== 'vampire-vex') return;
+            
+            // Drain radius grows with level: base 50 + (level * 10)
+            const drainRadius = 50 + (p.level * 10);
+            p.vampireDrainRadius = drainRadius;
+            
+            // Drain damage per second: 2 + (level * 0.5)
+            const drainDPS = 2 + (p.level * 0.5);
+            const drainDamage = drainDPS * (delta / 1000);
+            
+            let totalDrained = 0;
+            state.enemies.forEach(enemy => {
+                const dist = Math.hypot(enemy.position.x - p.position.x, enemy.position.y - p.position.y);
+                if (dist <= drainRadius) {
+                    const actualDamage = Math.min(drainDamage, enemy.health);
+                    enemy.health -= actualDamage;
+                    totalDrained += actualDamage;
+                    enemy.lastHitTimestamp = now;
+                }
+            });
+            
+            // Heal player for 100% of drained health
+            if (totalDrained > 0) {
+                p.health = Math.min(p.maxHealth, p.health + totalDrained);
+                p.lastHealedTimestamp = now;
+            }
+        });
+    }
+
+    private updateBlinkCooldown(state: GameState, delta: number) {
+        state.players.forEach(p => {
+            if (p.characterType !== 'dash-dynamo') return;
+            
+            if (p.blinkCooldown !== undefined && p.blinkCooldown > 0) {
+                p.blinkCooldown -= delta;
+                if (p.blinkCooldown <= 0) {
+                    p.blinkCooldown = 0;
+                    p.blinkReady = true;
+                }
+            }
+        });
+    }
+
+    private updateTurrets(state: GameState, now: number, delta: number) {
+        if (!state.turrets) state.turrets = [];
+        
+        // Remove expired turrets
+        state.turrets = state.turrets.filter(turret => {
+            if (now >= turret.expiresAt) return false;
+            if (turret.health <= 0) return false;
+            return true;
+        });
+        
+        // Update turret attacks
+        state.turrets.forEach(turret => {
+            turret.attackCooldown -= delta;
+            if (turret.attackCooldown <= 0 && state.enemies.length > 0) {
+                // Get owner player to inherit their stats
+                const owner = state.players.find(p => p.id === turret.ownerId);
+                if (!owner) return;
+                
+                turret.attackCooldown = turret.attackSpeed;
+                
+                // Find closest enemy in range
+                const enemiesInRange = state.enemies.filter(e => {
+                    const dist = Math.hypot(e.position.x - turret.position.x, e.position.y - turret.position.y);
+                    return dist <= turret.range;
+                });
+                
+                if (enemiesInRange.length > 0) {
+                    const target = enemiesInRange[0];
+                    const baseAngle = Math.atan2(target.position.y - turret.position.y, target.position.x - turret.position.x);
+                    
+                    // Inherit player's multishot
+                    const shots = Math.max(1, owner.projectilesPerShot || 1);
+                    const spread = 10 * Math.PI / 180; // Same spread as player
+                    
+                    for (let i = 0; i < shots; i++) {
+                        const offset = (i - (shots - 1) / 2) * spread;
+                        const angle = baseAngle + offset;
+                        
+                        // Inherit player's crit chance and calculate crit
+                        const isCrit = Math.random() < (owner.critChance || 0);
+                        const baseDamage = turret.damage + (owner.projectileDamage - 8); // Add player's bonus damage
+                        const finalDamage = Math.round(baseDamage * (isCrit ? (owner.critMultiplier || 2) : 1));
+                        
+                        const projectile: Projectile = {
+                            id: uuidv4(),
+                            ownerId: turret.ownerId,
+                            position: { ...turret.position },
+                            velocity: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
+                            damage: finalDamage,
+                            isCrit,
+                            kind: 'bullet',
+                            radius: 5,
+                            hitEnemies: [],
+                            pierceRemaining: owner.pierceCount || 0, // Inherit pierce
+                            ricochetRemaining: owner.ricochetCount || 0, // Inherit ricochet
+                        };
+                        state.projectiles.push(projectile);
+                    }
+                }
             }
         });
     }
@@ -505,6 +698,79 @@ export class LocalGameEngine {
                             radius: 8,
                         };
                         state.projectiles.push(grenade);
+                    } else if (p.weaponType === 'burst-fire') {
+                        // Vampire Vex: 3-round burst
+                        if (!p.burstShotsFired) p.burstShotsFired = 0;
+                        
+                        if (p.burstShotsFired < 3) {
+                            const isCrit = Math.random() < (p.critChance || 0);
+                            const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
+                            const bullet: Projectile = {
+                                hitEnemies: [],
+                                pierceRemaining: p.pierceCount || 0,
+                                ricochetRemaining: p.ricochetCount || 0,
+                                id: uuidv4(),
+                                ownerId: p.id,
+                                position: { ...p.position },
+                                velocity: { x: Math.cos(baseAngle) * 10, y: Math.sin(baseAngle) * 10 },
+                                damage,
+                                isCrit,
+                                kind: 'bullet',
+                                radius: 5,
+                            };
+                            state.projectiles.push(bullet);
+                            p.burstShotsFired++;
+                            p.attackCooldown = 100; // 100ms between burst shots
+                        } else {
+                            p.burstShotsFired = 0;
+                            p.attackCooldown = p.attackSpeed; // Full cooldown after burst
+                        }
+                    } else if (p.weaponType === 'heavy-cannon') {
+                        // Turret Tina: Slower, larger projectiles
+                        const isCrit = Math.random() < (p.critChance || 0);
+                        const damage = Math.round((p.projectileDamage) * (isCrit ? (p.critMultiplier || 2) : 1));
+                        const heavyShot: Projectile = {
+                            hitEnemies: [],
+                            pierceRemaining: p.pierceCount || 0,
+                            ricochetRemaining: p.ricochetCount || 0,
+                            id: uuidv4(),
+                            ownerId: p.id,
+                            position: { ...p.position },
+                            velocity: { x: Math.cos(baseAngle) * 6, y: Math.sin(baseAngle) * 6 },
+                            damage,
+                            isCrit,
+                            kind: 'bullet',
+                            radius: 10, // Larger projectile
+                        };
+                        state.projectiles.push(heavyShot);
+                    } else if (p.weaponType === 'shotgun') {
+                        // Dash Dynamo: Short-range shotgun spread
+                        const pellets = 5;
+                        const spread = 25 * Math.PI / 180; // Wider spread
+                        const maxRange = 200; // Short range
+                        
+                        for (let i = 0; i < pellets; i++) {
+                            const offset = (i - (pellets - 1) / 2) * spread;
+                            const angle = baseAngle + offset;
+                            const isCrit = Math.random() < (p.critChance || 0);
+                            const damage = Math.round((p.projectileDamage * 0.4) * (isCrit ? (p.critMultiplier || 2) : 1)); // Lower damage per pellet
+                            const pellet: Projectile = {
+                                hitEnemies: [],
+                                pierceRemaining: 0,
+                                ricochetRemaining: 0,
+                                id: uuidv4(),
+                                ownerId: p.id,
+                                position: { ...p.position },
+                                velocity: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
+                                damage,
+                                isCrit,
+                                kind: 'bullet',
+                                radius: 4,
+                                maxRange,
+                                spawnPosition: { ...p.position },
+                            };
+                            state.projectiles.push(pellet);
+                        }
                     } else {
                         // Standard shooting (rapid-fire and sniper-shot)
                         const shots = Math.max(1, p.projectilesPerShot || 1);
@@ -595,6 +861,14 @@ export class LocalGameEngine {
                     const vy = proj.velocity.y;
                     proj.velocity.x = vx * cosT - vy * sinT;
                     proj.velocity.y = vx * sinT + vy * cosT;
+                }
+            }
+
+            // Check shotgun range limit
+            if (proj.kind === 'bullet' && proj.maxRange && proj.spawnPosition) {
+                const distFromOrigin = Math.hypot(proj.position.x - proj.spawnPosition.x, proj.position.y - proj.spawnPosition.y);
+                if (distFromOrigin >= proj.maxRange) {
+                    return false; // Remove projectile
                 }
             }
 

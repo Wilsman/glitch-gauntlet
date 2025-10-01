@@ -3,11 +3,14 @@ import type { CharacterStats, CharacterType } from './types';
 /**
  * Character Configuration
  * 
- * Four distinct playstyles:
+ * Seven distinct playstyles:
  * 1. Spray 'n' Pray - Balanced rapid-fire character
  * 2. Boom Bringer - AoE explosion specialist
  * 3. Glass Cannon Carl - High damage, low survivability sniper
  * 4. Pet Pal Percy - Starts with a companion pet (UNLOCKABLE)
+ * 5. Vampire Vex - Life drain specialist with AoE drain (UNLOCKABLE)
+ * 6. Turret Tina - Deploys time-limited turrets (UNLOCKABLE)
+ * 7. Dash Dynamo - High mobility with blink dash (UNLOCKABLE)
  */
 
 export const CHARACTERS: Record<CharacterType, CharacterStats> = {
@@ -68,6 +71,63 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
       type: 'level10Count',
       required: 3,
       description: 'Reach level 10 in 3 different games',
+    },
+  },
+  'vampire-vex': {
+    type: 'vampire-vex',
+    name: 'Vampire Vex',
+    emoji: '🧛',
+    weaponType: 'burst-fire',
+    baseHealth: 85,
+    baseDamage: 12,
+    baseAttackSpeed: 600, // Medium-slow (3-round burst)
+    baseSpeed: 3.8,
+    description: 'Life drain specialist with growing AoE drain aura',
+    pro: 'Passive AoE drain heals you, grows with level, 3-round burst',
+    con: 'Low HP, drain radius starts small, medium fire rate',
+    locked: true,
+    unlockCriteria: {
+      type: 'waveReached',
+      required: 10,
+      description: 'Reach wave 10 in any game',
+    },
+  },
+  'turret-tina': {
+    type: 'turret-tina',
+    name: 'Turret Tina',
+    emoji: '🏗️',
+    weaponType: 'heavy-cannon',
+    baseHealth: 130,
+    baseDamage: 8,
+    baseAttackSpeed: 800, // Slow personal fire rate
+    baseSpeed: 3.2,
+    description: 'Defense builder who deploys time-limited turrets',
+    pro: 'Deploys auto-firing turrets, high HP, large projectiles',
+    con: 'Very slow movement, low personal damage, turrets expire',
+    locked: true,
+    unlockCriteria: {
+      type: 'enemiesKilled',
+      required: 500,
+      description: 'Kill 500 total enemies across all games',
+    },
+  },
+  'dash-dynamo': {
+    type: 'dash-dynamo',
+    name: 'Dash Dynamo',
+    emoji: '⚡',
+    weaponType: 'shotgun',
+    baseHealth: 70,
+    baseDamage: 15,
+    baseAttackSpeed: 500, // Medium fire rate
+    baseSpeed: 5.5,
+    description: 'High mobility speedster with instant blink dash',
+    pro: 'Very high speed, blink dash ability, short-range shotgun',
+    con: 'Very low HP, short weapon range, blink has cooldown',
+    locked: true,
+    unlockCriteria: {
+      type: 'waveReached',
+      required: 15,
+      description: 'Reach wave 15 in any game',
     },
   },
 };

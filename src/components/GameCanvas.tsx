@@ -54,7 +54,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0 } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], turrets = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0 } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -169,11 +169,81 @@ export default function GameCanvas() {
           </>
         )}
         {/* Render XP Orbs */}
-        {xpOrbs.map((orb) => (
+        {(xpOrbs && xpOrbs.length > 0) && xpOrbs.map((orb) => (
           <Circle key={orb.id} x={orb.position.x} y={orb.position.y} radius={5} fill="#a855f7" shadowColor="#a855f7" shadowBlur={10} />
         ))}
+        {/* Render Turrets */}
+        {(turrets && turrets.length > 0) && turrets.map((turret) => {
+          const timeRemaining = Math.max(0, turret.expiresAt - now);
+          const isExpiring = timeRemaining < 5000;
+          const pulseOpacity = isExpiring ? (0.5 + Math.sin(now / 100) * 0.5) : 1;
+          
+          return (
+            <React.Fragment key={turret.id}>
+              {/* Turret range indicator */}
+              <Circle
+                x={turret.position.x}
+                y={turret.position.y}
+                radius={turret.range}
+                fillEnabled={false}
+                stroke="#FFA500"
+                opacity={0.15}
+                dash={[8, 8]}
+              />
+              {/* Turret body */}
+              <Circle
+                x={turret.position.x}
+                y={turret.position.y}
+                radius={15}
+                fill="#8B4513"
+                stroke="#FFA500"
+                strokeWidth={2}
+                shadowColor="#FFA500"
+                shadowBlur={15}
+                opacity={pulseOpacity}
+              />
+              {/* Turret emoji */}
+              <Text
+                text="🗼"
+                x={turret.position.x}
+                y={turret.position.y}
+                fontSize={20}
+                offsetX={10}
+                offsetY={10}
+                opacity={pulseOpacity}
+              />
+              {/* Health bar */}
+              <Rect
+                x={turret.position.x - 15}
+                y={turret.position.y - 25}
+                width={30}
+                height={4}
+                fill="#333333"
+              />
+              <Rect
+                x={turret.position.x - 15}
+                y={turret.position.y - 25}
+                width={30 * (turret.health / turret.maxHealth)}
+                height={4}
+                fill="#FFA500"
+              />
+              {/* Timer */}
+              {isExpiring && (
+                <Text
+                  text={Math.ceil(timeRemaining / 1000).toString()}
+                  x={turret.position.x}
+                  y={turret.position.y + 20}
+                  fontSize={10}
+                  fontFamily='"Press Start 2P"'
+                  fill="#FFA500"
+                  offsetX={5}
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
         {/* Render Pets */}
-        {pets.map((pet) => {
+        {(pets && pets.length > 0) && pets.map((pet) => {
           const isHit = pet.lastHitTimestamp && (now - pet.lastHitTimestamp < HIT_FLASH_DURATION);
           return (
             <React.Fragment key={pet.id}>
@@ -216,7 +286,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Players */}
-        {players.map((player) => {
+        {(players && players.length > 0) && players.map((player) => {
           const isHit = player.lastHitTimestamp && (now - player.lastHitTimestamp < HIT_FLASH_DURATION);
           const isHealed = player.lastHealedTimestamp && (now - player.lastHealedTimestamp < HEAL_FLASH_DURATION);
           const isBerserker = player.health < player.maxHealth * 0.3;
@@ -227,10 +297,27 @@ export default function GameCanvas() {
             : player.characterType === 'boom-bringer' ? '💣'
             : player.characterType === 'glass-cannon-carl' ? '🎯'
             : player.characterType === 'pet-pal-percy' ? '🐾'
+            : player.characterType === 'vampire-vex' ? '🧛'
+            : player.characterType === 'turret-tina' ? '🏗️'
+            : player.characterType === 'dash-dynamo' ? '⚡'
             : '🔫';
           
           return (
             <React.Fragment key={player.id}>
+              {/* Vampire Vex drain aura */}
+              {player.characterType === 'vampire-vex' && player.status === 'alive' && player.vampireDrainRadius && (
+                <Circle
+                  x={player.position.x}
+                  y={player.position.y}
+                  radius={player.vampireDrainRadius}
+                  fillRadialGradientStartPoint={{ x: 0, y: 0 }}
+                  fillRadialGradientEndPoint={{ x: 0, y: 0 }}
+                  fillRadialGradientStartRadius={0}
+                  fillRadialGradientEndRadius={player.vampireDrainRadius}
+                  fillRadialGradientColorStops={[0, '#FF000055', 0.7, '#FF000022', 1, '#FF000000']}
+                  opacity={0.6 + Math.sin(now / 200) * 0.2}
+                />
+              )}
               {/* Pickup radius (local player only) */}
               {player.id === localPlayerId && player.status === 'alive' && (
                 <Circle
@@ -314,7 +401,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Enemies */}
-        {enemies.map((enemy) => {
+        {(enemies && enemies.length > 0) && enemies.map((enemy) => {
           const isHit = enemy.lastHitTimestamp && (now - enemy.lastHitTimestamp < HIT_FLASH_DURATION);
           const isCrit = enemy.lastCritTimestamp && (now - enemy.lastCritTimestamp < CRIT_FLASH_DURATION);
           
@@ -411,7 +498,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Projectiles */}
-        {projectiles.map((p) => {
+        {(projectiles && projectiles.length > 0) && projectiles.map((p) => {
           const owner = players.find(pl => pl.id === p.ownerId);
           const isEnemyProjectile = enemies.some(e => e.id === p.ownerId);
           const hasHoming = owner?.homingStrength && owner.homingStrength > 0;
@@ -476,7 +563,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Chain Lightning */}
-        {chainLightning.map((chain) => {
+        {(chainLightning && chainLightning.length > 0) && chainLightning.map((chain) => {
           const age = now - chain.timestamp;
           const maxDuration = 200; // ms
           if (age > maxDuration) return null;
@@ -536,7 +623,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Fire Trails */}
-        {fireTrails.map((trail) => {
+        {(fireTrails && fireTrails.length > 0) && fireTrails.map((trail) => {
           const age = now - trail.timestamp;
           const maxDuration = 2000; // 2 seconds
           if (age > maxDuration) return null;
@@ -570,7 +657,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Orbital Skulls */}
-        {orbitalSkulls.map((skull) => {
+        {(orbitalSkulls && orbitalSkulls.length > 0) && orbitalSkulls.map((skull) => {
           const owner = players.find(p => p.id === skull.ownerId);
           if (!owner) return null;
           
@@ -618,7 +705,7 @@ export default function GameCanvas() {
           );
         })}
         {/* Render Explosions */}
-        {explosions.map((explosion) => {
+        {(explosions && explosions.length > 0) && explosions.map((explosion) => {
           const age = now - explosion.timestamp;
           const maxDuration = 500; // ms
           if (age > maxDuration) return null;

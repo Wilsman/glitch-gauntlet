@@ -104,13 +104,42 @@ export default function StatsPanel({ player }: StatsPanelProps) {
       </div>
       
       {/* Level & XP */}
-      <div>
+      <div className="mb-3 pb-3 border-b border-neon-cyan/30">
         <h3 className="font-press-start text-[10px] text-neon-cyan mb-2">PROGRESSION</h3>
         <div className="space-y-1 font-vt323 text-sm">
           <StatRow label="Level" value={player.level.toString()} color="text-neon-yellow" />
           <StatRow label="XP" value={`${player.xp}/${player.xpToNextLevel}`} color="text-purple-400" />
         </div>
       </div>
+
+      {/* Character Abilities */}
+      {(player.characterType === 'dash-dynamo' || player.characterType === 'turret-tina' || player.characterType === 'vampire-vex') && (
+        <div>
+          <h3 className="font-press-start text-[10px] text-neon-pink mb-2">ABILITIES</h3>
+          <div className="space-y-1 font-vt323 text-sm">
+            {player.characterType === 'dash-dynamo' && (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Blink (Shift):</span>
+                <span className={player.blinkReady ? 'text-green-400 font-bold' : 'text-red-400'}>
+                  {player.blinkReady ? 'READY' : `${((player.blinkCooldown || 0) / 1000).toFixed(1)}s`}
+                </span>
+              </div>
+            )}
+            {player.characterType === 'turret-tina' && (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Place Turret (E):</span>
+                <span className="text-orange-400 font-bold">READY</span>
+              </div>
+            )}
+            {player.characterType === 'vampire-vex' && player.vampireDrainRadius && (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Drain Radius:</span>
+                <span className="text-red-400 font-bold">{player.vampireDrainRadius.toFixed(0)}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
