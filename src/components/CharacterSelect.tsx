@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { getAllCharacters } from '@shared/characterConfig';
 import type { CharacterType } from '@shared/types';
 import { Button } from './ui/button';
-import { isCharacterUnlocked, getUnlockProgress } from '@/lib/progressionStorage';
+import { isCharacterUnlocked, getUnlockProgress, checkUnlocks } from '@/lib/progressionStorage';
 import { UnlockTooltip } from './UnlockTooltip';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -31,6 +31,11 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
     description: '',
   });
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Check for unlocks when component mounts
+  useEffect(() => {
+    checkUnlocks();
+  }, []);
 
   const handleConfirm = () => {
     if (selected && isCharacterUnlocked(selected)) {

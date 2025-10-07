@@ -55,7 +55,7 @@ const selectGameState = (state) => ({
 });
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(useShallow(selectGameState));
-  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], turrets = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0, waveTimer = 0 } = gameState || {};
+  const { players = [], enemies = [], projectiles = [], xpOrbs = [], gameId = '', teleporter = null, explosions = [], chainLightning = [], pets = [], orbitalSkulls = [], fireTrails = [], turrets = [], clones = [], isHellhoundRound = false, hellhoundsKilled = 0, totalHellhoundsInRound = 0, waveTimer = 0, boss = null, shockwaveRings = [], bossProjectiles = [], status = 'playing' } = gameState || {};
   const now = Date.now();
   
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
@@ -170,9 +170,48 @@ export default function GameCanvas() {
           </>
         )}
         {/* Render XP Orbs */}
-        {(xpOrbs && xpOrbs.length > 0) && xpOrbs.map((orb) => (
-          <Circle key={orb.id} x={orb.position.x} y={orb.position.y} radius={5} fill="#a855f7" shadowColor="#a855f7" shadowBlur={10} />
-        ))}
+        {(xpOrbs && xpOrbs.length > 0) && xpOrbs.map((orb) => {
+          const isDoubled = orb.isDoubled;
+          const pulseScale = isDoubled ? 1 + Math.sin(now / 100) * 0.2 : 1;
+          const glowIntensity = isDoubled ? 20 : 10;
+          
+          return (
+            <React.Fragment key={orb.id}>
+              {/* Extra glow for doubled orbs */}
+              {isDoubled && (
+                <Circle
+                  x={orb.position.x}
+                  y={orb.position.y}
+                  radius={8 * pulseScale}
+                  fill="#FFD700"
+                  opacity={0.3}
+                  shadowColor="#FFD700"
+                  shadowBlur={15}
+                />
+              )}
+              <Circle
+                x={orb.position.x}
+                y={orb.position.y}
+                radius={5 * pulseScale}
+                fill={isDoubled ? "#FFD700" : "#a855f7"}
+                shadowColor={isDoubled ? "#FFD700" : "#a855f7"}
+                shadowBlur={glowIntensity}
+              />
+              {/* Lucky clover emoji for doubled orbs */}
+              {isDoubled && (
+                <Text
+                  text="🍀"
+                  x={orb.position.x}
+                  y={orb.position.y - 12}
+                  fontSize={10}
+                  offsetX={5}
+                  offsetY={5}
+                  opacity={0.8}
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
         {/* Render Turrets */}
         {(turrets && turrets.length > 0) && turrets.map((turret) => {
           const timeRemaining = Math.max(0, turret.expiresAt - now);
@@ -286,6 +325,68 @@ export default function GameCanvas() {
             </React.Fragment>
           );
         })}
+        {/* Render Clones */}
+        {(clones && clones.length > 0) && clones.map((clone) => {
+          const owner = players.find(p => p.id === clone.ownerId);
+          if (!owner) return null;
+          
+          // Character-specific emoji for clone
+          const characterEmoji = owner.characterType === 'spray-n-pray' ? '🔫' 
+            : owner.characterType === 'boom-bringer' ? '💣'
+            : owner.characterType === 'glass-cannon-carl' ? '🎯'
+            : owner.characterType === 'pet-pal-percy' ? '🐾'
+            : owner.characterType === 'vampire-vex' ? '🧛'
+            : owner.characterType === 'turret-tina' ? '🏗️'
+            : owner.characterType === 'dash-dynamo' ? '⚡'
+            : '🔫';
+          
+          return (
+            <React.Fragment key={clone.id}>
+              {/* Clone ghostly aura */}
+              <Circle
+                x={clone.position.x}
+                y={clone.position.y}
+                radius={20}
+                fill="#9333EA"
+                opacity={clone.opacity * 0.2}
+                shadowColor="#9333EA"
+                shadowBlur={20}
+              />
+              {/* Clone body */}
+              <Circle
+                x={clone.position.x}
+                y={clone.position.y}
+                radius={15}
+                fill={owner.color || '#00FFFF'}
+                opacity={clone.opacity * 0.5}
+                stroke="#9333EA"
+                strokeWidth={2}
+                shadowColor="#9333EA"
+                shadowBlur={10}
+              />
+              {/* Clone emoji (semi-transparent) */}
+              <Text
+                text={characterEmoji}
+                x={clone.position.x}
+                y={clone.position.y}
+                fontSize={18}
+                offsetX={9}
+                offsetY={9}
+                opacity={clone.opacity * 0.7}
+              />
+              {/* Afterimage effect indicator */}
+              <Text
+                text="👯"
+                x={clone.position.x}
+                y={clone.position.y - 25}
+                fontSize={12}
+                offsetX={6}
+                offsetY={6}
+                opacity={clone.opacity * 0.8}
+              />
+            </React.Fragment>
+          );
+        })}
         {/* Render Players */}
         {(players && players.length > 0) && players.map((player) => {
           const isHit = player.lastHitTimestamp && (now - player.lastHitTimestamp < HIT_FLASH_DURATION);
@@ -355,6 +456,30 @@ export default function GameCanvas() {
                   opacity={0.6 + Math.sin(now / 100) * 0.3}
                 />
               )}
+              {/* Lucky upgrade indicator */}
+              {player.hasLucky && player.status === 'alive' && (
+                <Text
+                  text="🍀"
+                  x={player.position.x + 18}
+                  y={player.position.y - 18}
+                  fontSize={14}
+                  offsetX={7}
+                  offsetY={7}
+                  opacity={0.8 + Math.sin(now / 150) * 0.2}
+                />
+              )}
+              {/* TimeWarp upgrade indicator */}
+              {player.hasTimeWarp && player.status === 'alive' && (
+                <Text
+                  text="⏰"
+                  x={player.position.x - 18}
+                  y={player.position.y - 18}
+                  fontSize={14}
+                  offsetX={7}
+                  offsetY={7}
+                  opacity={0.8 + Math.sin(now / 150) * 0.2}
+                />
+              )}
               <Circle
                 x={player.position.x}
                 y={player.position.y}
@@ -411,6 +536,9 @@ export default function GameCanvas() {
           const isPoisoned = enemy.statusEffects?.some(e => e.type === 'poisoned');
           const isSlowed = enemy.statusEffects?.some(e => e.type === 'slowed');
           
+          // Check if timeWarp is active
+          const hasTimeWarp = players.some(p => p.hasTimeWarp);
+          
           // Enemy type specific colors and sizes
           let fill = '#FFFF00'; // default yellow for grunt
           let shadow = '#FFFF00';
@@ -452,6 +580,19 @@ export default function GameCanvas() {
           
           return (
             <React.Fragment key={enemy.id}>
+              {/* TimeWarp slow-motion indicator */}
+              {hasTimeWarp && (
+                <Circle
+                  x={enemy.position.x}
+                  y={enemy.position.y}
+                  radius={size/2 + 5}
+                  fillEnabled={false}
+                  stroke="#87CEEB"
+                  strokeWidth={2}
+                  opacity={0.5 + Math.sin(now / 200) * 0.3}
+                  dash={[4, 4]}
+                />
+              )}
               {enemy.type === 'hellhound' ? (
                 // Hellhound with dog emoji and wiggle animation
                 <>
@@ -476,6 +617,18 @@ export default function GameCanvas() {
                 </>
               ) : (
                 <Rect x={enemy.position.x - size/2} y={enemy.position.y - size/2} width={size} height={size} fill={fill} shadowColor={shadow} shadowBlur={18} />
+              )}
+              {/* TimeWarp clock emoji indicator */}
+              {hasTimeWarp && (
+                <Text
+                  text="⏰"
+                  x={enemy.position.x}
+                  y={enemy.position.y - size/2 - 8}
+                  fontSize={10}
+                  offsetX={5}
+                  offsetY={5}
+                  opacity={0.7}
+                />
               )}
               {/* Damage Numbers */}
               {enemy.damageNumbers?.map((dmg) => {
@@ -506,6 +659,330 @@ export default function GameCanvas() {
             </React.Fragment>
           );
         })}
+        
+        {/* Render Boss */}
+        {boss && (
+          <React.Fragment>
+            {/* Boss telegraph indicators */}
+            {boss.currentAttack && boss.currentAttack.type === 'charge' && (
+              <>
+                {/* Red glow during telegraph */}
+                <Circle
+                  x={boss.position.x}
+                  y={boss.position.y}
+                  radius={50}
+                  fill="#FF0000"
+                  opacity={0.3}
+                  shadowColor="#FF0000"
+                  shadowBlur={30}
+                />
+                {/* Direction indicator */}
+                {boss.currentAttack.direction && (
+                  <Line
+                    points={[
+                      boss.position.x,
+                      boss.position.y,
+                      boss.position.x + boss.currentAttack.direction.x * 200,
+                      boss.position.y + boss.currentAttack.direction.y * 200
+                    ]}
+                    stroke="#FF0000"
+                    strokeWidth={4}
+                    opacity={0.6}
+                    dash={[10, 5]}
+                  />
+                )}
+              </>
+            )}
+            {boss.currentAttack && boss.currentAttack.type === 'slam' && (
+              <>
+                {/* Slam telegraph - expanding circle */}
+                <Circle
+                  x={boss.position.x}
+                  y={boss.position.y}
+                  radius={60}
+                  stroke="#FF6600"
+                  strokeWidth={4}
+                  opacity={0.7}
+                  dash={[8, 4]}
+                />
+                <Circle
+                  x={boss.position.x}
+                  y={boss.position.y}
+                  radius={120}
+                  stroke="#FF6600"
+                  strokeWidth={3}
+                  opacity={0.5}
+                  dash={[8, 4]}
+                />
+                <Circle
+                  x={boss.position.x}
+                  y={boss.position.y}
+                  radius={180}
+                  stroke="#FF6600"
+                  strokeWidth={2}
+                  opacity={0.3}
+                  dash={[8, 4]}
+                />
+              </>
+            )}
+            
+            {/* Summoner teleport telegraph */}
+            {boss.currentAttack && boss.currentAttack.type === 'teleport' && boss.currentAttack.targetPosition && (
+              <>
+                {/* Destination indicator */}
+                <Circle
+                  x={boss.currentAttack.targetPosition.x}
+                  y={boss.currentAttack.targetPosition.y}
+                  radius={40}
+                  fill="#9370DB"
+                  opacity={0.3}
+                  shadowColor="#9370DB"
+                  shadowBlur={25}
+                />
+                <Circle
+                  x={boss.currentAttack.targetPosition.x}
+                  y={boss.currentAttack.targetPosition.y}
+                  radius={30}
+                  stroke="#9370DB"
+                  strokeWidth={3}
+                  opacity={0.6}
+                  dash={[5, 5]}
+                />
+              </>
+            )}
+            
+            {/* Summoner beam telegraph */}
+            {boss.currentAttack && boss.currentAttack.type === 'beam' && boss.currentAttack.targetPosition && (
+              <Line
+                points={[
+                  boss.position.x,
+                  boss.position.y,
+                  boss.currentAttack.targetPosition.x,
+                  boss.currentAttack.targetPosition.y
+                ]}
+                stroke="#9370DB"
+                strokeWidth={6}
+                opacity={0.4}
+                dash={[10, 5]}
+                shadowColor="#9370DB"
+                shadowBlur={15}
+              />
+            )}
+            
+            {/* Architect laser grid */}
+            {boss.currentAttack && boss.currentAttack.type === 'laser-grid' && (
+              <>
+                {[0, 1, 2, 3].map(i => {
+                  const isActive = boss.currentAttack!.executeTime && now >= boss.currentAttack!.executeTime;
+                  const elapsed = isActive ? (now - boss.currentAttack!.executeTime!) / 1000 : 0;
+                  const rotationSpeed = 0.5 * (boss.isEnraged ? 1.5 : 1);
+                  const angle = (i * Math.PI / 2) + (elapsed * rotationSpeed);
+                  const length = Math.max(SERVER_ARENA_WIDTH, SERVER_ARENA_HEIGHT);
+                  return (
+                    <Line
+                      key={i}
+                      points={[
+                        boss.position.x,
+                        boss.position.y,
+                        boss.position.x + Math.cos(angle) * length,
+                        boss.position.y + Math.sin(angle) * length
+                      ]}
+                      stroke={isActive ? "#00FFFF" : "#00CCCC"}
+                      strokeWidth={isActive ? 6 : 4}
+                      opacity={isActive ? 0.8 : 0.4}
+                      shadowColor="#00CCCC"
+                      shadowBlur={isActive ? 30 : 20}
+                    />
+                  );
+                })}
+              </>
+            )}
+            
+            {/* Boss body */}
+            <Circle
+              x={boss.position.x}
+              y={boss.position.y}
+              radius={40}
+              fill={
+                boss.type === 'berserker' ? (boss.isEnraged ? '#8B0000' : '#FF0000') :
+                boss.type === 'summoner' ? (boss.isEnraged ? '#4B0082' : '#9370DB') :
+                boss.type === 'architect' ? (boss.isEnraged ? '#006666' : '#00CCCC') :
+                '#FF0000'
+              }
+              stroke={boss.lastHitTimestamp && (now - boss.lastHitTimestamp < HIT_FLASH_DURATION) ? '#FFFFFF' : '#000000'}
+              strokeWidth={3}
+              shadowColor={
+                boss.type === 'berserker' ? (boss.isEnraged ? '#FF0000' : '#8B0000') :
+                boss.type === 'summoner' ? (boss.isEnraged ? '#9370DB' : '#4B0082') :
+                boss.type === 'architect' ? (boss.isEnraged ? '#00CCCC' : '#006666') :
+                '#8B0000'
+              }
+              shadowBlur={boss.isEnraged ? 40 : 25}
+              opacity={boss.isInvulnerable ? 0.5 : 1}
+            />
+            
+            {/* Boss emoji/icon */}
+            <Text
+              text={
+                boss.type === 'berserker' ? '👹' :
+                boss.type === 'summoner' ? '🧙' :
+                boss.type === 'architect' ? '🤖' :
+                '👹'
+              }
+              x={boss.position.x}
+              y={boss.position.y}
+              fontSize={48}
+              offsetX={24}
+              offsetY={24}
+            />
+            
+            {/* Boss health bar */}
+            <Rect
+              x={boss.position.x - 50}
+              y={boss.position.y - 60}
+              width={100}
+              height={8}
+              fill="#333333"
+              stroke="#000000"
+              strokeWidth={1}
+            />
+            <Rect
+              x={boss.position.x - 50}
+              y={boss.position.y - 60}
+              width={100 * (boss.health / boss.maxHealth)}
+              height={8}
+              fill={boss.isEnraged ? '#FF0000' : '#00FF00'}
+              shadowColor={boss.isEnraged ? '#FF0000' : '#00FF00'}
+              shadowBlur={8}
+            />
+            
+            {/* Boss name */}
+            <Text
+              text={boss.type.toUpperCase()}
+              x={boss.position.x}
+              y={boss.position.y - 75}
+              fontSize={12}
+              fontFamily='"Press Start 2P"'
+              fill={
+                boss.type === 'berserker' ? '#FF0000' :
+                boss.type === 'summoner' ? '#9370DB' :
+                boss.type === 'architect' ? '#00CCCC' :
+                '#FF0000'
+              }
+              offsetX={50}
+              shadowColor="#000000"
+              shadowBlur={4}
+            />
+          </React.Fragment>
+        )}
+        
+        {/* Render Portals (Summoner) */}
+        {boss && boss.portals && boss.portals.map((portal) => (
+          <React.Fragment key={portal.id}>
+            <Circle
+              x={portal.position.x}
+              y={portal.position.y}
+              radius={25}
+              fill="#9370DB"
+              opacity={0.6}
+              shadowColor="#9370DB"
+              shadowBlur={20}
+            />
+            <Circle
+              x={portal.position.x}
+              y={portal.position.y}
+              radius={15}
+              fill="#4B0082"
+              opacity={0.8}
+              shadowColor="#4B0082"
+              shadowBlur={15}
+            />
+            {/* Portal health bar */}
+            <Rect
+              x={portal.position.x - 20}
+              y={portal.position.y - 35}
+              width={40}
+              height={4}
+              fill="#333333"
+            />
+            <Rect
+              x={portal.position.x - 20}
+              y={portal.position.y - 35}
+              width={40 * (portal.health / portal.maxHealth)}
+              height={4}
+              fill="#9370DB"
+            />
+          </React.Fragment>
+        ))}
+        
+        {/* Render Shield Generators (Architect) */}
+        {boss && boss.shieldGenerators && boss.shieldGenerators.map((generator) => (
+          <React.Fragment key={generator.id}>
+            <Circle
+              x={generator.position.x}
+              y={generator.position.y}
+              radius={30}
+              fill="#00CCCC"
+              opacity={0.4}
+              shadowColor="#00CCCC"
+              shadowBlur={25}
+            />
+            <Circle
+              x={generator.position.x}
+              y={generator.position.y}
+              radius={20}
+              fill="#006666"
+              opacity={0.8}
+              shadowColor="#00CCCC"
+              shadowBlur={15}
+            />
+            {/* Generator health bar */}
+            <Rect
+              x={generator.position.x - 25}
+              y={generator.position.y - 40}
+              width={50}
+              height={5}
+              fill="#333333"
+            />
+            <Rect
+              x={generator.position.x - 25}
+              y={generator.position.y - 40}
+              width={50 * (generator.health / generator.maxHealth)}
+              height={5}
+              fill="#00CCCC"
+            />
+          </React.Fragment>
+        ))}
+        
+        {/* Render Shockwave Rings */}
+        {shockwaveRings && shockwaveRings.map((ring) => (
+          <Circle
+            key={ring.id}
+            x={ring.position.x}
+            y={ring.position.y}
+            radius={ring.currentRadius}
+            stroke="#FF6600"
+            strokeWidth={20}
+            opacity={0.6}
+            shadowColor="#FF6600"
+            shadowBlur={15}
+          />
+        ))}
+        
+        {/* Render Boss Projectiles */}
+        {bossProjectiles && bossProjectiles.map((proj) => (
+          <Circle
+            key={proj.id}
+            x={proj.position.x}
+            y={proj.position.y}
+            radius={proj.radius}
+            fill="#9370DB"
+            opacity={0.8}
+            shadowColor="#9370DB"
+            shadowBlur={20}
+          />
+        ))}
+        
         {/* Render Projectiles */}
         {(projectiles && projectiles.length > 0) && projectiles.map((p) => {
           const owner = players.find(pl => pl.id === p.ownerId);

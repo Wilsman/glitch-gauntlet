@@ -14,7 +14,7 @@ import type { ApiResponse, CharacterType } from "@shared/types";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
 import { AudioManager } from "@/lib/audio/AudioManager";
-import { hasPlayerName, setPlayerName, getPlayerName } from "@/lib/progressionStorage";
+import { hasPlayerName, setPlayerName, getPlayerName, checkUnlocks } from "@/lib/progressionStorage";
 
 export function HomePage() {
   const navigate = useNavigate();
@@ -32,6 +32,8 @@ export function HomePage() {
 
   useEffect(() => {
     resetGameState();
+    // Check for unlocks when returning to home page
+    checkUnlocks();
     // Check if player needs to set their name
     if (!hasPlayerName()) {
       setShowNameDialog(true);

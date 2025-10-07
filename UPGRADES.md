@@ -338,9 +338,19 @@ These upgrades are defined but need full implementation:
 
 #### **clone** (Legendary)
 - **Alternative Names**: "Sketchy Cloning Device", "Mirror Dimension Portal"
-- **Effect**: Summon a clone that fights with you
+- **Effect**: Leave behind fighting afterimage clones as you move
+- **Details**:
+  - Spawns a stationary clone every 2 seconds while moving
+  - Clone exists for 4 seconds before fading out
+  - Clone auto-fires at nearest enemy within 400 units
+  - Deals 30% of your damage
+  - Each stack reduces spawn cooldown by 0.5s (minimum 0.5s)
+  - Clones fade in/out smoothly for visual effect
+  - Clones don't inherit multishot, pierce, or ricochet
 - **Rarity**: 10% drop rate
-- **Implementation**: ❌ Not implemented
+- **Stacks**: ✅ Reduces cooldown (more clones!)
+- **Visual**: Semi-transparent ghostly purple afterimage with character emoji
+- **Implementation**: ✅ Fully implemented
 
 #### **ghostBullets** (Lunar)
 - **Alternative Names**: "Spectral Ammunition"
@@ -417,7 +427,7 @@ These upgrades are defined but need full implementation:
 | pet | Companion | Boss | 5% | Summon pet | ❌ | 1 | ✅ |
 | orbital | Orbital | Legendary | 10% | Flaming skulls orbit | ✅ | None | ✅ |
 | invincibility | Special | Legendary | 10% | Survive lethal 1x | ❌ | - | ❌ |
-| clone | Special | Legendary | 10% | Fighting clone | ❌ | - | ❌ |
+| clone | Special | Legendary | 10% | Afterimage clones | ✅ | - | ✅ |
 | ghostBullets | Special | Lunar | 3% | Phase walls +20% dmg | ❌ | - | ❌ |
 | aura | Special | Boss | 5% | -30% enemy dmg | ❌ | - | ❌ |
 | turret | Special | Boss | 5% | Deploy turret | ❌ | - | ❌ |
@@ -568,9 +578,9 @@ interface Projectile {
 ## 📊 Upgrade Statistics
 
 ### Total Upgrades: 39
-- **Implemented**: 31 (79%)
+- **Implemented**: 32 (82%)
 - **Partially Implemented**: 1 (3%)
-- **Not Implemented**: 7 (18%)
+- **Not Implemented**: 6 (15%)
 
 ### By Rarity:
 - **Common**: 10 upgrades (50% drop rate)
@@ -593,6 +603,10 @@ interface Projectile {
 ---
 
 ## 📝 Update History
+
+- **2025-10-05**: Clone (Afterimage) implementation
+  - **Clone (Afterimage)**: Fully implemented afterimage clone system that spawns fighting clones as you move. Clones are stationary turrets that last 4 seconds, deal 30% of your damage, and fade in/out smoothly. Each stack reduces spawn cooldown by 0.5s. Features ghostly purple visual effects with semi-transparent character emojis.
+  - Updated statistics: 32 implemented (82%), 6 not implemented (15%)
 
 - **2025-09-30**: Complete documentation overhaul & Orbital implementation
   - Added comprehensive upgrade details with all alternative names

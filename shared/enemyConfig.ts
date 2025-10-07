@@ -53,9 +53,9 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     baseDamage: 8,
     baseSpeed: 4.0, // Very fast - faster than before
     baseXpValue: 15,
-    healthScaling: 1.35, // +35% per wave
-    damageScaling: 1.25, // +25% per wave
-    speedScaling: 1.05, // +5% per wave (faster scaling)
+    healthScaling: 1.15, // +15% per wave (reduced from 1.35)
+    damageScaling: 1.10, // +10% per wave (reduced from 1.25)
+    speedScaling: 1.02, // +2% per wave (reduced from 1.05)
     xpScaling: 1.3, // +30% per wave
     spawnWeight: 0, // Never spawns in normal rounds
   },

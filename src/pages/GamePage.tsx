@@ -14,6 +14,7 @@ import StatsPanel from '@/components/StatsPanel';
 import PlayerListPanel from '@/components/PlayerListPanel';
 import CollectedUpgradesPanel from '@/components/CollectedUpgradesPanel';
 import PetStatsPanel from '@/components/PetStatsPanel';
+import BossDefeatedModal from '@/components/BossDefeatedModal';
 import { LocalGameEngine } from '@/lib/LocalGameEngine';
 import { toast } from '@/components/ui/sonner';
 import { getCharacter } from '@shared/characterConfig';
@@ -255,6 +256,24 @@ export default function GamePage() {
     }
   };
 
+  const handleExtract = () => {
+    // Player chose to extract - trigger win condition
+    if (isLocalMode && localEngineRef.current) {
+      const engine = localEngineRef.current;
+      const state = engine.getGameState();
+      state.status = 'won';
+      setGameState(state);
+    }
+  };
+
+  const handleContinue = () => {
+    // Player chose to continue fighting
+    if (isLocalMode && localEngineRef.current) {
+      localEngineRef.current.continueAfterBoss();
+      setGameState(localEngineRef.current.getGameState());
+    }
+  };
+
   if (isLoading && !activeGameState) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-neon-cyan">
@@ -346,6 +365,10 @@ export default function GamePage() {
       )}
 
       {isLocalPlayerLevelingUp && <UpgradeModal onSelectUpgrade={handleSelectUpgrade} />}
+      
+      {gameStatus === 'bossDefeated' && (
+        <BossDefeatedModal onExtract={handleExtract} onContinue={handleContinue} />
+      )}
     </div>
   );
 }

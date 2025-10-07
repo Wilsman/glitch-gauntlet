@@ -99,10 +99,10 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       // Handled in damage calculation
       break;
     case 'lucky':
-      // Handled in XP/drop logic
+      player.hasLucky = true;
       break;
     case 'timeWarp':
-      // Handled in enemy AI
+      player.hasTimeWarp = true;
       break;
     case 'executioner':
       // Handled in damage calculation
@@ -118,10 +118,12 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
     case 'orbital':
       player.orbitalCount = (player.orbitalCount || 0) + 1;
       break;
+    case 'clone':
+      player.cloneCount = (player.cloneCount || 0) + 1;
+      break;
     
     // ===== ADVANCED (Not yet implemented) =====
     case 'ghostBullets':
-    case 'clone':
     case 'invincibility':
     case 'aura':
     case 'turret':

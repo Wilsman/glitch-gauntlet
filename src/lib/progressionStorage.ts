@@ -34,7 +34,8 @@ export function getProgression(): PlayerProgression {
       return { ...DEFAULT_PROGRESSION };
     }
 
-    return data.progression;
+    // Merge with defaults to ensure all fields exist (for backwards compatibility)
+    return { ...DEFAULT_PROGRESSION, ...data.progression };
   } catch (error) {
     console.error('Failed to load progression:', error);
     return { ...DEFAULT_PROGRESSION };

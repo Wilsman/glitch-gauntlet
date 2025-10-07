@@ -6,6 +6,18 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 
 ---
 
+### Shortlist of characters
+
+- Spray 'n' Pray
+- Boom Bringer
+- Glass Cannon Carl
+- Pet Pal Percy
+- Vampire Vex
+- Turret Tina
+- Dash Dynamo
+
+---
+
 ## 🎮 Characters
 
 ### 1. Spray 'n' Pray 🔫 (Balanced)

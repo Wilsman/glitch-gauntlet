@@ -136,6 +136,9 @@ export interface Player {
   hasPet?: boolean;
   // Orbital
   orbitalCount?: number; // number of flaming skulls orbiting
+  // Clone
+  cloneCount?: number; // number of clone stacks
+  lastCloneSpawnTime?: number; // timestamp of last clone spawn
   // Extraction
   extractionProgress?: number; // ms in extraction zone
   // Character-specific abilities
@@ -143,6 +146,9 @@ export interface Player {
   blinkCooldown?: number; // Dash Dynamo: blink ability cooldown
   blinkReady?: boolean; // Dash Dynamo: is blink ready
   burstShotsFired?: number; // Burst fire: track shots in current burst
+  // Legendary upgrade effects
+  hasLucky?: boolean; // Lucky upgrade: double drops
+  hasTimeWarp?: boolean; // TimeWarp upgrade: slow enemies
 }
 export interface DamageNumber {
   id: string;
@@ -207,6 +213,7 @@ export interface XpOrb {
   id: string;
   position: Vector2D;
   value: number;
+  isDoubled?: boolean; // Visual indicator for lucky upgrade
 }
 export type UpgradeRarity = 'common' | 'uncommon' | 'legendary' | 'boss' | 'lunar' | 'void';
 
@@ -320,7 +327,84 @@ export interface Turret {
   expiresAt: number; // timestamp when turret expires
 }
 
-export type GameStatus = 'playing' | 'gameOver' | 'won';
+export interface Clone {
+  id: string;
+  ownerId: string;
+  position: Vector2D;
+  damage: number; // percentage of owner's damage (0-1)
+  attackSpeed: number;
+  attackCooldown: number;
+  range: number; // attack range
+  expiresAt: number; // timestamp when clone expires
+  opacity: number; // for fade-in/fade-out effect
+}
+
+export type BossType = 'berserker' | 'summoner' | 'architect';
+
+export interface BossAttack {
+  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard';
+  telegraphStartTime: number;
+  telegraphDuration: number;
+  executeTime?: number;
+  targetPosition?: Vector2D;
+  direction?: Vector2D;
+}
+
+export interface Boss {
+  id: string;
+  type: BossType;
+  position: Vector2D;
+  health: number;
+  maxHealth: number;
+  phase: 1 | 2;
+  currentAttack?: BossAttack;
+  attackCooldown: number;
+  isEnraged?: boolean; // Berserker specific
+  lastHitTimestamp?: number;
+  // Specific to boss type
+  portals?: Portal[];
+  shieldGenerators?: ShieldGenerator[];
+  isInvulnerable?: boolean;
+}
+
+export interface ShockwaveRing {
+  id: string;
+  position: Vector2D;
+  currentRadius: number;
+  maxRadius: number;
+  damage: number;
+  timestamp: number;
+  speed: number; // expansion speed
+  hitPlayers?: Set<string>; // Track which players already hit
+}
+
+export interface Portal {
+  id: string;
+  position: Vector2D;
+  health: number;
+  maxHealth: number;
+  spawnCooldown: number;
+  spawnInterval: number;
+}
+
+export interface ShieldGenerator {
+  id: string;
+  position: Vector2D;
+  health: number;
+  maxHealth: number;
+}
+
+export interface BossProjectile {
+  id: string;
+  position: Vector2D;
+  velocity: Vector2D;
+  damage: number;
+  radius: number;
+  type: 'beam'; // Can extend for other projectile types
+  hitPlayers?: Set<string>;
+}
+
+export type GameStatus = 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
 
 export interface LeaderboardEntry {
   id: number;
@@ -369,10 +453,17 @@ export interface GameState {
   orbitalSkulls?: OrbitalSkull[];
   fireTrails?: FireTrail[];
   turrets?: Turret[];
+  clones?: Clone[];
   isHellhoundRound?: boolean;
+  hellhoundRoundPending?: boolean; // Set when hellhound round should start, but waiting for enemies to clear
   hellhoundRoundComplete?: boolean;
+  waitingForHellhoundRound?: boolean; // Set when wave timer expires but waiting for enemies to clear before starting hellhound round
   totalHellhoundsInRound?: number;
   hellhoundsKilled?: number;
   hellhoundSpawnTimer?: number;
   waveTimer?: number; // Current wave elapsed time in ms
+  boss?: Boss | null;
+  shockwaveRings?: ShockwaveRing[];
+  bossProjectiles?: BossProjectile[];
+  bossDefeatedRewardClaimed?: boolean;
 }
