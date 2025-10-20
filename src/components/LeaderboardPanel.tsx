@@ -5,6 +5,7 @@ import { getCharacter } from '@shared/characterConfig';
 import type { LeaderboardCategory, LeaderboardEntry } from '@shared/types';
 import { getLeaderboard } from '@/lib/leaderboardApi';
 import { Loader2, RefreshCw } from 'lucide-react';
+import { LeaderboardResetCountdown } from './LeaderboardResetCountdown';
 
 
 function formatTime(ms: number): string {
@@ -146,7 +147,7 @@ export function LeaderboardPanel() {
 
   return (
     <div className="bg-black border-2 border-neon-pink p-6 rounded-lg shadow-glow-pink h-full flex flex-col">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <h2 className="font-press-start text-lg text-neon-yellow">
           🏆 LEADERBOARDS
         </h2>
@@ -158,6 +159,13 @@ export function LeaderboardPanel() {
         >
           <RefreshCw className={`h-3 w-3 ${loading[activeCategory] ? 'animate-spin' : ''}`} />
         </Button>
+      </div>
+
+      <div className="mb-4 pb-3 border-b border-neon-pink/30">
+        <LeaderboardResetCountdown />
+        <p className="font-vt323 text-sm text-neon-cyan/60 mt-1">
+          Weekly leaderboards reset every Monday at 08:00 UTC
+        </p>
       </div>
 
       <Tabs 

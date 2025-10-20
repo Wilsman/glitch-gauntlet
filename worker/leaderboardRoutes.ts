@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from './core-utils';
 import type { LeaderboardSubmission, LeaderboardCategory, LeaderboardEntry, LeaderboardResponse } from '@shared/types';
+import { getCurrentResetTimestamp, getNextResetTimestamp } from './leaderboardUtils';
 
 export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
   // Submit a leaderboard entry
@@ -23,11 +24,14 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
         return c.json({ success: false, error: 'Invalid stat values' }, 400);
       }
 
+      // Get current reset timestamp
+      const resetTimestamp = getCurrentResetTimestamp();
+
       // Insert entry
       const result = await db.prepare(`
         INSERT INTO leaderboard_entries 
-        (player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at, reset_timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         submission.playerName,
         submission.characterType,
@@ -35,43 +39,44 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
         submission.enemiesKilled,
         submission.survivalTimeMs,
         submission.isVictory ? 1 : 0,
-        Date.now()
+        Date.now(),
+        resetTimestamp
       ).run();
 
       // Get ranks for each category
       const ranks: Record<string, number | null> = {};
 
-      // Highest wave rank
+      // Highest wave rank (only current week)
       const waveRank = await db.prepare(`
         SELECT COUNT(*) + 1 as rank
         FROM leaderboard_entries
-        WHERE wave_reached > ?
-      `).bind(submission.waveReached).first<{ rank: number }>();
+        WHERE wave_reached > ? AND reset_timestamp = ?
+      `).bind(submission.waveReached, resetTimestamp).first<{ rank: number }>();
       ranks['highest-wave'] = waveRank?.rank || 1;
 
-      // Most kills rank
+      // Most kills rank (only current week)
       const killsRank = await db.prepare(`
         SELECT COUNT(*) + 1 as rank
         FROM leaderboard_entries
-        WHERE enemies_killed > ?
-      `).bind(submission.enemiesKilled).first<{ rank: number }>();
+        WHERE enemies_killed > ? AND reset_timestamp = ?
+      `).bind(submission.enemiesKilled, resetTimestamp).first<{ rank: number }>();
       ranks['most-kills'] = killsRank?.rank || 1;
 
-      // Longest survival rank
+      // Longest survival rank (only current week)
       const timeRank = await db.prepare(`
         SELECT COUNT(*) + 1 as rank
         FROM leaderboard_entries
-        WHERE survival_time_ms > ?
-      `).bind(submission.survivalTimeMs).first<{ rank: number }>();
+        WHERE survival_time_ms > ? AND reset_timestamp = ?
+      `).bind(submission.survivalTimeMs, resetTimestamp).first<{ rank: number }>();
       ranks['longest-survival'] = timeRank?.rank || 1;
 
-      // Fastest victory rank (only if this is a victory)
+      // Fastest victory rank (only if this is a victory, only current week)
       if (submission.isVictory) {
         const victoryRank = await db.prepare(`
           SELECT COUNT(*) + 1 as rank
           FROM leaderboard_entries
-          WHERE is_victory = 1 AND survival_time_ms < ?
-        `).bind(submission.survivalTimeMs).first<{ rank: number }>();
+          WHERE is_victory = 1 AND survival_time_ms < ? AND reset_timestamp = ?
+        `).bind(submission.survivalTimeMs, resetTimestamp).first<{ rank: number }>();
         ranks['fastest-victory'] = victoryRank?.rank || 1;
       } else {
         ranks['fastest-victory'] = null;
@@ -97,8 +102,9 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
       const category = c.req.param('category') as LeaderboardCategory;
       const limit = Math.min(parseInt(c.req.query('limit') || '10'), 100);
       const offset = parseInt(c.req.query('offset') || '0');
+      const resetTimestamp = getCurrentResetTimestamp();
 
-      let query = '';
+      let query = `WHERE reset_timestamp = ${resetTimestamp}`;
       let orderBy = '';
 
       switch (category) {
@@ -112,7 +118,7 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
           orderBy = 'survival_time_ms DESC, created_at DESC';
           break;
         case 'fastest-victory':
-          query = 'WHERE is_victory = 1';
+          query = `WHERE is_victory = 1 AND reset_timestamp = ${resetTimestamp}`;
           orderBy = 'survival_time_ms ASC, created_at DESC';
           break;
         default:
@@ -236,6 +242,44 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
     } catch (error) {
       console.error('Error fetching player stats:', error);
       return c.json({ success: false, error: 'Failed to fetch player stats' }, 500);
+    }
+  });
+
+  // Get next reset timestamp
+  app.get('/api/leaderboard/next-reset', async (c) => {
+    try {
+      const nextReset = getNextResetTimestamp();
+      return c.json({
+        success: true,
+        data: {
+          nextResetTimestamp: nextReset,
+          currentResetTimestamp: getCurrentResetTimestamp(),
+        },
+      });
+    } catch (error) {
+      console.error('Error getting next reset:', error);
+      return c.json({ success: false, error: 'Failed to get reset info' }, 500);
+    }
+  });
+
+  // Manual reset endpoint (for testing/admin purposes)
+  app.post('/api/leaderboard/manual-reset', async (c) => {
+    try {
+      const db = c.env.prod_d1_cnk;
+      const { archiveAndResetLeaderboard } = await import('./leaderboardUtils');
+      
+      await archiveAndResetLeaderboard(db);
+      
+      return c.json({
+        success: true,
+        data: {
+          message: 'Leaderboard reset completed',
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (error) {
+      console.error('Error during manual reset:', error);
+      return c.json({ success: false, error: 'Failed to reset leaderboard' }, 500);
     }
   });
 }

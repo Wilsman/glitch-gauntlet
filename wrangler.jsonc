@@ -39,5 +39,10 @@
 			"database_name": "prod-d1-cnk",
 			"database_id": "55f8f607-15d0-43b9-8b94-83bf69207e5b"
 		}
-	]
+	],
+	"triggers": {
+		"crons": [
+			"0 8 * * 1"
+		]
+	}
 }

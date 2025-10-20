@@ -59,6 +59,31 @@ export async function getLeaderboard(
 }
 
 /**
+ * Get next leaderboard reset timestamp
+ */
+export async function getNextResetTime(): Promise<{
+  nextResetTimestamp: number;
+  currentResetTimestamp: number;
+}> {
+  try {
+    const response = await fetch('/api/leaderboard/next-reset');
+    const result = await response.json() as ApiResponse<{
+      nextResetTimestamp: number;
+      currentResetTimestamp: number;
+    }>;
+
+    if (!result.success || !result.data) {
+      throw new Error(result.error || 'Failed to fetch reset time');
+    }
+
+    return result.data;
+  } catch (error) {
+    console.error('Error fetching reset time:', error);
+    throw error;
+  }
+}
+
+/**
  * Get a player's best scores across all categories
  */
 export async function getPlayerStats(playerName: string): Promise<{

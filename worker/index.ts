@@ -49,4 +49,19 @@ app.onError((err, c) => { console.error(`[ERROR] ${err}`); return c.json({ succe
 
 console.log(`Server is running`)
 
-export default { fetch: app.fetch } satisfies ExportedHandler<Env>;
+// Scheduled handler for weekly leaderboard reset
+async function scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  console.log('Running scheduled leaderboard reset at:', new Date().toISOString());
+  try {
+    const { archiveAndResetLeaderboard } = await import('./leaderboardUtils');
+    await archiveAndResetLeaderboard(env.prod_d1_cnk);
+    console.log('Leaderboard reset completed successfully');
+  } catch (error) {
+    console.error('Failed to reset leaderboard:', error);
+  }
+}
+
+export default { 
+  fetch: app.fetch,
+  scheduled,
+} satisfies ExportedHandler<Env>;
