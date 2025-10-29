@@ -270,8 +270,11 @@ export class AudioManager {
     this.stopGameMusic();
     // Stop legacy procedural music just in case
     if (this.menuSequence && 'cancel' in this.menuSequence) {
-
-      this.menuSequence.cancel(0);
+      try {
+        this.menuSequence.cancel(0);
+      } catch (e) {
+        console.debug('Menu sequence cancel failed:', e);
+      }
     }
     this.menuSequence?.stop(0);
 
@@ -299,8 +302,11 @@ export class AudioManager {
     // Stop both legacy and file-based menu music
     this.menuSequence?.stop(0);
     if (this.menuSequence && 'cancel' in this.menuSequence) {
-
-      this.menuSequence.cancel(0);
+      try {
+        this.menuSequence.cancel(0);
+      } catch (e) {
+        console.debug('Menu sequence cancel failed:', e);
+      }
     }
     if (this.menuPlayer && this.menuPlayer.state === 'started') {
       try { this.menuPlayer.stop(); } catch (e) {
@@ -324,10 +330,18 @@ export class AudioManager {
 
     // Stop legacy procedural game music
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
-      this.gameBassLoop.cancel(0);
+      try {
+        this.gameBassLoop.cancel(0);
+      } catch (e) {
+        console.debug('Game bass loop cancel failed:', e);
+      }
     }
     if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
-      this.gameLeadSequence.cancel(0);
+      try {
+        this.gameLeadSequence.cancel(0);
+      } catch (e) {
+        console.debug('Game lead sequence cancel failed:', e);
+      }
     }
     this.gameBassLoop?.stop(0);
     this.gameLeadSequence?.stop(0);
@@ -371,10 +385,18 @@ export class AudioManager {
     this.gameBassLoop?.stop(0);
     this.gameLeadSequence?.stop(0);
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
-      this.gameBassLoop.cancel(0);
+      try {
+        this.gameBassLoop.cancel(0);
+      } catch (e) {
+        console.debug('Game bass loop cancel failed:', e);
+      }
     }
     if (this.gameLeadSequence && 'cancel' in this.gameLeadSequence) {
-      this.gameLeadSequence.cancel(0);
+      try {
+        this.gameLeadSequence.cancel(0);
+      } catch (e) {
+        console.debug('Game lead sequence cancel failed:', e);
+      }
     }
     if (this.gamePlayer) {
       try {
