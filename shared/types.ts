@@ -84,6 +84,7 @@ export interface Pet {
 
 export interface Player {
   id: string;
+  name?: string;
   position: Vector2D;
   health: number;
   maxHealth: number;
@@ -149,6 +150,17 @@ export interface Player {
   // Legendary upgrade effects
   hasLucky?: boolean; // Lucky upgrade: double drops
   hasTimeWarp?: boolean; // TimeWarp upgrade: slow enemies
+  // Active Abilities
+  abilityCooldown?: number; // ms remaining
+  abilityDuration?: number; // ms remaining if active
+  isAbilityActive?: boolean;
+  // New Legendary effects
+  hasOmniGlitch?: boolean;
+  hasSystemOverload?: boolean;
+  hasGodMode?: boolean;
+  godModeCooldown?: number;
+  isInvulnerable?: boolean;
+  invulnerableUntil?: number;
 }
 export interface DamageNumber {
   id: string;
@@ -164,7 +176,9 @@ export interface StatusEffect {
   slowAmount?: number; // movement speed multiplier (0-1)
 }
 
-export type EnemyType = 'grunt' | 'slugger' | 'hellhound' | 'splitter' | 'mini-splitter';
+export type EnemyType = 'grunt' | 'slugger' | 'hellhound' | 'splitter' | 'mini-splitter' | "neon-pulse"
+  | "glitch-spider"
+  | "tank-bot";
 
 export interface Enemy {
   id: string;
@@ -257,6 +271,9 @@ export type UpgradeType =
   | 'turret'
   | 'pet'
   | 'aura'
+  | 'omniGlitch'
+  | 'systemOverload'
+  | 'godMode'
   | 'reflect';
 
 export interface UpgradeOption {
@@ -339,6 +356,18 @@ export interface Clone {
   opacity: number; // for fade-in/fade-out effect
 }
 
+export type HazardType = 'explosive-barrel' | 'freeze-barrel' | 'spike-trap';
+
+export interface Hazard {
+  id: string;
+  position: Vector2D;
+  type: HazardType;
+  health: number;
+  maxHealth: number;
+  isActive?: boolean;
+  lastToggle?: number;
+}
+
 export type BossType = 'berserker' | 'summoner' | 'architect';
 
 export interface BossAttack {
@@ -359,12 +388,14 @@ export interface Boss {
   phase: 1 | 2;
   currentAttack?: BossAttack;
   attackCooldown: number;
-  isEnraged?: boolean; // Berserker specific
   lastHitTimestamp?: number;
   // Specific to boss type
   portals?: Portal[];
   shieldGenerators?: ShieldGenerator[];
+  shieldHealth?: number;
+  maxShieldHealth?: number;
   isInvulnerable?: boolean;
+  isEnraged?: boolean;
 }
 
 export interface ShockwaveRing {
@@ -404,6 +435,24 @@ export interface BossProjectile {
   hitPlayers?: Set<string>;
 }
 
+export interface Particle {
+  id: string;
+  position: Vector2D;
+  velocity: Vector2D;
+  color: string;
+  size: number;
+  life: number; // 0..1
+  maxLife: number; // ms
+  timestamp: number;
+  type: 'pixel' | 'glitch' | 'nebula' | 'blood';
+}
+
+export interface ScreenShake {
+  intensity: number;
+  duration: number;
+  startTime: number;
+}
+
 export type GameStatus = 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
 
 export interface LeaderboardEntry {
@@ -426,10 +475,10 @@ export interface LeaderboardSubmission {
   isVictory: boolean;
 }
 
-export type LeaderboardCategory = 
-  | 'highest-wave' 
-  | 'most-kills' 
-  | 'longest-survival' 
+export type LeaderboardCategory =
+  | 'highest-wave'
+  | 'most-kills'
+  | 'longest-survival'
   | 'fastest-victory';
 
 export interface LeaderboardResponse {
@@ -466,4 +515,7 @@ export interface GameState {
   shockwaveRings?: ShockwaveRing[];
   bossProjectiles?: BossProjectile[];
   bossDefeatedRewardClaimed?: boolean;
+  particles?: Particle[];
+  screenShake?: ScreenShake;
+  hazards?: Hazard[];
 }

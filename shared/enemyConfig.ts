@@ -83,6 +83,46 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     xpScaling: 1.25, // Same as parent
     spawnWeight: 0, // Never spawns naturally - only from splitting
   },
+  'neon-pulse': {
+    type: 'neon-pulse',
+    baseHealth: 50,
+    baseDamage: 10,
+    baseSpeed: 1.2,
+    baseXpValue: 20,
+    healthScaling: 1.4,
+    damageScaling: 1.3,
+    speedScaling: 1.05,
+    xpScaling: 1.3,
+    spawnWeight: 0.3,
+    canShoot: true,
+    baseAttackSpeed: 3000,
+    baseProjectileSpeed: 4,
+    attackSpeedScaling: 0.9,
+  },
+  'glitch-spider': {
+    type: 'glitch-spider',
+    baseHealth: 15,
+    baseDamage: 4,
+    baseSpeed: 3.5,
+    baseXpValue: 6,
+    healthScaling: 1.2,
+    damageScaling: 1.2,
+    speedScaling: 1.08,
+    xpScaling: 1.2,
+    spawnWeight: 0.5,
+  },
+  'tank-bot': {
+    type: 'tank-bot',
+    baseHealth: 120,
+    baseDamage: 15,
+    baseSpeed: 0.8,
+    baseXpValue: 30,
+    healthScaling: 1.6,
+    damageScaling: 1.4,
+    speedScaling: 1.02,
+    xpScaling: 1.5,
+    spawnWeight: 0.2,
+  },
 };
 
 export function createEnemy(
@@ -92,14 +132,14 @@ export function createEnemy(
   wave: number
 ): Enemy {
   const config = ENEMY_CONFIGS[type];
-  
+
   // Calculate scaled stats based on wave
   const waveMultiplier = wave - 1; // wave 1 = no scaling
   const health = Math.round(config.baseHealth * Math.pow(config.healthScaling, waveMultiplier));
   const damage = Math.round(config.baseDamage * Math.pow(config.damageScaling, waveMultiplier));
   const speed = config.baseSpeed * Math.pow(config.speedScaling, waveMultiplier);
   const xpValue = Math.round(config.baseXpValue * Math.pow(config.xpScaling, waveMultiplier));
-  
+
   const enemy: Enemy = {
     id,
     position,
@@ -111,7 +151,7 @@ export function createEnemy(
     speed,
     baseSpeed: speed,
   };
-  
+
   // Add shooting capabilities if configured
   if (config.canShoot) {
     const attackSpeed = Math.round(
@@ -121,21 +161,27 @@ export function createEnemy(
     enemy.attackSpeed = attackSpeed;
     enemy.projectileSpeed = config.baseProjectileSpeed;
   }
-  
+
   return enemy;
 }
 
 export function selectRandomEnemyType(wave: number = 1): EnemyType {
   const types = (Object.keys(ENEMY_CONFIGS) as EnemyType[]).filter(type => {
     // Splitters only spawn after wave 5 (after first hellhound round)
-    if (type === 'splitter' && wave < 6) {
-      return false;
-    }
+    // Splitters only spawn after wave 5
+    if (type === 'splitter' && wave < 6) return false;
+    // Glitch Spiders after wave 3
+    if (type === 'glitch-spider' && wave < 4) return false;
+    // Neon Pulse after wave 7
+    if (type === 'neon-pulse' && wave < 8) return false;
+    // Tank Bot after wave 12
+    if (type === 'tank-bot' && wave < 13) return false;
+
     return ENEMY_CONFIGS[type].spawnWeight > 0;
   });
-  
+
   const totalWeight = types.reduce((sum, type) => sum + ENEMY_CONFIGS[type].spawnWeight, 0);
-  
+
   let random = Math.random() * totalWeight;
   for (const type of types) {
     random -= ENEMY_CONFIGS[type].spawnWeight;
@@ -143,6 +189,6 @@ export function selectRandomEnemyType(wave: number = 1): EnemyType {
       return type;
     }
   }
-  
+
   return types[0]; // fallback
 }

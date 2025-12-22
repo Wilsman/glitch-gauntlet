@@ -13,7 +13,7 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'armor', title: 'Cardboard Box Armor', description: 'Reduce damage by 5%. Surprisingly effective!', rarity: 'common', emoji: '📦' },
   { type: 'dodge', title: 'Banana Peel Shoes', description: '5% chance to slip away from damage.', rarity: 'common', emoji: '🍌' },
   { type: 'magnetic', title: 'Suspiciously Strong Magnet', description: 'XP orbs pulled from further away. Don\'t ask where we got it.', rarity: 'common', emoji: '🧲' },
-  
+
   // ========== UNCOMMON (Green) ==========
   { type: 'multiShot', title: 'Two-For-One Tuesdays', description: 'Buy one bullet, get one free. +1 projectile per shot.', rarity: 'uncommon', emoji: '🎯' },
   { type: 'lifeSteal', title: 'Thirsty Bullets', description: 'Hydration via violence. Heal 5% of damage dealt.', rarity: 'uncommon', emoji: '🩸' },
@@ -25,7 +25,7 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'knockback', title: 'Leaf Blower 9000', description: 'Push enemies back. Also good for autumn cleanup.', rarity: 'uncommon', emoji: '🍃' },
   { type: 'shield', title: 'Bubble Wrap Force Field', description: 'Absorb 50 damage before popping. Very satisfying.', rarity: 'uncommon', emoji: '🫧' },
   { type: 'homingShots', title: 'GPS-Guided Freedom Seeds', description: 'Bullets slightly home toward enemies. Satellite subscription required.', rarity: 'uncommon', emoji: '📡' },
-  
+
   // ========== LEGENDARY (Red) ==========
   { type: 'bananarang', title: 'Bananarang', description: 'Add a returning banana to your attack. Picks add more bananas.', rarity: 'legendary', emoji: '🍌' },
   { type: 'explosion', title: 'Pocket Nuke (Totally Safe)', description: 'Attacks explode for 200% damage. What could go wrong?', rarity: 'legendary', emoji: '💣' },
@@ -37,28 +37,28 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'ricochet', title: 'Pinball Wizard Certification', description: 'Bullets bounce 3 times. TILT! TILT!', rarity: 'legendary', emoji: '🎱' },
   { type: 'executioner', title: 'Guillotine Enthusiast Badge', description: 'Instant kill enemies below 15% HP. Très magnifique!', rarity: 'legendary', emoji: '⚔️' },
   { type: 'invincibility', title: 'Plot Armor (Legendary)', description: 'Survive lethal damage once per wave. Protagonist powers!', rarity: 'legendary', emoji: '🛡️' },
-  
+
   // ========== BOSS (Yellow) ==========
   { type: 'aura', title: 'Intimidating Boss Music', description: 'Enemies near you deal 30% less damage. *Epic orchestra intensifies*', rarity: 'boss', emoji: '🎵' },
   { type: 'pet', title: 'Angry Chihuahua Familiar', description: 'Summons a tiny rage demon that attacks enemies. Yappy but effective.', rarity: 'boss', emoji: '🐕' },
   { type: 'turret', title: 'Sentient Toaster Turret', description: 'Deploy a turret that shoots toast. Breakfast AND death!', rarity: 'boss', emoji: '🍞' },
   { type: 'reflect', title: 'Uno Reverse Card (Laminated)', description: 'Reflect 50% of projectiles. No u!', rarity: 'boss', emoji: '🔄' },
   { type: 'dash', title: 'Anime Protagonist Dash', description: 'Dash through enemies. Leaves speed lines.', rarity: 'boss', emoji: '💨' },
-  
+
   // ========== LUNAR (Blue) - Powerful but with drawbacks ==========
   { type: 'ghostBullets', title: 'Spectral Ammunition', description: 'Bullets phase through walls. You take 20% more damage. Spooky!', rarity: 'lunar', emoji: '👻' },
   { type: 'berserker', title: 'Glass Cannon Syndrome', description: '+100% damage, -50% max HP. Live fast, die young.', rarity: 'lunar', emoji: '💎' },
   { type: 'timeWarp', title: 'Broken Stopwatch', description: 'You move 50% faster, enemies move 25% faster. Time is weird.', rarity: 'lunar', emoji: '⌚' },
   { type: 'lucky', title: 'Cursed Lottery Ticket', description: 'Triple XP, but enemies have 50% more HP. Monkey\'s paw vibes.', rarity: 'lunar', emoji: '🎫' },
   { type: 'vampiric', title: 'Vampire\'s Curse', description: 'Heal 25% of damage, but regeneration stops. Embrace the darkness.', rarity: 'lunar', emoji: '🌙' },
-  
+
   // ========== VOID (Purple) - Corrupted versions ==========
   { type: 'poisonDamage', title: 'Void-Touched Venom', description: 'Attacks poison enemies for 50% damage over 3s. Smells like regret.', rarity: 'void', emoji: '☠️' },
   { type: 'fireDamage', title: 'Corrupted Flamethrower', description: 'Set enemies on fire. Burns for 100% damage over 2s. Toasty!', rarity: 'void', emoji: '🔥' },
   { type: 'iceSlow', title: 'Absolute Zero Brain Freeze', description: 'Attacks slow enemies by 40%. Also makes slushies.', rarity: 'void', emoji: '❄️' },
   { type: 'explosion', title: 'Void Implosion', description: 'Kills create black holes that pull enemies in. Physics? Never heard of her.', rarity: 'void', emoji: '🌑' },
   { type: 'chain', title: 'Corrupted Lightning', description: 'Chains to 5 enemies but deals 50% damage. Quantity over quality!', rarity: 'void', emoji: '⚡' },
-  
+
   // ========== MORE COMMONS ==========
   { type: 'attackSpeed', title: 'Twitchy Trigger Finger', description: 'Too much coffee. +20% attack speed.', rarity: 'common', emoji: '👆' },
   { type: 'projectileDamage', title: 'Pointier Bullets', description: 'They\'re just... pointier. +5 damage.', rarity: 'common', emoji: '📌' },
@@ -68,7 +68,7 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'armor', title: 'Thick Skin (Metaphorically)', description: 'Reduce damage by 5%. Emotionally resilient!', rarity: 'common', emoji: '🦏' },
   { type: 'dodge', title: 'Slippery When Wet', description: '5% dodge chance. Don\'t ask why you\'re wet.', rarity: 'common', emoji: '💧' },
   { type: 'critChance', title: 'Four-Leaf Clover', description: '+10% crit chance. Picked from a golf course.', rarity: 'common', emoji: '☘️' },
-  
+
   // ========== MORE UNCOMMONS ==========
   { type: 'multiShot', title: 'Shotgun Surgery', description: '+1 projectile. Not FDA approved.', rarity: 'uncommon', emoji: '💉' },
   { type: 'pierce', title: 'Kebab Skewer', description: 'Pierce 1 enemy. Also good for BBQ.', rarity: 'uncommon', emoji: '�串' },
@@ -78,7 +78,7 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'vampiric', title: 'Mosquito Swarm', description: 'Heal 10% of damage. Bzzzz!', rarity: 'uncommon', emoji: '🦟' },
   { type: 'homingShots', title: 'Bloodhound Bullets', description: 'Bullets track enemies. Good boy!', rarity: 'uncommon', emoji: '🐶' },
   { type: 'chain', title: 'Social Butterfly Effect', description: 'Chain to 2 enemies. Spread the love!', rarity: 'uncommon', emoji: '🦋' },
-  
+
   // ========== MORE LEGENDARIES ==========
   { type: 'explosion', title: 'Michael Bay Director\'s Cut', description: 'EXPLOSIONS! 200% AoE damage.', rarity: 'legendary', emoji: '🎬' },
   { type: 'ricochet', title: 'Boomerang Physics Degree', description: 'Bullets bounce 3 times. Science!', rarity: 'legendary', emoji: '🪃' },
@@ -88,6 +88,9 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'timeWarp', title: 'Lag Switch (Legal)', description: 'Slow enemies by 30%. Totally not cheating.', rarity: 'legendary', emoji: '📶' },
   { type: 'lucky', title: 'Horseshoe Up Your...', description: 'Double drops. Lucky you!', rarity: 'legendary', emoji: '🐴' },
   { type: 'berserker', title: 'Hulk Smash Mode', description: '+50% damage at low HP. You won\'t like me when I\'m angry.', rarity: 'legendary', emoji: '💪' },
+  { type: 'omniGlitch', title: 'Omni-Glitch Matrix', description: 'Infinite piercing. Bullets leave a trail of glitch destruction.', rarity: 'legendary', emoji: '🌀' },
+  { type: 'systemOverload', title: 'System Overload', description: 'Using your active ability deletes all non-boss enemies. Rebooting!', rarity: 'legendary', emoji: '💥' },
+  { type: 'godMode', title: 'Absolute Zero Protocol', description: 'When at 1 HP, become invulnerable for 5 seconds. (60s cooldown).', rarity: 'legendary', emoji: '😇' },
 ];
 
 // Weighted rarity chances
@@ -102,7 +105,7 @@ export const RARITY_WEIGHTS = {
 
 export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'): Omit<UpgradeOption, 'id'>[] {
   const selected: Omit<UpgradeOption, 'id'>[] = [];
-  
+
   if (forceRarity) {
     // Force specific rarity (for hellhound rounds)
     const upgradesOfRarity = ALL_UPGRADES.filter(u => u.rarity === forceRarity);
@@ -112,14 +115,14 @@ export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'):
     }
     return selected;
   }
-  
+
   const totalWeight = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
-  
+
   for (let i = 0; i < count; i++) {
     // Pick a rarity based on weights
     let roll = Math.random() * totalWeight;
     let selectedRarity: keyof typeof RARITY_WEIGHTS = 'common';
-    
+
     for (const [rarity, weight] of Object.entries(RARITY_WEIGHTS)) {
       roll -= weight;
       if (roll <= 0) {
@@ -127,7 +130,7 @@ export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'):
         break;
       }
     }
-    
+
     // Get all upgrades of that rarity
     const upgradesOfRarity = ALL_UPGRADES.filter(u => u.rarity === selectedRarity);
     if (upgradesOfRarity.length > 0) {
@@ -135,6 +138,6 @@ export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'):
       selected.push(randomUpgrade);
     }
   }
-  
+
   return selected;
 }

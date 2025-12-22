@@ -37,6 +37,14 @@ export class AudioManager {
   // File-based music players
   private menuPlayer: Tone.Player | null = null;
   private gamePlayer: Tone.Player | null = null;
+  private previewPlayer: Tone.Player | null = null;
+
+  public static readonly GAME_TRACKS = [
+    'Digital Frenzy 2.mp3',
+    'Digital Frenzy.mp3',
+    'Pixel Dash.mp3',
+    'Pixel Groove.mp3',
+  ];
 
   // Legacy procedural music (kept for SFX compatibility; no longer used for music)
   private menuSynth: Tone.PolySynth<Tone.Synth> | null = null;
@@ -52,8 +60,10 @@ export class AudioManager {
   private clickSynth: Tone.Synth | null = null;
   private gameOverSynth: Tone.Synth | null = null;
   private victorySynth: Tone.Synth | null = null;
+  private pickupSynth: Tone.Synth | null = null;
   // SFX scheduling guards
   private lastShootTime: number | null = null;
+  private lastPickupTime: number | null = null;
 
   private currentTrack: MusicTrack = null;
   private requestedTrack: MusicTrack = null;
@@ -163,9 +173,14 @@ export class AudioManager {
     }).connect(this.sfxReverb);
 
     this.victorySynth = new Tone.Synth({
-      oscillator: { type: 'square' },
+      oscillator: { type: "square" },
       envelope: { attack: 0.01, decay: 0.3, sustain: 0.3, release: 1.2 },
     }).connect(this.sfxReverb);
+
+    this.pickupSynth = new Tone.Synth({
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.001, decay: 0.1, sustain: 0.1, release: 0.2 },
+    }).connect(this.sfxGain);
 
     Tone.Transport.bpm.value = 96;
     this.applyVolumes();
@@ -321,12 +336,13 @@ export class AudioManager {
     }
   }
 
-  public playGameMusic() {
+  public playGameMusic(enabledTracks?: string[]) {
     if (!this.isBrowser) return;
     this.ensureInitialized();
     if (this.currentTrack === 'game') return;
 
     this.stopMenuMusic();
+    this.stopPreviewTrack();
 
     // Stop legacy procedural game music
     if (this.gameBassLoop && 'cancel' in this.gameBassLoop) {
@@ -347,19 +363,15 @@ export class AudioManager {
     this.gameLeadSequence?.stop(0);
 
     // Start randomized file-based game music
-    const allTracks = [
-      'Digital Frenzy 2.mp3',
-      'Digital Frenzy.mp3',
-      'Pixel Dash.mp3',
-      'Pixel Groove.mp3',
-      'Pixel Pulse.mp3',
-    ];
-    const gameTracks = allTracks
-      .filter((name) => name !== 'Pixel Pulse.mp3')
+    const possibleTracks = (enabledTracks && enabledTracks.length > 0)
+      ? enabledTracks
+      : AudioManager.GAME_TRACKS;
+
+    const gameTracks = possibleTracks
       .map((name) => encodeURI(`/music/${name}`));
     const pick = gameTracks.length > 0
       ? gameTracks[Math.floor(Math.random() * gameTracks.length)]
-      : encodeURI('/music/Pixel Dash.mp3');
+      : encodeURI(`/music/${AudioManager.GAME_TRACKS[0]}`);
 
     // Recreate player each time to avoid TS/runtime incompatibilities with .load
     if (this.gamePlayer) {
@@ -417,6 +429,35 @@ export class AudioManager {
     }
   }
 
+  public playPreviewTrack(name: string) {
+    if (!this.isBrowser) return;
+    this.ensureInitialized();
+
+    this.stopMenuMusic();
+    this.stopGameMusic();
+    this.stopPreviewTrack();
+
+    this.previewPlayer = new Tone.Player({
+      url: encodeURI(`/music/${name}`),
+      loop: true,
+      autostart: true,
+    }).connect(this.musicGain!);
+
+    this.ensureTransport();
+  }
+
+  public stopPreviewTrack() {
+    if (this.previewPlayer) {
+      try {
+        if (this.previewPlayer.state === 'started') this.previewPlayer.stop();
+        this.previewPlayer.dispose();
+      } catch (e) {
+        console.debug('Preview player stop/dispose error:', e);
+      }
+      this.previewPlayer = null;
+    }
+  }
+
   public playShoot() {
     if (!this.isBrowser) return;
     this.ensureInitialized();
@@ -460,7 +501,25 @@ export class AudioManager {
     if (!this.isBrowser) return;
     this.ensureInitialized();
     if (!this.isContextRunning()) return;
-    this.clickSynth?.triggerAttackRelease('C6', '32n');
+    this.clickSynth?.triggerAttackRelease("C6", "32n");
+  }
+
+  public playPickup() {
+    if (!this.isBrowser) return;
+    this.ensureInitialized();
+    if (!this.isContextRunning()) return;
+
+    const now = Tone.now();
+    const epsilon = 0.005; // 5ms gap to avoid overlap clicks
+    const time =
+      this.lastPickupTime !== null && now <= this.lastPickupTime
+        ? this.lastPickupTime + epsilon
+        : now;
+    this.lastPickupTime = time;
+
+    // A high-pitched, satisfying "ching" - two quick notes
+    this.pickupSynth?.triggerAttackRelease("E6", "32n", time);
+    this.pickupSynth?.triggerAttackRelease("G6", "32n", time + 0.05);
   }
 
   public setMasterVolume(value: number) {

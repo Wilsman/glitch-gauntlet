@@ -62,7 +62,7 @@ To start the development server, which includes both the Vite frontend and the l
 bun run dev
 ```
 
-This will start the application, typically available at `http://localhost:3000`.
+This will start the application, typically available at `http://localhost:3001`.
 
 ## 🏗️ Project Structure
 

@@ -17,7 +17,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       player.health = Math.min(player.maxHealth, player.health + 20);
       break;
     case 'pickupRadius':
-      player.pickupRadius = Math.min(120, player.pickupRadius * 1.2);
+      player.pickupRadius = Math.min(300, player.pickupRadius * 1.3);
       break;
     case 'multiShot':
       player.projectilesPerShot = Math.min(10, player.projectilesPerShot + 1);
@@ -31,7 +31,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
     case 'lifeSteal':
       player.lifeSteal = Math.min(0.50, player.lifeSteal + 0.05);
       break;
-    
+
     // ===== ARSENAL =====
     case 'bananarang':
       if (!player.hasBananarang) {
@@ -41,7 +41,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
         player.bananarangsPerShot = Math.min(10, (player.bananarangsPerShot || 1) + 1);
       }
       break;
-    
+
     // ===== DEFENSIVE =====
     case 'armor':
       player.armor = Math.min(0.50, (player.armor || 0) + 0.05);
@@ -59,7 +59,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       player.maxShield = (player.maxShield || 0) + 50;
       player.shield = player.maxShield;
       break;
-    
+
     // ===== ELEMENTAL/STATUS =====
     case 'fireDamage':
       player.fireDamage = (player.fireDamage || 0) + 1.0; // 100% damage over 2s
@@ -70,7 +70,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
     case 'iceSlow':
       player.iceSlow = Math.min(0.70, (player.iceSlow || 0) + 0.40);
       break;
-    
+
     // ===== PROJECTILE MODIFIERS =====
     case 'pierce':
       player.pierceCount = (player.pierceCount || 0) + 1;
@@ -90,7 +90,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
     case 'explosion':
       player.explosionDamage = (player.explosionDamage || 0) + 2.0; // 200% AoE damage
       break;
-    
+
     // ===== SPECIAL =====
     case 'vampiric':
       player.lifeSteal = Math.min(0.50, (player.lifeSteal || 0) + 0.10);
@@ -108,9 +108,20 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       // Handled in damage calculation
       break;
     case 'magnetic':
-      player.pickupRadius = Math.min(150, player.pickupRadius * 1.5);
+      player.pickupRadius = Math.min(300, player.pickupRadius * 1.6);
       break;
-    
+    case 'omniGlitch':
+      player.hasOmniGlitch = true;
+      player.pierceCount = (player.pierceCount || 0) + 10;
+      break;
+    case 'systemOverload':
+      player.hasSystemOverload = true;
+      break;
+    case 'godMode':
+      player.hasGodMode = true;
+      player.godModeCooldown = 0;
+      break;
+
     // ===== ADVANCED =====
     case 'pet':
       player.hasPet = true;
@@ -121,7 +132,7 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
     case 'clone':
       player.cloneCount = (player.cloneCount || 0) + 1;
       break;
-    
+
     // ===== ADVANCED (Not yet implemented) =====
     case 'ghostBullets':
     case 'invincibility':

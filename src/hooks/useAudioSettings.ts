@@ -19,11 +19,13 @@ type AudioSettingsState = {
   musicVolume: number;
   sfxVolume: number;
   muted: boolean;
+  enabledGameTracks: string[];
   setMasterVolume: (value: number) => void;
   setMusicVolume: (value: number) => void;
   setSfxVolume: (value: number) => void;
   setMuted: (muted: boolean) => void;
   toggleMuted: () => void;
+  toggleTrack: (name: string) => void;
 };
 
 export const useAudioSettings = create<AudioSettingsState>()(
@@ -33,6 +35,7 @@ export const useAudioSettings = create<AudioSettingsState>()(
       musicVolume: 0.5,
       sfxVolume: 1,
       muted: false,
+      enabledGameTracks: [...AudioManager.GAME_TRACKS],
       setMasterVolume: (value) => {
         const clamped = clampVolume(value);
         set((state) => {
@@ -66,6 +69,16 @@ export const useAudioSettings = create<AudioSettingsState>()(
           state.muted = muted;
         });
         syncAudio((audio) => audio.setMuted(muted));
+      },
+      toggleTrack: (name) => {
+        set((state) => {
+          const index = state.enabledGameTracks.indexOf(name);
+          if (index > -1) {
+            state.enabledGameTracks.splice(index, 1);
+          } else {
+            state.enabledGameTracks.push(name);
+          }
+        });
       },
     })),
     {

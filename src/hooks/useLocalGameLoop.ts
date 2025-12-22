@@ -19,16 +19,16 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
   useHotkeys('a,arrowleft', (e) => { e?.preventDefault(); inputRef.current.left = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
   useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
   useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
-  
+
   // Character abilities
-  useHotkeys('shift,space', (e) => { 
-    e?.preventDefault(); 
-    if (engine) engine.useBlink(); 
+  useHotkeys('shift,space', (e) => {
+    e?.preventDefault();
+    if (engine) engine.useBlink();
   }, { enabled: !isPaused, preventDefault: true });
-  
-  useHotkeys('e', (e) => { 
-    e?.preventDefault(); 
-    if (engine) engine.placeTurret(); 
+
+  useHotkeys('q', (e) => {
+    e?.preventDefault();
+    if (engine) engine.useAbility();
   }, { enabled: !isPaused, preventDefault: true });
 
   useEffect(() => {

@@ -19,6 +19,11 @@ import type {
   Clone,
   Boss,
   ShockwaveRing,
+  Vector2D,
+  Particle,
+  ScreenShake,
+  Hazard,
+  HazardType,
 } from "@shared/types";
 import { getRandomUpgrades } from "@shared/upgrades";
 import { applyUpgradeEffect } from "@shared/upgradeEffects";
@@ -100,13 +105,18 @@ export class LocalGameEngine {
   private enemiesKilledCount: number = 0;
   private characterType: CharacterType;
 
-  constructor(playerId: string, characterType: CharacterType = "spray-n-pray") {
+  constructor(
+    playerId: string,
+    characterType: CharacterType = "spray-n-pray",
+    playerName?: string
+  ) {
     const character = getCharacter(characterType);
     this.characterType = characterType;
     this.gameStartTime = Date.now();
 
     const initialPlayer: Player = {
       id: playerId,
+      name: playerName,
       position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
       health: character.baseHealth,
       maxHealth: character.baseHealth,
@@ -120,7 +130,7 @@ export class LocalGameEngine {
       speed: character.baseSpeed,
       projectileDamage: character.baseDamage,
       reviveProgress: 0,
-      pickupRadius: 30,
+      pickupRadius: 100,
       projectilesPerShot: 1,
       critChance: 0,
       critMultiplier: characterType === "glass-cannon-carl" ? 3 : 2,
@@ -151,6 +161,7 @@ export class LocalGameEngine {
       shockwaveRings: [],
       bossProjectiles: [],
       bossDefeatedRewardClaimed: false,
+      hazards: [],
     };
 
     // Pet Pal Percy starts with a pet
@@ -259,7 +270,70 @@ export class LocalGameEngine {
 
       // Set cooldown (5 seconds)
       player.blinkCooldown = 5000;
-      player.blinkReady = false;
+    }
+  }
+
+
+  useAbility() {
+    const player = this.gameState.players[0];
+    if (!player || player.status !== "alive") return;
+    if (player.abilityCooldown && player.abilityCooldown > 0) return;
+
+    if (player.hasSystemOverload) {
+      this.triggerScreenShake(20, 500);
+      this.spawnParticles(player.position, "#FFFFFF", 80, "glitch", 30);
+      this.gameState.enemies = [];
+      if (this.gameState.boss) {
+        this.gameState.boss.health -= this.gameState.boss.maxHealth * 0.1;
+      }
+    }
+
+    switch (player.characterType) {
+      case "spray-n-pray":
+        player.isAbilityActive = true;
+        player.abilityDuration = 4000;
+        player.abilityCooldown = 12000;
+        this.triggerScreenShake(3, 200);
+        break;
+      case "boom-bringer":
+        // Cluster Bomb
+        for (let i = 0; i < 8; i++) {
+          const angle = (i * Math.PI * 2) / 8;
+          this.gameState.projectiles.push({
+            id: uuidv4(),
+            ownerId: player.id,
+            position: { ...player.position },
+            velocity: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
+            damage: player.projectileDamage * 2,
+            kind: "bullet",
+            radius: 12,
+            hitEnemies: [],
+          });
+        }
+        player.abilityCooldown = 8000;
+        this.triggerScreenShake(10, 300);
+        break;
+      case "dash-dynamo":
+        player.isAbilityActive = true;
+        player.abilityDuration = 3000;
+        player.abilityCooldown = 15000;
+        this.triggerScreenShake(5, 500);
+        this.spawnParticles(player.position, "#00FFFF", 40, "glitch", 12);
+        break;
+      case "vampire-vex":
+        player.isAbilityActive = true;
+        player.abilityDuration = 5000;
+        player.abilityCooldown = 20000;
+        // Massive heal
+        player.health = Math.min(player.maxHealth, player.health + 50);
+        break;
+      case "turret-tina":
+        // Mega Turret
+        this.placeTurret();
+        this.placeTurret();
+        this.placeTurret();
+        player.abilityCooldown = 10000;
+        break;
     }
   }
 
@@ -393,7 +467,7 @@ export class LocalGameEngine {
     // Only update game mechanics if still playing or in boss fight
     if (state.status === "playing" || state.status === "bossFight") {
       this.updatePlayerMovement(state, timeFactor);
-      this.updatePlayerEffects(state, delta);
+      this.updatePlayerEffects(state, delta, now);
       this.updateVampireDrain(state, delta, now);
       this.updateBlinkCooldown(state, delta);
       this.updateRevives(state, delta);
@@ -415,9 +489,13 @@ export class LocalGameEngine {
       this.updatePlayerAttacks(state, delta);
       this.updateProjectiles(state, now, delta, timeFactor);
       this.updateStatusEffects(state, delta);
+      this.updateParticles(state, delta, now);
+      this.updateScreenShake(state, now);
+      this.updateHazards(state, now, delta);
+      this.updateAbilities(state, delta);
       this.updateExplosions(state, now);
       this.updateChainLightning(state, now);
-      this.updateXPOrbs(state);
+      this.updateXPOrbs(state, timeFactor);
     }
 
     // Handle extraction in bossDefeated state
@@ -443,7 +521,7 @@ export class LocalGameEngine {
     });
   }
 
-  private updatePlayerEffects(state: GameState, delta: number) {
+  private updatePlayerEffects(state: GameState, delta: number, now: number) {
     state.players.forEach((p) => {
       if (p.status !== "alive") return;
       // Regeneration
@@ -452,6 +530,11 @@ export class LocalGameEngine {
           p.maxHealth,
           p.health + (p.regeneration * delta) / 1000
         );
+      }
+
+      // Invulnerability expiry
+      if (p.isInvulnerable && p.invulnerableUntil && now >= p.invulnerableUntil) {
+        p.isInvulnerable = false;
       }
       // Shield recharge (slowly)
       if (p.maxShield && p.maxShield > 0) {
@@ -694,7 +777,7 @@ export class LocalGameEngine {
 
           // Clone fires a single projectile (no multishot)
           const baseDamage = Math.round(owner.projectileDamage * clone.damage);
-          
+
           const projectile: Projectile = {
             id: uuidv4(),
             ownerId: clone.ownerId, // Credit kills to owner
@@ -961,12 +1044,11 @@ export class LocalGameEngine {
               enemy.health -= incomingDamage * p.thorns;
             }
           }
-          p.health = Math.max(0, p.health - incomingDamage);
-          p.lastHitTimestamp = now;
-          if (p.health <= 0) p.status = "dead";
+
+          this.damagePlayer(p, incomingDamage, now);
         } else {
           let effectiveSpeed = enemy.speed;
-          
+
           // Apply status effect slows
           if (enemy.statusEffects && enemy.statusEffects.length > 0) {
             const slowEffect = enemy.statusEffects.find(
@@ -976,7 +1058,7 @@ export class LocalGameEngine {
               effectiveSpeed *= slowEffect.slowAmount;
             }
           }
-          
+
           // Apply timeWarp slow (30% slow = 70% speed)
           const hasTimeWarpPlayer = state.players.some((p) => p.hasTimeWarp);
           if (hasTimeWarpPlayer) {
@@ -1144,6 +1226,13 @@ export class LocalGameEngine {
             const offset = (i - (shots - 1) / 2) * spread;
             const angle = baseAngle + offset;
             const isCrit = Math.random() < (p.critChance || 0);
+
+            // Overdrive fire rate logic
+            let attackSpeed = p.attackSpeed;
+            if (p.isAbilityActive && p.characterType === 'spray-n-pray') {
+              attackSpeed *= 0.4;
+            }
+
             const damage = Math.round(
               p.projectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
             );
@@ -1294,6 +1383,11 @@ export class LocalGameEngine {
       proj.position.x += proj.velocity.x * timeFactor;
       proj.position.y += proj.velocity.y * timeFactor;
 
+      // Omni-Glitch trail
+      if (owner && owner.hasOmniGlitch && Math.random() < 0.2) {
+        this.spawnParticles(proj.position, "#FF00FF", 1, "glitch", 2);
+      }
+
       const isEnemyProjectile = state.enemies.some(
         (e) => e.id === proj.ownerId
       );
@@ -1320,9 +1414,14 @@ export class LocalGameEngine {
                 incomingDamage -= absorbed;
               }
             }
-            player.health = Math.max(0, player.health - incomingDamage);
-            player.lastHitTimestamp = now;
-            if (player.health <= 0) player.status = "dead";
+
+            this.damagePlayer(player, incomingDamage, now);
+
+            // Trigger screen shake and glitch particles on player hit
+            if (incomingDamage > 1) {
+              this.triggerScreenShake(Math.min(10, incomingDamage * 0.5), 200);
+              this.spawnParticles(player.position, "#FF0000", 10, "glitch");
+            }
             return false;
           }
         }
@@ -1380,6 +1479,13 @@ export class LocalGameEngine {
             }
           }
 
+          // Check for enrage (at 50% health)
+          if (!state.boss.isEnraged && state.boss.health < state.boss.maxHealth * 0.5) {
+            state.boss.isEnraged = true;
+            this.triggerScreenShake(20, 1000);
+            this.spawnParticles(state.boss.position, "#FF0000", 100, "glitch", 20);
+          }
+
           // Check boss collision (skip if invulnerable)
           if (!state.boss.isInvulnerable) {
             const bossConfig = BOSS_CONFIGS[state.boss.type];
@@ -1394,6 +1500,10 @@ export class LocalGameEngine {
               }
               state.boss.health -= finalDamage;
               state.boss.lastHitTimestamp = now;
+
+              // Visual juice for boss hits
+              this.triggerScreenShake(proj.isCrit ? 5 : 2, 100);
+              this.spawnParticles(proj.position, proj.isCrit ? '#FF0000' : '#00FFFF', proj.isCrit ? 15 : 8, proj.isCrit ? 'glitch' : 'pixel');
 
               if (owner && owner.lifeSteal && owner.lifeSteal > 0) {
                 owner.health = Math.min(
@@ -1426,6 +1536,15 @@ export class LocalGameEngine {
               finalDamage = enemy.health;
             }
             enemy.health -= finalDamage;
+
+            // Particle hit effect
+            const isCrit = proj.isCrit || false;
+            this.spawnParticles(
+              proj.position,
+              isCrit ? '#FF0000' : '#FFFF00',
+              isCrit ? 12 : 6,
+              isCrit ? 'glitch' : 'blood'
+            );
 
             // Boom Bringer grenade explosion on hit
             if (owner && owner.weaponType === "grenade-launcher") {
@@ -1579,6 +1698,8 @@ export class LocalGameEngine {
                 } else {
                   return false;
                 }
+              } else if (owner && owner.hasOmniGlitch) {
+                // Infinite pierce for Omni-Glitch
               } else if (!proj.pierceRemaining || proj.pierceRemaining <= 0) {
                 return false;
               } else {
@@ -1609,11 +1730,15 @@ export class LocalGameEngine {
     deadEnemies.forEach((dead) => {
       // Check if any player has lucky upgrade
       const hasLuckyPlayer = state.players.some((p) => p.hasLucky);
+      // Death explosion particles
+      this.spawnParticles(dead.position, '#FFFF00', 20, 'pixel', 10);
+      this.spawnParticles(dead.position, '#FF0000', 10, 'blood', 8);
+
       const xpValue = hasLuckyPlayer ? dead.xpValue * 2 : dead.xpValue;
-      
+
       state.xpOrbs.push({
         id: uuidv4(),
-        position: dead.position,
+        position: { ...dead.position },
         value: xpValue,
         isDoubled: hasLuckyPlayer,
       });
@@ -1832,31 +1957,58 @@ export class LocalGameEngine {
     );
   }
 
-  private updateXPOrbs(state: GameState) {
-    state.players.forEach((p) => {
-      if (p.status !== "alive") return;
+  private updateXPOrbs(state: GameState, timeFactor: number) {
+    // For each orb, find if any player is close enough to pull it
+    state.xpOrbs.forEach((orb) => {
+      let closestPlayer: Player | null = null;
+      let minDistance = Infinity;
 
-      // First, move orbs within pickup radius directly to player
-      state.xpOrbs.forEach((orb) => {
+      state.players.forEach((p) => {
+        if (p.status !== "alive") return;
         const dx = p.position.x - orb.position.x;
         const dy = p.position.y - orb.position.y;
         const distance = Math.hypot(dx, dy);
         const radius = p.pickupRadius || 30;
 
-        if (distance < radius && distance > 0) {
-          // Snap directly to player position - no overshooting
-          orb.position.x = p.position.x;
-          orb.position.y = p.position.y;
+        if (distance < radius && distance < minDistance) {
+          minDistance = distance;
+          closestPlayer = p;
         }
       });
 
-      // Then collect orbs at player position
+      if (closestPlayer) {
+        const dx = closestPlayer.position.x - orb.position.x;
+        const dy = closestPlayer.position.y - orb.position.y;
+        const distance = minDistance; // already calculated
+        const radius = (closestPlayer as Player).pickupRadius || 80;
+
+        if (distance > 0) {
+          // Magnet pull speed: base speed + increases as it gets closer
+          // We want it to feel fast but not instant
+          const pullSpeed = 6 + (radius / Math.max(10, distance)) * 4;
+          const moveX = (dx / distance) * pullSpeed * timeFactor;
+          const moveY = (dy / distance) * pullSpeed * timeFactor;
+
+          // Don't overshoot
+          if (Math.abs(moveX) > Math.abs(dx)) orb.position.x = closestPlayer.position.x;
+          else orb.position.x += moveX;
+
+          if (Math.abs(moveY) > Math.abs(dy)) orb.position.y = closestPlayer.position.y;
+          else orb.position.y += moveY;
+        }
+      }
+    });
+
+    // Handle collection and leveling for each player
+    state.players.forEach((p) => {
+      if (p.status !== "alive") return;
+
       state.xpOrbs = state.xpOrbs.filter((orb) => {
         const distance = Math.hypot(
           p.position.x - orb.position.x,
           p.position.y - orb.position.y
         );
-        if (distance < 5) {
+        if (distance < 10) {
           p.xp += orb.value;
           return false;
         }
@@ -2051,7 +2203,7 @@ export class LocalGameEngine {
     console.log("Saving game stats:", stats, "Game status:", state.status);
     saveLastRunStats(stats);
     recordGameEnd(state.wave, this.enemiesKilledCount);
-    
+
     // Check for unlocks after updating progression
     const newlyUnlocked = checkUnlocks();
     if (newlyUnlocked.length > 0 && this.onUnlock) {
@@ -2069,14 +2221,15 @@ export class LocalGameEngine {
 
     const boss = state.boss;
     const config = BOSS_CONFIGS[boss.type];
+    const isAttacking = !!boss.currentAttack;
+    let currentSpeed = config.baseSpeed;
+    if (boss.isEnraged) currentSpeed *= 1.5;
 
     // Check for enrage
-    if (
-      !boss.isEnraged &&
-      boss.health / boss.maxHealth <= config.enrageThreshold
-    ) {
+    if (!boss.isEnraged && boss.health < boss.maxHealth * config.enrageThreshold) {
       boss.isEnraged = true;
-      boss.phase = 2;
+      this.triggerScreenShake(20, 1000);
+      this.spawnParticles(boss.position, "#FF0000", 100, "glitch", 20);
     }
 
     // Update portals (Summoner)
@@ -2150,9 +2303,8 @@ export class LocalGameEngine {
 
   private startBossAttack(state: GameState, boss: Boss, now: number) {
     const config = BOSS_CONFIGS[boss.type];
-    const cooldown = boss.isEnraged
-      ? config.enragedAttackCooldown
-      : config.attackCooldown;
+    // Increase attack frequency when enraged
+    const cooldown = (config.attackCooldown + Math.random() * 2000) * (boss.isEnraged ? 0.6 : 1);
 
     if (boss.type === "berserker") {
       // Choose attack: Charge (60%/80% enraged) or Slam (40%/20%)
@@ -2399,14 +2551,9 @@ export class LocalGameEngine {
           const config = BOSS_CONFIGS[boss.type];
           const damage = Math.round(
             config.baseDamage *
-              Math.pow(config.damageScaling, Math.floor(state.wave / 10) - 1)
+            Math.pow(config.damageScaling, Math.floor(state.wave / 10) - 1)
           );
-          p.health -= damage;
-          p.lastHitTimestamp = now;
-          if (p.health <= 0) {
-            p.health = 0;
-            p.status = "dead";
-          }
+          this.damagePlayer(p, damage, now);
         }
       });
 
@@ -2463,7 +2610,7 @@ export class LocalGameEngine {
 
       // Execute beam - spawn projectile once
       if (!state.bossProjectiles) state.bossProjectiles = [];
-      
+
       // Spawn beam projectile only once
       if (now < attack.executeTime! + 100) { // 100ms grace period
         const direction = {
@@ -2531,12 +2678,7 @@ export class LocalGameEngine {
           if (angleDiff < 0.1) {
             // Damage player (once per 500ms)
             if (!p.lastHitTimestamp || now - p.lastHitTimestamp > 500) {
-              p.health -= ARCHITECT_LASER_DAMAGE;
-              p.lastHitTimestamp = now;
-              if (p.health <= 0) {
-                p.health = 0;
-                p.status = "dead";
-              }
+              this.damagePlayer(p, ARCHITECT_LASER_DAMAGE, now);
             }
           }
         });
@@ -2620,15 +2762,9 @@ export class LocalGameEngine {
 
         if (Math.abs(dist - ring.currentRadius) < ringThickness) {
           // Hit player
-          p.health -= ring.damage;
-          p.lastHitTimestamp = now;
+          this.damagePlayer(p, ring.damage, now);
           if (!ring.hitPlayers) ring.hitPlayers = new Set();
           ring.hitPlayers.add(p.id);
-
-          if (p.health <= 0) {
-            p.health = 0;
-            p.status = "dead";
-          }
         }
       });
     });
@@ -2664,18 +2800,12 @@ export class LocalGameEngine {
 
         if (dist < projectile.radius + 20) { // Player radius ~20
           // Hit player
-          p.health -= projectile.damage;
-          p.lastHitTimestamp = now;
+          this.damagePlayer(p, projectile.damage, now);
           if (!projectile.hitPlayers) projectile.hitPlayers = new Set();
           projectile.hitPlayers.add(p.id);
 
           // Mark projectile for removal after hitting a player
           projectilesToRemove.add(projectile.id);
-
-          if (p.health <= 0) {
-            p.health = 0;
-            p.status = "dead";
-          }
         }
       });
     });
@@ -2716,5 +2846,256 @@ export class LocalGameEngine {
     }
 
     state.bossDefeatedRewardClaimed = true;
+  }
+
+  private updateAbilities(state: GameState, delta: number) {
+    state.players.forEach((p) => {
+      if (p.abilityCooldown && p.abilityCooldown > 0) {
+        p.abilityCooldown -= delta;
+      }
+      if (p.isAbilityActive && p.abilityDuration !== undefined) {
+        p.abilityDuration -= delta;
+        if (p.abilityDuration <= 0) {
+          p.isAbilityActive = false;
+          p.abilityDuration = 0;
+        }
+      }
+    });
+
+    // Time Warp effect for Dash Dynamo
+    const dashDynamo = state.players.find(
+      (p) => p.characterType === "dash-dynamo" && p.isAbilityActive
+    );
+    if (dashDynamo) {
+      state.enemies.forEach((e) => {
+        if (!e.statusEffects) e.statusEffects = [];
+        if (!e.statusEffects.some((s) => s.type === "slowed")) {
+          e.statusEffects.push({
+            type: "slowed",
+            slowAmount: 0.7,
+            duration: 100,
+          });
+        }
+      });
+      if (state.boss) {
+        // Boss slowing logic could be added here
+      }
+    }
+  }
+
+  private updateHazards(state: GameState, now: number, delta: number) {
+    if (!state.hazards) state.hazards = [];
+
+    // Handle spike-trap toggle and damage
+    state.hazards.forEach((h) => {
+      if (h.type === "spike-trap") {
+        if (!h.lastToggle || now - h.lastToggle > 2000) {
+          h.isActive = !h.isActive;
+          h.lastToggle = now;
+          if (h.isActive) {
+            this.triggerScreenShake(2, 100);
+            this.spawnParticles(h.position, "#9D00FF", 5, "pixel");
+          }
+        }
+
+        if (h.isActive) {
+          state.players.forEach((p) => {
+            if (p.status !== "alive") return;
+            const dist = Math.hypot(
+              p.position.x - h.position.x,
+              p.position.y - h.position.y
+            );
+            if (dist < 30) {
+              this.damagePlayer(p, 0.2 * (delta / 50), now);
+            }
+          });
+        }
+      }
+    });
+
+    // Spawn hazards occasionally
+    if (state.hazards.length < 8 && Math.random() < 0.005) {
+      const rand = Math.random();
+      const type: HazardType =
+        rand < 0.4
+          ? "explosive-barrel"
+          : rand < 0.7
+            ? "freeze-barrel"
+            : "spike-trap";
+
+      state.hazards.push({
+        id: uuidv4(),
+        position: {
+          x: 100 + Math.random() * (ARENA_WIDTH - 200),
+          y: 100 + Math.random() * (ARENA_HEIGHT - 200),
+        },
+        type,
+        health: type === "spike-trap" ? 9999 : 20,
+        maxHealth: type === "spike-trap" ? 9999 : 20,
+        isActive: false,
+        lastToggle: now,
+      });
+    }
+
+    // Hazard collision with projectiles
+    state.projectiles = state.projectiles.filter((proj) => {
+      for (const hazard of state.hazards!) {
+        const dist = Math.hypot(
+          proj.position.x - hazard.position.x,
+          proj.position.y - hazard.position.y
+        );
+        if (dist < 25) {
+          hazard.health -= proj.damage;
+          this.spawnParticles(hazard.position, "#CCCCCC", 5, "pixel");
+          return false;
+        }
+      }
+      return true;
+    });
+
+    // Handle hazard destruction
+    state.hazards = state.hazards.filter((hazard) => {
+      if (hazard.health <= 0) {
+        if (hazard.type === "explosive-barrel") {
+          if (!state.explosions) state.explosions = [];
+          state.explosions.push({
+            id: uuidv4(),
+            position: hazard.position,
+            radius: 120,
+            timestamp: now,
+            damage: 100,
+            ownerId: "hazard",
+          });
+          this.triggerScreenShake(15, 400);
+          this.spawnParticles(hazard.position, "#FF5500", 30, "glitch", 15);
+        } else if (hazard.type === "freeze-barrel") {
+          // Freeze nearby enemies
+          state.enemies.forEach((e) => {
+            const dist = Math.hypot(
+              e.position.x - hazard.position.x,
+              e.position.y - hazard.position.y
+            );
+            if (dist < 150) {
+              if (!e.statusEffects) e.statusEffects = [];
+              e.statusEffects.push({
+                type: "frozen",
+                duration: 3000,
+              });
+            }
+          });
+          this.spawnParticles(hazard.position, "#00FFFF", 40, "nebula", 10);
+        }
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private spawnParticles(
+    position: Vector2D,
+    color: string,
+    count: number = 8,
+    type: "pixel" | "glitch" | "nebula" | "blood" = "pixel",
+    spread: number = 5
+  ) {
+    if (!this.gameState.particles) this.gameState.particles = [];
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1 + Math.random() * spread;
+      const maxLife = 300 + Math.random() * 500;
+
+      this.gameState.particles.push({
+        id: uuidv4(),
+        position: { ...position },
+        velocity: {
+          x: Math.cos(angle) * speed,
+          y: Math.sin(angle) * speed,
+        },
+        color,
+        size: type === "glitch" ? 3 + Math.random() * 5 : 2 + Math.random() * 2,
+        life: 1.0,
+        maxLife,
+        timestamp: Date.now(),
+        type,
+      });
+    }
+  }
+
+  private triggerScreenShake(intensity: number, duration: number) {
+    this.gameState.screenShake = {
+      intensity,
+      duration,
+      startTime: Date.now(),
+    };
+  }
+
+  private updateParticles(state: GameState, delta: number, now: number) {
+    if (!state.particles || state.particles.length === 0) return;
+
+    state.particles = state.particles.filter((p) => {
+      const age = now - p.timestamp;
+      p.life = Math.max(0, 1.0 - age / p.maxLife);
+
+      if (p.life <= 0) return false;
+
+      p.position.x += p.velocity.x;
+      p.position.y += p.velocity.y;
+
+      // Friction
+      p.velocity.x *= 0.92;
+      p.velocity.y *= 0.92;
+
+      return true;
+    });
+
+    // Cap particle count for performance
+    if (state.particles.length > 200) {
+      state.particles = state.particles.slice(-200);
+    }
+  }
+
+  private updateScreenShake(state: GameState, now: number) {
+    if (!state.screenShake) return;
+
+    const elapsed = now - state.screenShake.startTime;
+    if (elapsed >= state.screenShake.duration) {
+      state.screenShake = undefined;
+    }
+  }
+
+  private damagePlayer(player: Player, amount: number, now: number) {
+    if (player.status !== "alive") return;
+    if (amount <= 0) return;
+
+    // Legenday: God Mode logic
+    if (player.hasGodMode && player.health <= amount + 1) {
+      if (!player.godModeCooldown || now - player.godModeCooldown > 60000) {
+        player.health = Math.max(1, player.health);
+        player.isInvulnerable = true;
+        player.invulnerableUntil = now + 5000;
+        player.godModeCooldown = now;
+        this.spawnParticles(player.position, "#FFFFFF", 40, "glitch", 15);
+        this.triggerScreenShake(15, 500);
+        return;
+      }
+    }
+
+    // Invulnerability check
+    if (
+      player.isInvulnerable &&
+      player.invulnerableUntil &&
+      now < player.invulnerableUntil
+    ) {
+      return;
+    }
+
+    player.health = Math.max(0, player.health - amount);
+    player.lastHitTimestamp = now;
+
+    if (player.health <= 0) {
+      player.health = 0;
+      player.status = "dead";
+    }
   }
 }
