@@ -14,7 +14,7 @@ const REVIVE_DURATION = 3000; // 3 seconds to revive
 const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
 const HELLHOUND_ROUND_START = 5; // First hellhound round at wave 5
 function uuidv4() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         let r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
@@ -104,7 +104,7 @@ export class GlobalDurableObject extends DurableObject {
         const choice = choices?.find(c => c.id === upgradeId);
         if (!player || !choice) return;
         applyUpgradeEffect(player, choice.type);
-        
+
         // Spawn pet if pet upgrade selected
         if (choice.type === 'pet' && gameState) {
             if (!gameState.pets) gameState.pets = [];
@@ -126,7 +126,7 @@ export class GlobalDurableObject extends DurableObject {
             };
             gameState.pets.push(newPet);
         }
-        
+
         // Track collected upgrade
         if (!player.collectedUpgrades) player.collectedUpgrades = [];
         const existing = player.collectedUpgrades.find(u => u.type === choice.type);
@@ -227,24 +227,24 @@ export class GlobalDurableObject extends DurableObject {
     }
     updatePets(state: GameState, now: number, delta: number, timeFactor: number) {
         if (!state.pets) return;
-        
+
         state.pets = state.pets.filter(pet => {
             const owner = state.players.find(p => p.id === pet.ownerId);
             // Remove pet if owner is dead or disconnected
             if (!owner || owner.status === 'dead') return false;
-            
+
             // Pet follows owner at a distance
             const followDistance = 40;
             const dx = owner.position.x - pet.position.x;
             const dy = owner.position.y - pet.position.y;
             const dist = Math.hypot(dx, dy);
-            
+
             if (dist > followDistance) {
                 const speed = 3 * timeFactor;
                 pet.position.x += (dx / dist) * speed;
                 pet.position.y += (dy / dist) * speed;
             }
-            
+
             // Pet attacks nearest enemy
             pet.attackCooldown -= delta;
             if (pet.attackCooldown <= 0 && state.enemies.length > 0) {
@@ -252,7 +252,7 @@ export class GlobalDurableObject extends DurableObject {
                     const d = Math.hypot(enemy.position.x - pet.position.x, enemy.position.y - pet.position.y);
                     return d < closest.dist ? { enemy, dist: d } : closest;
                 }, { enemy: null as Enemy | null, dist: Infinity });
-                
+
                 if (nearestEnemy.enemy && nearestEnemy.dist < 400) {
                     pet.attackCooldown = pet.attackSpeed;
                     const angle = Math.atan2(nearestEnemy.enemy.position.y - pet.position.y, nearestEnemy.enemy.position.x - pet.position.x);
@@ -272,7 +272,7 @@ export class GlobalDurableObject extends DurableObject {
                     state.projectiles.push(petProjectile);
                 }
             }
-            
+
             // Pet levels up with owner
             if (pet.level < owner.level) {
                 pet.level = owner.level;
@@ -281,29 +281,29 @@ export class GlobalDurableObject extends DurableObject {
                 pet.damage += 2;
                 pet.attackSpeed = Math.max(400, pet.attackSpeed * 0.95);
             }
-            
+
             return pet.health > 0;
         });
     }
     updateEnemyAI(state: GameState, now: number, delta: number, timeFactor: number) {
         // Check if this is a hellhound round
         const isHellhoundRound = state.isHellhoundRound || false;
-        
+
         if (isHellhoundRound) {
             // Hellhound round spawning logic with pack mechanics
             const totalHellhounds = state.totalHellhoundsInRound || 0;
             const hellhoundsKilled = state.hellhoundsKilled || 0;
             const currentHellhounds = state.enemies.filter(e => e.type === 'hellhound').length;
             const hellhoundsSpawned = (currentHellhounds + hellhoundsKilled);
-            
+
             // Initialize spawn timer if not set
             if (state.hellhoundSpawnTimer === undefined) {
                 state.hellhoundSpawnTimer = 0;
             }
-            
+
             // Update spawn timer
             state.hellhoundSpawnTimer -= delta;
-            
+
             // Spawn packs of hellhounds with 3-5 second delays between packs
             if (state.hellhoundSpawnTimer <= 0 && hellhoundsSpawned < totalHellhounds) {
                 // Spawn a pack of 3-5 hellhounds
@@ -311,13 +311,13 @@ export class GlobalDurableObject extends DurableObject {
                     Math.floor(Math.random() * 3) + 3, // 3-5 dogs
                     totalHellhounds - hellhoundsSpawned // Don't exceed total
                 );
-                
+
                 // Pick a random side for the entire pack
                 const side = Math.floor(Math.random() * 4);
-                
+
                 for (let i = 0; i < packSize; i++) {
                     let spawnX, spawnY;
-                    
+
                     // Spawn pack from same side but spread out
                     if (side === 0) { // top
                         spawnX = Math.random() * ARENA_WIDTH;
@@ -332,13 +332,13 @@ export class GlobalDurableObject extends DurableObject {
                         spawnX = ARENA_WIDTH + 20 + (Math.random() * 30);
                         spawnY = Math.random() * ARENA_HEIGHT;
                     }
-                    
+
                     const newHellhound = createEnemy(uuidv4(), { x: spawnX, y: spawnY }, 'hellhound', state.wave);
                     state.enemies.push(newHellhound);
                 }
-                
+
                 console.log(`🐺 Spawned pack of ${packSize} hellhounds (${hellhoundsSpawned + packSize}/${totalHellhounds}) at wave ${state.wave}`);
-                
+
                 // Set delay for next pack (3-5 seconds)
                 state.hellhoundSpawnTimer = 3000 + Math.random() * 2000; // 3000-5000ms
             }
@@ -363,7 +363,7 @@ export class GlobalDurableObject extends DurableObject {
             }, { player: null as Player | null, dist: Infinity });
             if (closestPlayer.player) {
                 const p = closestPlayer.player;
-                
+
                 // Handle shooting enemies
                 if (enemy.attackSpeed && enemy.attackCooldown !== undefined) {
                     enemy.attackCooldown -= delta;
@@ -374,9 +374,9 @@ export class GlobalDurableObject extends DurableObject {
                             id: uuidv4(),
                             ownerId: enemy.id,
                             position: { ...enemy.position },
-                            velocity: { 
-                                x: Math.cos(angle) * (enemy.projectileSpeed || 4), 
-                                y: Math.sin(angle) * (enemy.projectileSpeed || 4) 
+                            velocity: {
+                                x: Math.cos(angle) * (enemy.projectileSpeed || 4),
+                                y: Math.sin(angle) * (enemy.projectileSpeed || 4)
                             },
                             damage: enemy.damage,
                             isCrit: false,
@@ -390,7 +390,7 @@ export class GlobalDurableObject extends DurableObject {
                         console.log(`${enemy.type} (${enemy.id.substring(0, 8)}) shot projectile at player from distance ${Math.round(closestPlayer.dist)}`);
                     }
                 }
-                
+
                 if (closestPlayer.dist < 20) {
                     // Calculate incoming damage
                     let incomingDamage = enemy.damage * (delta / 1000);
@@ -425,7 +425,7 @@ export class GlobalDurableObject extends DurableObject {
                             effectiveSpeed *= slowEffect.slowAmount;
                         }
                     }
-                    
+
                     const angle = Math.atan2(p.position.y - enemy.position.y, p.position.x - enemy.position.x);
                     enemy.position.x += Math.cos(angle) * effectiveSpeed * timeFactor;
                     enemy.position.y += Math.sin(angle) * effectiveSpeed * timeFactor;
@@ -546,7 +546,7 @@ export class GlobalDurableObject extends DurableObject {
                     const dist = Math.hypot(enemy.position.x - proj.position.x, enemy.position.y - proj.position.y);
                     return dist < closest.dist ? { enemy, dist } : closest;
                 }, { enemy: null as Enemy | null, dist: Infinity });
-                
+
                 if (nearestEnemy.enemy && nearestEnemy.dist < 300) {
                     const dx = nearestEnemy.enemy.position.x - proj.position.x;
                     const dy = nearestEnemy.enemy.position.y - proj.position.y;
@@ -603,140 +603,140 @@ export class GlobalDurableObject extends DurableObject {
                 for (const enemy of state.enemies) {
                     // Skip if already hit (for pierce)
                     if (proj.hitEnemies && proj.hitEnemies.includes(enemy.id)) continue;
-                if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < (radius + 10)) {
-                    // Calculate final damage with berserker bonus
-                    let finalDamage = proj.damage;
-                    if (owner && owner.armor) {
-                        // Armor is already applied to player, not enemy
-                    }
-                    // Berserker: extra damage when owner is low HP
-                    if (owner && owner.health < owner.maxHealth * 0.3) {
-                        finalDamage *= 1.5;
-                    }
-                    // Executioner: instant kill if enemy below 15% HP
-                    if (owner && enemy.health < enemy.maxHealth * 0.15) {
-                        finalDamage = enemy.health;
-                    }
-                    enemy.health -= finalDamage;
-                    // Knockback
-                    if (owner && owner.knockbackForce && owner.knockbackForce > 0) {
-                        const angle = Math.atan2(enemy.position.y - proj.position.y, enemy.position.x - proj.position.x);
-                        enemy.position.x += Math.cos(angle) * owner.knockbackForce;
-                        enemy.position.y += Math.sin(angle) * owner.knockbackForce;
-                    }
-                    if (owner && owner.lifeSteal && owner.lifeSteal > 0) {
-                        owner.health = Math.min(owner.maxHealth, owner.health + proj.damage * owner.lifeSteal);
-                        owner.lastHealedTimestamp = now;
-                    }
-                    enemy.lastHitTimestamp = now;
-                    if (proj.isCrit) enemy.lastCritTimestamp = now;
-                    // Apply status effects
-                    if (owner) {
-                        if (!enemy.statusEffects) enemy.statusEffects = [];
-                        if (owner.fireDamage && owner.fireDamage > 0) {
-                            enemy.statusEffects.push({ type: 'burning', damage: owner.fireDamage * proj.damage, duration: 2000 });
+                    if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < (radius + 10)) {
+                        // Calculate final damage with berserker bonus
+                        let finalDamage = proj.damage;
+                        if (owner && owner.armor) {
+                            // Armor is already applied to player, not enemy
                         }
-                        if (owner.poisonDamage && owner.poisonDamage > 0) {
-                            enemy.statusEffects.push({ type: 'poisoned', damage: owner.poisonDamage * proj.damage, duration: 3000 });
+                        // Berserker: extra damage when owner is low HP
+                        if (owner && owner.health < owner.maxHealth * 0.3) {
+                            finalDamage *= 1.5;
                         }
-                        if (owner.iceSlow && owner.iceSlow > 0) {
-                            enemy.statusEffects.push({ type: 'slowed', slowAmount: owner.iceSlow, duration: 2000 });
+                        // Executioner: instant kill if enemy below 15% HP
+                        if (owner && enemy.health < enemy.maxHealth * 0.15) {
+                            finalDamage = enemy.health;
                         }
-                    }
-                    // Add damage number
-                    if (!enemy.damageNumbers) enemy.damageNumbers = [];
-                    enemy.damageNumbers.push({ id: uuidv4(), damage: proj.damage, isCrit: proj.isCrit || false, position: { ...enemy.position }, timestamp: now });
-                    
-                    // Chain lightning effect
-                    if (owner && owner.chainCount && owner.chainCount > 0) {
-                        const chainRange = 150;
-                        const chainDamage = finalDamage * 0.7; // 70% damage per chain
-                        let currentTarget = enemy;
-                        const hitByChain = new Set([enemy.id]);
-                        
-                        for (let i = 0; i < owner.chainCount; i++) {
-                            const nearbyEnemies = state.enemies.filter(e => 
-                                !hitByChain.has(e.id) && 
-                                Math.hypot(e.position.x - currentTarget.position.x, e.position.y - currentTarget.position.y) < chainRange
-                            );
-                            
-                            if (nearbyEnemies.length === 0) break;
-                            
-                            const nextTarget = nearbyEnemies.reduce((closest, e) => {
-                                const dist = Math.hypot(e.position.x - currentTarget.position.x, e.position.y - currentTarget.position.y);
-                                return dist < closest.dist ? { enemy: e, dist } : closest;
-                            }, { enemy: null as Enemy | null, dist: Infinity }).enemy;
-                            
-                            if (!nextTarget) break;
-                            
-                            // Deal chain damage
-                            nextTarget.health -= chainDamage;
-                            nextTarget.lastHitTimestamp = now;
-                            if (!nextTarget.damageNumbers) nextTarget.damageNumbers = [];
-                            nextTarget.damageNumbers.push({ 
-                                id: uuidv4(), 
-                                damage: Math.round(chainDamage), 
-                                isCrit: false, 
-                                position: { ...nextTarget.position }, 
-                                timestamp: now 
-                            });
-                            
-                            // Create visual lightning bolt
-                            if (!state.chainLightning) state.chainLightning = [];
-                            state.chainLightning.push({
-                                id: uuidv4(),
-                                from: { ...currentTarget.position },
-                                to: { ...nextTarget.position },
-                                timestamp: now
-                            });
-                            
-                            hitByChain.add(nextTarget.id);
-                            currentTarget = nextTarget;
+                        enemy.health -= finalDamage;
+                        // Knockback
+                        if (owner && owner.knockbackForce && owner.knockbackForce > 0) {
+                            const angle = Math.atan2(enemy.position.y - proj.position.y, enemy.position.x - proj.position.x);
+                            enemy.position.x += Math.cos(angle) * owner.knockbackForce;
+                            enemy.position.y += Math.sin(angle) * owner.knockbackForce;
                         }
-                    }
-                    
-                    if (proj.kind !== 'bananarang') {
-                        // Track hit enemy for pierce
-                        if (!proj.hitEnemies) proj.hitEnemies = [];
-                        proj.hitEnemies.push(enemy.id);
-                        
-                        // Ricochet: seek next nearest enemy
-                        if (proj.ricochetRemaining && proj.ricochetRemaining > 0) {
-                            const nearbyEnemies = state.enemies.filter(e => 
-                                !proj.hitEnemies!.includes(e.id) && 
-                                e.health > 0
-                            );
-                            
-                            if (nearbyEnemies.length > 0) {
+                        if (owner && owner.lifeSteal && owner.lifeSteal > 0) {
+                            owner.health = Math.min(owner.maxHealth, owner.health + proj.damage * owner.lifeSteal);
+                            owner.lastHealedTimestamp = now;
+                        }
+                        enemy.lastHitTimestamp = now;
+                        if (proj.isCrit) enemy.lastCritTimestamp = now;
+                        // Apply status effects
+                        if (owner) {
+                            if (!enemy.statusEffects) enemy.statusEffects = [];
+                            if (owner.fireDamage && owner.fireDamage > 0) {
+                                enemy.statusEffects.push({ type: 'burning', damage: owner.fireDamage * proj.damage, duration: 2000 });
+                            }
+                            if (owner.poisonDamage && owner.poisonDamage > 0) {
+                                enemy.statusEffects.push({ type: 'poisoned', damage: owner.poisonDamage * proj.damage, duration: 3000 });
+                            }
+                            if (owner.iceSlow && owner.iceSlow > 0) {
+                                enemy.statusEffects.push({ type: 'slowed', slowAmount: owner.iceSlow, duration: 2000 });
+                            }
+                        }
+                        // Add damage number
+                        if (!enemy.damageNumbers) enemy.damageNumbers = [];
+                        enemy.damageNumbers.push({ id: uuidv4(), damage: Math.round(proj.damage), isCrit: proj.isCrit || false, position: { ...enemy.position }, timestamp: now });
+
+                        // Chain lightning effect
+                        if (owner && owner.chainCount && owner.chainCount > 0) {
+                            const chainRange = 150;
+                            const chainDamage = finalDamage * 0.7; // 70% damage per chain
+                            let currentTarget = enemy;
+                            const hitByChain = new Set([enemy.id]);
+
+                            for (let i = 0; i < owner.chainCount; i++) {
+                                const nearbyEnemies = state.enemies.filter(e =>
+                                    !hitByChain.has(e.id) &&
+                                    Math.hypot(e.position.x - currentTarget.position.x, e.position.y - currentTarget.position.y) < chainRange
+                                );
+
+                                if (nearbyEnemies.length === 0) break;
+
                                 const nextTarget = nearbyEnemies.reduce((closest, e) => {
-                                    const dist = Math.hypot(e.position.x - proj.position.x, e.position.y - proj.position.y);
+                                    const dist = Math.hypot(e.position.x - currentTarget.position.x, e.position.y - currentTarget.position.y);
                                     return dist < closest.dist ? { enemy: e, dist } : closest;
                                 }, { enemy: null as Enemy | null, dist: Infinity }).enemy;
-                                
-                                if (nextTarget) {
-                                    // Redirect bullet toward next target
-                                    const dx = nextTarget.position.x - proj.position.x;
-                                    const dy = nextTarget.position.y - proj.position.y;
-                                    const dist = Math.hypot(dx, dy) || 1;
-                                    const speed = Math.hypot(proj.velocity.x, proj.velocity.y);
-                                    proj.velocity.x = (dx / dist) * speed;
-                                    proj.velocity.y = (dy / dist) * speed;
-                                    proj.ricochetRemaining--;
-                                    // Don't remove bullet, let it continue
+
+                                if (!nextTarget) break;
+
+                                // Deal chain damage
+                                nextTarget.health -= chainDamage;
+                                nextTarget.lastHitTimestamp = now;
+                                if (!nextTarget.damageNumbers) nextTarget.damageNumbers = [];
+                                nextTarget.damageNumbers.push({
+                                    id: uuidv4(),
+                                    damage: Math.round(chainDamage),
+                                    isCrit: false,
+                                    position: { ...nextTarget.position },
+                                    timestamp: now
+                                });
+
+                                // Create visual lightning bolt
+                                if (!state.chainLightning) state.chainLightning = [];
+                                state.chainLightning.push({
+                                    id: uuidv4(),
+                                    from: { ...currentTarget.position },
+                                    to: { ...nextTarget.position },
+                                    timestamp: now
+                                });
+
+                                hitByChain.add(nextTarget.id);
+                                currentTarget = nextTarget;
+                            }
+                        }
+
+                        if (proj.kind !== 'bananarang') {
+                            // Track hit enemy for pierce
+                            if (!proj.hitEnemies) proj.hitEnemies = [];
+                            proj.hitEnemies.push(enemy.id);
+
+                            // Ricochet: seek next nearest enemy
+                            if (proj.ricochetRemaining && proj.ricochetRemaining > 0) {
+                                const nearbyEnemies = state.enemies.filter(e =>
+                                    !proj.hitEnemies!.includes(e.id) &&
+                                    e.health > 0
+                                );
+
+                                if (nearbyEnemies.length > 0) {
+                                    const nextTarget = nearbyEnemies.reduce((closest, e) => {
+                                        const dist = Math.hypot(e.position.x - proj.position.x, e.position.y - proj.position.y);
+                                        return dist < closest.dist ? { enemy: e, dist } : closest;
+                                    }, { enemy: null as Enemy | null, dist: Infinity }).enemy;
+
+                                    if (nextTarget) {
+                                        // Redirect bullet toward next target
+                                        const dx = nextTarget.position.x - proj.position.x;
+                                        const dy = nextTarget.position.y - proj.position.y;
+                                        const dist = Math.hypot(dx, dy) || 1;
+                                        const speed = Math.hypot(proj.velocity.x, proj.velocity.y);
+                                        proj.velocity.x = (dx / dist) * speed;
+                                        proj.velocity.y = (dy / dist) * speed;
+                                        proj.ricochetRemaining--;
+                                        // Don't remove bullet, let it continue
+                                    } else {
+                                        return false; // No more targets
+                                    }
                                 } else {
                                     return false; // No more targets
                                 }
+                            } else if (!proj.pierceRemaining || proj.pierceRemaining <= 0) {
+                                // Check if bullet should disappear (no pierce or ricochet left)
+                                return false; // bullet disappears
                             } else {
-                                return false; // No more targets
+                                proj.pierceRemaining--;
                             }
-                        } else if (!proj.pierceRemaining || proj.pierceRemaining <= 0) {
-                            // Check if bullet should disappear (no pierce or ricochet left)
-                            return false; // bullet disappears
-                        } else {
-                            proj.pierceRemaining--;
                         }
                     }
-                }
                 }
             }
             // Keep inside loose bounds; bananarang may briefly go off-screen
@@ -752,13 +752,13 @@ export class GlobalDurableObject extends DurableObject {
         const deadEnemies = state.enemies.filter(e => e.health <= 0);
         deadEnemies.forEach(dead => {
             state.xpOrbs.push({ id: uuidv4(), position: dead.position, value: dead.xpValue });
-            
+
             // Track hellhound kills
             if (dead.type === 'hellhound' && state.isHellhoundRound) {
                 state.hellhoundsKilled = (state.hellhoundsKilled || 0) + 1;
                 console.log(`🐺 Hellhound killed: ${state.hellhoundsKilled}/${state.totalHellhoundsInRound}`);
             }
-            
+
             // Create explosion if owner has explosion upgrade
             const killer = state.players.find(p => state.projectiles.some(proj => proj.ownerId === p.id));
             if (killer && killer.explosionDamage && killer.explosionDamage > 0) {
@@ -774,7 +774,7 @@ export class GlobalDurableObject extends DurableObject {
             }
         });
         state.enemies = state.enemies.filter(e => e.health > 0);
-        
+
         // Check if hellhound round is complete
         if (state.isHellhoundRound && state.hellhoundsKilled === state.totalHellhoundsInRound && state.enemies.length === 0) {
             state.hellhoundRoundComplete = true;
@@ -849,12 +849,12 @@ export class GlobalDurableObject extends DurableObject {
                 this.upgradeChoices.set(player.id, legendaryUpgrades.map(o => ({ ...o, id: uuidv4() })));
                 console.log(`🎁 ${player.id} gets legendary upgrade from hellhound round!`);
             }
-            
+
             // Check if all players got their upgrades
-            const playersWhoGotUpgrades = alivePlayers.filter(p => 
+            const playersWhoGotUpgrades = alivePlayers.filter(p =>
                 p.collectedUpgrades?.some(u => u.rarity === 'legendary')
             );
-            
+
             if (playersWhoGotUpgrades.length === alivePlayers.length || !state.levelingUpPlayerId) {
                 // Move to next wave
                 state.isHellhoundRound = false;
@@ -867,7 +867,7 @@ export class GlobalDurableObject extends DurableObject {
             }
             return;
         }
-        
+
         let waveTimer = this.waveTimers.get(state.gameId) || 0;
         waveTimer += delta;
         state.waveTimer = waveTimer; // Sync to game state for UI
@@ -875,7 +875,7 @@ export class GlobalDurableObject extends DurableObject {
             state.wave++;
             waveTimer = 0;
             state.waveTimer = 0;
-            
+
             // Check if next wave should be a hellhound round
             if (state.wave >= HELLHOUND_ROUND_START && (state.wave - HELLHOUND_ROUND_START) % HELLHOUND_ROUND_INTERVAL === 0) {
                 state.isHellhoundRound = true;
@@ -886,7 +886,7 @@ export class GlobalDurableObject extends DurableObject {
                 state.totalHellhoundsInRound = Math.min(24, 8 + (state.wave - HELLHOUND_ROUND_START) * 2);
                 console.log(`🐺🐺🐺 HELLHOUND ROUND ${state.wave}! Total hellhounds: ${state.totalHellhoundsInRound}`);
             }
-            
+
             if (state.wave > WIN_WAVE && !state.teleporter) {
                 state.teleporter = { id: 'teleporter', position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 }, radius: 50 };
             }

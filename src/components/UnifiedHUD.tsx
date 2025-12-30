@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import type { GameState, Player } from "@shared/types";
-import { Star, Skull, Shield, Zap, Target } from "lucide-react";
+import { Star, Skull, Shield, Zap, Target, Sparkles } from "lucide-react";
+import { getCharacter } from "@shared/characterConfig";
 
 interface UnifiedHUDProps {
   gameState: GameState;
@@ -13,6 +14,7 @@ export default function UnifiedHUD({
   gameState,
   localPlayer,
 }: UnifiedHUDProps) {
+  const [showTooltip, setShowTooltip] = useState(false);
   const {
     wave,
     waveTimer,
@@ -21,6 +23,14 @@ export default function UnifiedHUD({
     totalHellhoundsInRound,
     status,
   } = gameState;
+
+  const character = getCharacter(localPlayer.characterType || "spray-n-pray");
+  const abilityCooldown = localPlayer.abilityCooldown || 0;
+  const isAbilityReady = abilityCooldown <= 0;
+  const cooldownPercentage = Math.max(
+    0,
+    Math.min(100, (abilityCooldown / character.baseAbilityCooldown) * 100)
+  );
 
   const xpPercentage = (localPlayer.xp / localPlayer.xpToNextLevel) * 100;
   const healthPercentage = (localPlayer.health / localPlayer.maxHealth) * 100;
@@ -92,9 +102,8 @@ export default function UnifiedHUD({
         </div>
       </div>
 
-      {/* Bottom HUD - Player Info */}
       <div className="w-full flex justify-center">
-        <div className="relative w-full max-w-3xl p-4 bg-black/80 backdrop-blur-xl border-2 border-neon-cyan/50 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,255,255,0.15)] overflow-hidden">
+        <div className="relative w-full max-w-4xl p-4 bg-black/80 backdrop-blur-xl border-2 border-neon-cyan/50 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,255,255,0.15)]">
           {/* Decorative scanline-like effect */}
           <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-neon-cyan to-transparent opacity-50" />
 
@@ -113,7 +122,7 @@ export default function UnifiedHUD({
                   >
                     {localPlayer.name || "PLAYER_LOCAL"}{" "}
                     <span className="text-neon-cyan/60 hidden md:inline">
-                      [VX-9]
+                      [{localPlayer.characterType?.toUpperCase()}]
                     </span>
                   </span>
                 </div>
@@ -144,10 +153,10 @@ export default function UnifiedHUD({
               </div>
             </div>
 
-            {/* Middle row: Large Resource Bars */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+            {/* Middle row: Large Resource Bars and Ultimate */}
+            <div className="flex flex-col md:flex-row gap-6 items-center">
               {/* Health Group */}
-              <div className="flex flex-col gap-1">
+              <div className="flex-1 w-full flex flex-col gap-1">
                 <div className="flex justify-between items-center px-1">
                   <div className="flex items-center gap-2">
                     <Skull
@@ -166,25 +175,117 @@ export default function UnifiedHUD({
                     </span>
                   </span>
                 </div>
-                <div className="relative h-6 bg-red-950/40 border-2 border-red-500/50 rounded-sm overflow-hidden group">
-                  <div
-                    className="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300 relative"
-                    style={{ width: `${healthPercentage}%` }}
-                  >
-                    <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:20px_20px] animate-[pulse_2s_infinite]" />
-                  </div>
-                  {/* Shield Overlay */}
-                  {localPlayer.maxShield && localPlayer.maxShield > 0 && (
+                <div
+                  className={`flex flex-col gap-1 ${
+                    healthPercentage < 30 ? "animate-bounce" : ""
+                  }`}
+                  style={{
+                    animation:
+                      healthPercentage < 30 ? "jiggle 0.1s infinite" : "none",
+                  }}
+                >
+                  <div className="relative h-6 bg-red-950/40 border-2 border-red-500/50 rounded-sm overflow-hidden group">
                     <div
-                      className="absolute top-0 right-0 h-1 bg-neon-cyan shadow-[0_0_5px_#00FFFF] transition-all duration-300"
-                      style={{ width: `${shieldPercentage}%` }}
+                      className="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300 relative"
+                      style={{ width: `${healthPercentage}%` }}
+                    >
+                      <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:20px_20px] animate-[pulse_2s_infinite]" />
+                    </div>
+                  </div>
+                  {/* Shield Bar - Independent and visible */}
+                  {localPlayer.maxShield && localPlayer.maxShield > 0 && (
+                    <div className="relative h-2 bg-cyan-950/40 border border-neon-cyan/50 rounded-sm overflow-hidden">
+                      <div
+                        className="h-full bg-neon-cyan shadow-[0_0_10px_#00FFFF] transition-all duration-300"
+                        style={{ width: `${shieldPercentage}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Ultimate Indicator */}
+              <div className="flex-shrink-0 relative">
+                <div
+                  key={isAbilityReady ? "ready" : "not-ready"}
+                  className={`
+                    w-16 h-16 rounded-xl border-2 flex items-center justify-center cursor-help pointer-events-auto
+                    transition-all duration-300 relative group
+                    ${
+                      isAbilityReady
+                        ? "border-neon-cyan bg-neon-cyan/20 shadow-glow-cyan animate-ready"
+                        : "border-gray-700 bg-black/40 grayscale"
+                    }
+                  `}
+                  onMouseEnter={() => setShowTooltip(true)}
+                  onMouseLeave={() => setShowTooltip(false)}
+                >
+                  {/* Icon */}
+                  <div className="flex flex-col items-center">
+                    <Sparkles
+                      className={`w-6 h-6 ${
+                        isAbilityReady ? "text-neon-cyan" : "text-gray-500"
+                      }`}
                     />
+                    <span
+                      className={`text-[8px] mt-1 ${
+                        isAbilityReady ? "text-white" : "text-gray-600"
+                      }`}
+                    >
+                      ULT
+                    </span>
+                  </div>
+
+                  {/* Cooldown Overlay */}
+                  {!isAbilityReady && (
+                    <div className="absolute inset-0 bg-black/60 rounded-lg overflow-hidden flex items-end">
+                      <div
+                        className="w-full bg-neon-cyan/40 transition-all duration-500"
+                        style={{ height: `${100 - cooldownPercentage}%` }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xs text-white font-press-start">
+                          {Math.ceil(abilityCooldown / 1000)}s
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tooltip */}
+                  {showTooltip && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-64 z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-2">
+                      <div className="bg-black/95 border-2 border-neon-cyan p-4 rounded-xl shadow-[0_0_20px_rgba(0,255,255,0.3)] backdrop-blur-md">
+                        <div className="flex items-center gap-2 mb-2">
+                          <div className="w-2 h-2 bg-neon-cyan rounded-full animate-pulse" />
+                          <span className="text-[10px] text-neon-cyan uppercase tracking-tighter">
+                            ULTIMATE ABILITY [SPACE]
+                          </span>
+                        </div>
+                        <h4 className="text-sm text-neon-yellow mb-1 uppercase">
+                          {character.abilityName}
+                        </h4>
+                        <p className="font-vt323 text-base text-gray-300 leading-tight">
+                          {character.abilityDescription}
+                        </p>
+                        <div className="mt-3 pt-2 border-t border-white/10 flex justify-between items-center text-[8px]">
+                          <span className="text-gray-500 uppercase">
+                            COOLDOWN
+                          </span>
+                          <span className="text-neon-pink">
+                            {(character.baseAbilityCooldown / 1000).toFixed(0)}{" "}
+                            SECONDS
+                          </span>
+                        </div>
+                      </div>
+                      {/* Tooltip Arrow */}
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[2px] border-8 border-transparent border-t-neon-cyan" />
+                    </div>
                   )}
                 </div>
               </div>
 
               {/* XP Group */}
-              <div className="flex flex-col gap-1">
+              <div className="flex-1 w-full flex flex-col gap-1">
                 <div className="flex justify-between items-center px-1">
                   <div className="flex items-center gap-2">
                     <Zap className="w-3 h-3 text-purple-500" />
@@ -197,7 +298,7 @@ export default function UnifiedHUD({
                     </span>
                   </span>
                 </div>
-                <div className="h-4 bg-purple-950/40 border-2 border-purple-500/50 rounded-sm overflow-hidden">
+                <div className="h-6 bg-purple-950/40 border-2 border-purple-500/50 rounded-sm overflow-hidden">
                   <div
                     className="h-full bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.5)] transition-all duration-500"
                     style={{ width: `${xpPercentage}%` }}
@@ -205,8 +306,6 @@ export default function UnifiedHUD({
                 </div>
               </div>
             </div>
-
-            {/* Ability indicators or other sub-info could go here */}
           </div>
         </div>
       </div>

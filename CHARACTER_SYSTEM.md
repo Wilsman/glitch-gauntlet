@@ -2,7 +2,7 @@
 
 ## Overview
 
-The game features 3 distinct playable characters, each with unique stats, weapon types, and playstyles. Players select their character before starting a game.
+The game features 7 distinct playable characters, each with unique stats, weapon types, and playstyles. Players select their character before starting a game.
 
 ---
 
@@ -11,7 +11,7 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 - Spray 'n' Pray
 - Boom Bringer
 - Glass Cannon Carl
-- Pet Pal Percy
+- Dachshund Dan
 - Vampire Vex
 - Turret Tina
 - Dash Dynamo
@@ -29,7 +29,7 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 - Damage: 8
 - Attack Speed: 300ms (3.33 shots/sec)
 - Movement Speed: 4
-- Crit Multiplier: 2x
+- Ability: **Overclock** (50% fire rate boost for 4s)
 
 **Weapon:** Rapid-Fire
 - Standard projectiles
@@ -44,13 +44,6 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 **Cons:**
 - Low individual damage per shot
 - Needs upgrades to become powerful
-- No built-in special mechanics
-
-**Best Upgrades:**
-- Attack Speed (maximize proc rate)
-- Multi-Shot (more bullets = more procs)
-- Crit Chance + Crit Damage
-- Chain Lightning / Ricochet (proc on every hit)
 
 ---
 
@@ -59,11 +52,11 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 **Playstyle:** Explosive AoE damage dealer
 
 **Base Stats:**
-- Health: 120 (+20 more than balanced)
-- Damage: 18 (+10 more than balanced)
+- Health: 120
+- Damage: 18
 - Attack Speed: 700ms (1.43 shots/sec)
-- Movement Speed: 3.5 (slower)
-- Crit Multiplier: 2x
+- Movement Speed: 3.5
+- Ability: **Cluster Bomb** (Ring of 8 explosives)
 
 **Weapon:** Grenade Launcher
 - Fires grenades that explode on impact
@@ -74,18 +67,10 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 - Built-in AoE for crowd control
 - Higher base health for survivability
 - Safe distance combat
-- Explosions hit multiple enemies automatically
 
 **Cons:**
 - Slow fire rate (poor for on-hit procs)
-- Less effective against single tough enemies
 - Slower movement makes dodging harder
-
-**Best Upgrades:**
-- Projectile Damage (amplifies both hit and explosion)
-- Explosion Damage (stacks with built-in AoE)
-- Pierce (grenade passes through enemies before exploding)
-- Life Steal (sustain through AoE damage)
 
 ---
 
@@ -94,35 +79,129 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 **Playstyle:** Precision sniper with devastating single-shot damage
 
 **Base Stats:**
-- Health: 75 (-25 less than balanced)
-- Damage: 35 (+27 more than balanced)
+- Health: 75
+- Damage: 35
 - Attack Speed: 900ms (1.11 shots/sec)
 - Movement Speed: 4
-- Crit Multiplier: 3x (highest in game!)
+- Ability: **Deadly Focus** (Next 3 shots are 100% crit & pierce)
 
 **Weapon:** Sniper Shot
 - High damage single shots
 - Very slow fire rate
-- Standard projectile speed
+- 3x crit multiplier (highest in game!)
 
 **Pros:**
 - Massive damage per shot
-- 3x crit multiplier (vs 2x for others)
-- Can one-shot weaker enemies
+- Incredible burst potential
 - Excellent with crit builds
 
 **Cons:**
-- Very low HP (75 vs 100/120)
-- Extremely vulnerable to damage
+- Very low HP (vulnerable to one-shots)
 - Slow fire rate = poor proc rate
-- Requires good positioning and dodging
 
-**Best Upgrades:**
-- Max Health (compensate for low base HP)
-- Crit Chance + Crit Damage (maximize burst)
-- Dodge / Shield / Armor (survivability)
-- Executioner (instant kill below 15% HP)
-- Berserker (high damage when low HP)
+---
+
+### 4. Dachshund Dan 🐕 (Companion Specialist)
+
+**Playstyle:** High-mobility fighter with a loyal companion
+
+**Base Stats:**
+- Health: 90
+- Damage: 10
+- Attack Speed: 450ms
+- Movement Speed: 4.2
+- Ability: **Best Friend** (Dachshund goes into frenzy and heals you)
+
+**Weapon:** Rapid-Fire
+- Balanced output
+- Faster movement speed than standard characters
+
+**Pros:**
+- Starts with a **Miniature Dachshund** pet for passive DPS
+- Faster base movement speed
+- Good sustain via companion ability
+
+**Cons:**
+- Lower base HP
+- DPS relies partly on companion AI
+
+---
+
+### 5. Vampire Vex 🧛 (Sustain)
+
+**Playstyle:** Aggressive sustain with life-drain aura
+
+**Base Stats:**
+- Health: 85
+- Damage: 12
+- Attack Speed: 600ms
+- Movement Speed: 3.8
+- Ability: **Blood Feast** (Heal 50 HP + Double drain radius)
+
+**Weapon:** Burst-Fire
+- Fires in 3-round bursts
+- Excellent for stacking status effects
+
+**Pros:**
+- Passive AoE drain aura heals you constantly
+- Drain radius grows with player level
+- High survivability in crowds
+
+**Cons:**
+- Low base HP
+- Drain radius starts very small
+
+---
+
+### 6. Turret Tina 🏗️ (Defense Builder)
+
+**Playstyle:** Strategic builder focused on stationary defense
+
+**Base Stats:**
+- Health: 130
+- Damage: 8
+- Attack Speed: 800ms
+- Movement Speed: 3.2
+- Ability: **Mega Deploy** (Instantly deploys 3 advanced turrets)
+
+**Weapon:** Heavy Cannon
+- Large, high-impact projectiles
+- Slow personal fire rate
+
+**Pros:**
+- Highest base health in the game
+- Can deploy multiple auto-firing turrets
+- Controls large areas easily
+
+**Cons:**
+- Very slow movement
+- Relies heavily on stationary turrets
+
+---
+
+### 7. Dash Dynamo ⚡ (Speedster)
+
+**Playstyle:** Hyper-mobile hit-and-run specialist
+
+**Base Stats:**
+- Health: 70
+- Damage: 15
+- Attack Speed: 500ms
+- Movement Speed: 5.5
+- Ability: **Overdrive** (Invulnerability + Double speed)
+
+**Weapon:** Shotgun
+- High damage at close range
+- Short weapon range
+
+**Pros:**
+- Fastest character in the game
+- Built-in **Blink Dash** for dodging
+- High close-range burst damage
+
+**Cons:**
+- Fragile (lowest HP in game)
+- High risk due to short range
 
 ---
 
@@ -131,131 +210,65 @@ The game features 3 distinct playable characters, each with unique stats, weapon
 ### Type System
 
 ```typescript
-export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl';
-export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot';
+export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl' | 'pet-pal-percy' | 'vampire-vex' | 'turret-tina' | 'dash-dynamo';
+export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot' | 'burst-fire' | 'heavy-cannon' | 'shotgun';
 ```
 
 ### Character Configuration
 
 Located in `shared/characterConfig.ts`:
 - Defines base stats for each character
-- Exports helper functions to retrieve character data
-
-### Weapon Behaviors
-
-**Rapid-Fire (Spray 'n' Pray):**
-- Standard bullet projectiles
-- Velocity: 10 units/tick
-- Radius: 5
-- Works with all upgrade modifiers
-
-**Grenade Launcher (Boom Bringer):**
-- Slower projectiles (velocity: 7)
-- Larger radius: 8
-- On hit: Creates explosion (60 radius, 50% damage)
-- Explosion damage affected by upgrade modifiers
-
-**Sniper Shot (Glass Cannon Carl):**
-- Standard bullet projectiles
-- Same as rapid-fire but with higher base damage
-- 3x crit multiplier instead of 2x
+- Exports `getCharacter` and `getAllCharacters` helpers
 
 ### Game Engine Integration
 
-The `LocalGameEngine` constructor accepts a `CharacterType` parameter:
-
-```typescript
-constructor(playerId: string, characterType: CharacterType = 'spray-n-pray')
-```
-
-Character stats are applied during player initialization.
+The `LocalGameEngine` constructor applies character stats during player initialization.
 
 ---
 
-## 🎨 Visual Differentiation
+## � Visual Differentiation
 
 ### In-Game Indicators
 
-Each character displays their emoji above their player circle:
+Each character displays their emoji:
 - 🔫 Spray 'n' Pray
 - 💣 Boom Bringer
 - 🎯 Glass Cannon Carl
-
-### Character Selection UI
-
-- Full-screen modal on game start
-- Grid layout showing all 3 characters
-- Displays:
-  - Character name and emoji
-  - Base stats (HP, Damage, Fire Rate, Speed)
-  - Description
-  - Pros and cons
-- Selected character highlighted with yellow glow
+- 🐕 Dachshund Dan
+- 🧛 Vampire Vex
+- 🏗️ Turret Tina
+- ⚡ Dash Dynamo
 
 ---
 
-## 🎯 Balance Philosophy
+## 📊 DPS Calculations (Base)
 
-**Spray 'n' Pray:** Jack-of-all-trades, scales with upgrades
-- DPS: Medium (consistent)
-- Survivability: Medium
-- Skill Floor: Low
-- Skill Ceiling: Medium
-
-**Boom Bringer:** Tank with AoE focus
-- DPS: Medium (burst AoE)
-- Survivability: High
-- Skill Floor: Low
-- Skill Ceiling: Medium
-
-**Glass Cannon Carl:** High risk, high reward sniper
-- DPS: High (burst single-target)
-- Survivability: Low
-- Skill Floor: High
-- Skill Ceiling: High
-
----
-
-## 📊 DPS Calculations
-
-**Spray 'n' Pray:**
-- Base DPS: 8 damage × 3.33 shots/sec = 26.67 DPS
-
-**Boom Bringer:**
-- Base DPS: 18 damage × 1.43 shots/sec = 25.74 DPS
-- With AoE: ~38.61 DPS (assuming explosion hits 1 additional enemy)
-
-**Glass Cannon Carl:**
-- Base DPS: 35 damage × 1.11 shots/sec = 38.85 DPS
-- With crits (10% chance): ~42.74 DPS
-- With crits (50% chance): ~58.33 DPS
+- **Spray 'n' Pray:** ~26.7 DPS (Balanced)
+- **Boom Bringer:** ~25.7 DPS (Single) / ~38.6 DPS (AoE)
+- **Glass Cannon Carl:** ~38.9 DPS (Standard) / ~58.3 DPS (Max Crits)
+- **Dachshund Dan:** ~22.2 DPS + Companion DPS
+- **Vampire Vex:** ~20.0 DPS + Drain Sustain
+- **Turret Tina:** ~10.0 DPS + Turret DPS
+- **Dash Dynamo:** ~30.0 DPS (Close Range)
 
 ---
 
 ## 🚀 Future Enhancements
 
-Potential additions:
-- More characters (melee, support, etc.)
-- Character-specific ultimate abilities
+- Melee-focused characters
+- Support/Buffer characters
 - Character-specific upgrade pools
-- Character skins/variants
-- Character progression/unlocks
+- Progression/Unlocks (Wave reached, total kills, etc.)
 
 ---
 
 ## 📝 Files Modified/Created
 
-**Created:**
-- `shared/characterConfig.ts` - Character definitions
-- `src/components/CharacterSelect.tsx` - Selection UI
-
-**Modified:**
-- `shared/types.ts` - Added character types
-- `src/lib/LocalGameEngine.ts` - Character initialization and weapon logic
-- `src/pages/HomePage.tsx` - Character selection flow
-- `src/pages/GamePage.tsx` - Pass character to engine
-- `src/components/GameCanvas.tsx` - Character emoji display
+- `shared/characterConfig.ts` - All stats
+- `shared/types.ts` - New types and weapon categories
+- `src/components/CharacterSelect.tsx` - Selection UI with 7 slots
+- `src/lib/LocalGameEngine.ts` - Ability and weapon logic
 
 ---
 
-**Last Updated:** 2025-09-30
+**Last Updated:** 2025-12-23

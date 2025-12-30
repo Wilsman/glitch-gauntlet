@@ -133,15 +133,68 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       player.cloneCount = (player.cloneCount || 0) + 1;
       break;
 
-    // ===== ADVANCED (Not yet implemented) =====
+    // ===== ADVANCED (Newly implemented) =====
     case 'ghostBullets':
+      player.hasGhostBullets = true;
+      break;
     case 'invincibility':
+      player.hasInvincibility = true;
+      break;
     case 'aura':
+      player.hasAura = true;
+      break;
     case 'turret':
+      // Handled in characters/engine, but we flag it
+      break;
     case 'reflect':
+      player.hasReflect = true;
+      break;
     case 'dash':
+      player.canDash = true;
+      break;
     case 'doubleJump':
-      // These require more complex systems - placeholder for now
+      player.canDoubleJump = true;
+      break;
+
+    // ===== CREATIVE ADDITIONS =====
+    case 'screenWrap':
+      player.hasScreenWrap = true;
+      break;
+    case 'prismShards':
+      // Handled in engine via logic
+      break;
+    case 'neonTrail':
+      player.hasNeonTrail = true;
+      player.lastTrailTimestamp = 0;
+      break;
+    case 'staticField':
+      player.staticFieldTimer = 0;
+      break;
+    case 'growthRay':
+      player.hasGrowthRay = true;
+      break;
+    case 'binaryRain':
+      // Handled in engine (drops)
+      break;
+    case 'echoShots':
+      player.hasEchoShots = true;
+      break;
+    case 'gravityBullets':
+      // Handled in engine
+      break;
+    case 'glitchPatch':
+      player.hasGlitchPatch = true;
+      break;
+    case 'satelliteRing':
+      player.hasSatelliteRing = true;
+      if (!player.satelliteOrbs) {
+        player.satelliteOrbs = [
+          { id: Math.random().toString(), angle: 0, radius: 80, color: '#00FFCC' },
+          { id: Math.random().toString(), angle: Math.PI / 2, radius: 80, color: '#FF00FF' },
+          { id: Math.random().toString(), angle: Math.PI, radius: 80, color: '#FFFF00' },
+          { id: Math.random().toString(), angle: (3 * Math.PI) / 2, radius: 80, color: '#FF3300' },
+        ];
+      }
       break;
   }
 }

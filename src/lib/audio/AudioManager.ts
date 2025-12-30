@@ -31,6 +31,7 @@ export class AudioManager {
   private master: Tone.Gain | null = null;
   private musicGain: Tone.Gain | null = null;
   private sfxGain: Tone.Gain | null = null;
+  private gameOverGain: Tone.Gain | null = null;
   private musicReverb: Tone.Reverb | null = null;
   private sfxReverb: Tone.Reverb | null = null;
 
@@ -167,10 +168,14 @@ export class AudioManager {
       envelope: { attack: 0.001, decay: 0.05, sustain: 0.1, release: 0.1 },
     }).connect(this.sfxGain);
 
+    // Game over synth with adjustable gain
     this.gameOverSynth = new Tone.Synth({
       oscillator: { type: 'sawtooth' },
       envelope: { attack: 0.05, decay: 0.5, sustain: 0.2, release: 1 },
-    }).connect(this.sfxReverb);
+    });
+    // Default gain set to 0.5 (reduce volume)
+    this.gameOverGain = new Tone.Gain(0.5).connect(this.sfxReverb);
+    this.gameOverSynth.connect(this.gameOverGain);
 
     this.victorySynth = new Tone.Synth({
       oscillator: { type: "square" },

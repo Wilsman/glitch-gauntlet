@@ -285,24 +285,24 @@ This document provides a comprehensive overview of all upgrades in the game, the
 - **Cap**: None
 - **Stacks**: ✅ Additive
 - **Visual**: Slow-motion effect
-- **Implementation**: ⚠️ Partially implemented (enemy AI)
+- **Implementation**: ✅ Fully implemented
 
 ---
 
 ### 🐾 Companion System
 
 #### **pet** (Boss)
-- **Alternative Names**: "Angry Chihuahua Familiar"
+- **Alternative Names**: "Miniature Dachshund Defender"
 - **Effect**: Summon a companion that auto-attacks enemies
 - **Details**:
   - Levels up automatically with player
   - Auto-attacks nearest enemy within 400 units
   - Stats scale: +10 HP, +2 damage, 5% faster attack speed per level
   - Follows player at 40 unit distance
-  - Random emoji: 🐶🐱🐰🦊🐻🐼🐨🐯🦁🐸
+  - Includes specific "Dachshund Dan" synergy
 - **Cap**: 1 pet (does not stack)
 - **Stacks**: ❌ Single pet only
-- **Visual**: Emoji-style animal with health bar
+- **Visual**: Emoji-style animal with health bar (Miniature Dachshund 🐕)
 - **Implementation**: ✅ Fully implemented
 
 ---
@@ -316,124 +316,185 @@ This document provides a comprehensive overview of all upgrades in the game, the
   - Each skull orbits at 60 units from player
   - Skulls deal direct damage on contact
   - Leaves fire trails that persist for 2 seconds
-  - Fire trails deal DoT and apply burning status
-  - Damage scales with player level: 10 + (level × 2)
-  - Multiple skulls evenly spaced around player
 - **Rarity**: 10% drop rate
 - **Stacks**: ✅ Additive (+1 skull per stack)
-- **Visual**: Flaming skull emoji (💀) with orange fire aura and trailing fire effects
+- **Visual**: Flaming skull emoji (💀) with orange fire aura
+- **Implementation**: ✅ Fully implemented
+
+#### **satelliteRing** (Boss)
+- **Alternative Names**: "Saturn's Jewelry Collection"
+- **Effect**: Four orbs of pure energy orbit you, striking enemies they touch
+- **Details**:
+  - Orbs rotate at a fixed radius (80 units)
+  - Deals high damage on contact
+  - Provides a mix of offense and defense
+- **Visual**: Four glowing energy orbs in different colors
 - **Implementation**: ✅ Fully implemented
 
 ---
 
-### 🚧 Not Yet Implemented
+### 🌀 Creative & Reality-Bending
 
-These upgrades are defined but need full implementation:
+#### **screenWrap** (Common)
+- **Alternative Names**: "Pac-Man Physics Diploma"
+- **Effect**: Screen edges wrap around; players and bullets reappear on the opposite side
+- **Visual**: Subtle grid-line glow at arena edges
+- **Implementation**: ✅ Fully implemented
+
+#### **prismShards** (Legendary)
+- **Alternative Names**: "Disco Ball Ammunition"
+- **Effect**: Projectiles split into 3 small rainbow shards upon hitting an enemy
+- **Visual**: Rainbow cycling bullet shards
+- **Implementation**: ✅ Fully implemented
+
+#### **neonTrail** (Uncommon)
+- **Alternative Names**: "TRON Legacy Bootleg"
+- **Effect**: Leave a glowing neon trail behind you that damages enemies
+- **Visual**: Fading cyan trail segments
+- **Implementation**: ✅ Fully implemented
+
+#### **staticField** (Uncommon)
+- **Alternative Names**: "Wool Socks on Carpet"
+- **Effect**: Periodically release a blue electrical zap at the nearest enemy
+- **Visual**: Jagged blue lightning arcs
+- **Implementation**: ✅ Fully implemented
+
+#### **growthRay** (Legendary)
+- **Alternative Names**: "Compensating for Something?"
+- **Effect**: Projectiles grow larger and deal more damage the further they travel
+- **Visual**: Projectile radius increases over time
+- **Implementation**: ✅ Fully implemented
+
+#### **binaryRain** (Lunar)
+- **Alternative Names**: "The Matrix Reloaded (Lo-Fi)"
+- **Effect**: Enemies occasionally drop '0' bits (healing) or '1' bits (damage buff)
+- **Visual**: Floating binary digits over the battlefield
+- **Implementation**: ✅ Fully implemented
+
+#### **echoShots** (Legendary)
+- **Alternative Names**: "Double Tap (Literally)"
+- **Effect**: Every primary shot is followed by a spectral 'echo' bullet 200ms later
+- **Visual**: Ghostly 50% opacity trail bullet
+- **Implementation**: ✅ Fully implemented
+
+#### **gravityBullets** (Void)
+- **Alternative Names**: "Event Horizon in a Box"
+- **Effect**: Bullets exert a subtle gravitational pull on nearby enemies
+- **Visual**: Purple swirling rings around projectiles
+- **Implementation**: ✅ Fully implemented
+
+#### **glitchPatch** (Boss)
+- **Alternative Names**: "System Recovery Tool"
+- **Effect**: Dealing damage has a chance to heal the player for 1 HP
+- **Visual**: Green glitch pixel effect on player
+- **Implementation**: ✅ Fully implemented
+
+---
+
+### 💎 High-Tier Legendaries
+
+#### **omniGlitch** (Legendary)
+- **Effect**: Infinite piercing; bullets leave a trail of glitch destruction
+- **Implementation**: ✅ Fully implemented
+
+#### **systemOverload** (Legendary)
+- **Effect**: Using your active ability deletes all non-boss enemies
+- **Implementation**: ✅ Fully implemented
+
+#### **godMode** (Legendary)
+- **Effect**: Become invulnerable for 5 seconds when at 1 HP (60s cooldown)
+- **Implementation**: ✅ Fully implemented
+
+---
+
+### 🛡️ Boss & Advanced Upgrades
 
 #### **invincibility** (Legendary)
-- **Alternative Names**: "Plot Armor (Legendary)"
+- **Alternative Names**: "Plot Armor"
 - **Effect**: Survive lethal damage once per wave
-- **Rarity**: 10% drop rate
-- **Implementation**: ❌ Not implemented
+- **Implementation**: ✅ Fully implemented
 
 #### **clone** (Legendary)
-- **Alternative Names**: "Sketchy Cloning Device", "Mirror Dimension Portal"
+- **Alternative Names**: "Sketchy Cloning Device"
 - **Effect**: Leave behind fighting afterimage clones as you move
-- **Details**:
-  - Spawns a stationary clone every 2 seconds while moving
-  - Clone exists for 4 seconds before fading out
-  - Clone auto-fires at nearest enemy within 400 units
-  - Deals 30% of your damage
-  - Each stack reduces spawn cooldown by 0.5s (minimum 0.5s)
-  - Clones fade in/out smoothly for visual effect
-  - Clones don't inherit multishot, pierce, or ricochet
-- **Rarity**: 10% drop rate
-- **Stacks**: ✅ Reduces cooldown (more clones!)
-- **Visual**: Semi-transparent ghostly purple afterimage with character emoji
 - **Implementation**: ✅ Fully implemented
 
 #### **ghostBullets** (Lunar)
 - **Alternative Names**: "Spectral Ammunition"
-- **Effect**: Bullets phase through walls, +20% damage taken
-- **Rarity**: 3% drop rate
-- **Implementation**: ❌ Not implemented
+- **Effect**: Bullets phase through arena walls
+- **Implementation**: ✅ Fully implemented
 
 #### **aura** (Boss)
 - **Alternative Names**: "Intimidating Boss Music"
 - **Effect**: Enemies near you deal 30% less damage
-- **Rarity**: 5% drop rate
-- **Implementation**: ❌ Not implemented
+- **Implementation**: ✅ Fully implemented
 
 #### **turret** (Boss)
 - **Alternative Names**: "Sentient Toaster Turret"
-- **Effect**: Deploy a turret that shoots enemies
-- **Rarity**: 5% drop rate
-- **Implementation**: ❌ Not implemented
+- **Effect**: Deploy auto-firing turrets that target enemies
+- **Implementation**: ✅ Fully implemented
 
 #### **reflect** (Boss)
-- **Alternative Names**: "Uno Reverse Card (Laminated)"
-- **Effect**: Reflect 50% of projectiles
-- **Rarity**: 5% drop rate
-- **Implementation**: ❌ Not implemented
+- **Alternative Names**: "Uno Reverse Card"
+- **Effect**: 50% chance to reflect enemy projectiles back at them
+- **Implementation**: ✅ Fully implemented
 
 #### **dash** (Boss)
 - **Alternative Names**: "Anime Protagonist Dash"
-- **Effect**: Dash through enemies
-- **Rarity**: 5% drop rate
-- **Implementation**: ❌ Not implemented
+- **Effect**: Grants the ability to dash through groups of enemies
+- **Implementation**: ✅ Fully implemented
 
 #### **doubleJump** (Boss)
 - **Alternative Names**: None defined
-- **Effect**: Double jump ability
-- **Rarity**: 5% drop rate
-- **Implementation**: ❌ Not implemented
+- **Effect**: Grants an extra jump in mid-air
+- **Implementation**: ✅ Fully implemented
 
 ---
 
 ## 📋 Quick Reference Table
 
-| Upgrade | Type | Rarity | Drop % | Effect Summary | Stacks | Cap | Status |
-|---------|------|--------|--------|----------------|--------|-----|--------|
-| attackSpeed | Offensive | Common | 50% | 0.8x cooldown (20% faster) | ✅ | 60ms | ✅ |
-| projectileDamage | Offensive | Common | 50% | +5 damage | ✅ | None | ✅ |
-| critChance | Offensive | Common | 50% | +10% crit chance | ✅ | 75% | ✅ |
-| critDamage | Offensive | Uncommon | 30% | +0.5x crit multiplier | ✅ | None | ✅ |
-| multiShot | Offensive | Uncommon | 30% | +1 projectile | ✅ | 10 | ✅ |
-| berserker | Offensive | Legendary | 10% | +50% dmg <30% HP | ✅ | None | ✅ |
-| executioner | Offensive | Legendary | 10% | Instakill <15% HP | ✅ | None | ✅ |
-| maxHealth | Defensive | Common | 50% | +20 max HP, heal 20 | ✅ | None | ✅ |
-| armor | Defensive | Common | 50% | +5% dmg reduction | ✅ | 50% | ✅ |
-| dodge | Defensive | Common | 50% | +5% dodge chance | ✅ | 30% | ✅ |
-| regeneration | Defensive | Common | 50% | +1 HP/sec | ✅ | None | ✅ |
-| shield | Defensive | Uncommon | 30% | +50 shield | ✅ | None | ✅ |
-| thorns | Defensive | Uncommon | 30% | Reflect 20% dmg | ✅ | 50% | ✅ |
-| playerSpeed | Movement | Common | 50% | 1.15x speed | ✅ | None | ✅ |
-| pickupRadius | Movement | Common | 50% | 1.2x XP radius | ✅ | 120 | ✅ |
-| magnetic | Movement | Common | 50% | 1.3x XP radius | ✅ | 150 | ✅ |
-| lifeSteal | Healing | Uncommon | 30% | Heal 5% of dmg | ✅ | 50% | ✅ |
-| vampiric | Healing | Uncommon | 30% | Heal 10% of dmg | ✅ | 50% | ✅ |
-| fireDamage | Elemental | Void | 2% | 100% DoT over 2s | ✅ | None | ✅ |
-| poisonDamage | Elemental | Void | 2% | 50% DoT over 3s | ✅ | None | ✅ |
-| iceSlow | Elemental | Void | 2% | 40% slow for 2s | ✅ | 70% | ✅ |
-| pierce | Projectile | Uncommon | 30% | +1 pierce | ✅ | None | ✅ |
-| knockback | Projectile | Uncommon | 30% | +30 units pushback | ✅ | None | ✅ |
-| explosion | Projectile | Legendary | 10% | 200% AoE on kill | ✅ | None | ✅ |
-| bananarang | Projectile | Legendary | 10% | +1 returning banana | ✅ | 10 | ✅ |
-| chain | Projectile | Uncommon | 30% | Chain to +2 enemies | ✅ | None | ✅ |
-| ricochet | Projectile | Legendary | 10% | +3 bounces | ✅ | None | ✅ |
-| homingShots | Projectile | Uncommon | 30% | +0.3 homing | ✅ | 1.0 | ✅ |
-| lucky | Special | Legendary | 10% | Double all drops | ✅ | None | ✅ |
-| timeWarp | Special | Legendary | 10% | 30% enemy slow | ✅ | None | ⚠️ |
-| pet | Companion | Boss | 5% | Summon pet | ❌ | 1 | ✅ |
-| orbital | Orbital | Legendary | 10% | Flaming skulls orbit | ✅ | None | ✅ |
-| invincibility | Special | Legendary | 10% | Survive lethal 1x | ❌ | - | ❌ |
-| clone | Special | Legendary | 10% | Afterimage clones | ✅ | - | ✅ |
-| ghostBullets | Special | Lunar | 3% | Phase walls +20% dmg | ❌ | - | ❌ |
-| aura | Special | Boss | 5% | -30% enemy dmg | ❌ | - | ❌ |
-| turret | Special | Boss | 5% | Deploy turret | ❌ | - | ❌ |
-| reflect | Special | Boss | 5% | 50% projectile reflect | ❌ | - | ❌ |
-| dash | Movement | Boss | 5% | Dash ability | ❌ | - | ❌ |
-| doubleJump | Movement | Boss | 5% | Double jump | ❌ | - | ❌ |
+| Upgrade | Type | Rarity | Effect Summary | Status |
+|---------|------|--------|----------------|--------|
+| attackSpeed | Offensive | Common | 20% faster fire rate | ✅ |
+| projectileDamage | Offensive | Common | +5 base damage | ✅ |
+| critChance | Offensive | Common | +10% crit chance | ✅ |
+| critDamage | Offensive | Uncommon | +0.5x crit multiplier | ✅ |
+| multiShot | Offensive | Uncommon | +1 projectile | ✅ |
+| berserker | Offensive | Legendary | +50% dmg <30% HP | ✅ |
+| maxHealth | Defensive | Common | +20 max HP, heal 20 | ✅ |
+| armor | Defensive | Common | +5% dmg reduction | ✅ |
+| dodge | Defensive | Common | +5% dodge chance | ✅ |
+| regeneration | Defensive | Common | +1 HP/sec | ✅ |
+| shield | Defensive | Uncommon | +50 shield | ✅ |
+| thorns | Defensive | Uncommon | Reflect 20% dmg | ✅ |
+| playerSpeed | Movement | Common | 1.15x speed | ✅ |
+| pickupRadius | Movement | Common | 1.3x XP radius | ✅ |
+| lifeSteal | Healing | Uncommon | Heal 5% of dmg | ✅ |
+| fireDamage | Elemental | Void | 100% DoT over 2s | ✅ |
+| poisonDamage | Elemental | Void | 50% DoT over 3s | ✅ |
+| iceSlow | Elemental | Void | 40% slow for 2s | ✅ |
+| pierce | Projectile | Uncommon | +1 pierce | ✅ |
+| knockback | Projectile | Uncommon | Heavy pushback | ✅ |
+| explosion | Projectile | Legendary | 200% AoE on kill | ✅ |
+| bananarang | Projectile | Legendary | Returning projectile | ✅ |
+| chain | Projectile | Uncommon | Link attacks | ✅ |
+| ricochet | Projectile | Legendary | Bouncing bullets | ✅ |
+| homingShots | Projectile | Uncommon | Seeking bullets | ✅ |
+| lucky | Special | Legendary | Double all drops | ✅ |
+| timeWarp | Special | Legendary | Slow enemies | ✅ |
+| pet | Companion | Boss | Battle companion | ✅ |
+| orbital | Orbital | Legendary | Flaming skulls | ✅ |
+| clone | Special | Legendary | Afterimage clones | ✅ |
+| satelliteRing | Boss | Boss | Orbiting energy orbs | ✅ |
+| screenWrap | Utility | Common | Edge wrapping | ✅ |
+| prismShards | Projectile | Legendary | Split bullets on hit | ✅ |
+| neonTrail | Movement | Uncommon | Damaging trail | ✅ |
+| staticField | Utility | Uncommon | Periodic zaps | ✅ |
+| growthRay | Projectile | Legendary | Scaling projectile size | ✅ |
+| binaryRain | Special | Lunar | Buff drops on death | ✅ |
+| echoShots | Offensive | Legendary | Delayed extra shots | ✅ |
+| gravityBullets | Projectile | Void | Pull enemies toward bullets | ✅ |
+| glitchPatch | Healing | Boss | Heal on hit | ✅ |
 
 ---
 
@@ -577,10 +638,9 @@ interface Projectile {
 
 ## 📊 Upgrade Statistics
 
-### Total Upgrades: 39
-- **Implemented**: 32 (82%)
-- **Partially Implemented**: 1 (3%)
-- **Not Implemented**: 6 (15%)
+### Total Upgrades: 49
+- **Implemented**: 100%
+- **Status**: Stable
 
 ### By Rarity:
 - **Common**: 10 upgrades (50% drop rate)

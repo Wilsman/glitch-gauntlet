@@ -264,6 +264,68 @@ export async function getPlayerStats(playerName: string): Promise<PlayerStats>
 
 ---
 
+## Leaderboard Implementation Research
+
+This document provides a comprehensive overview of how the game handles game completion, logging, and global leaderboard integration.
+
+### 🕹️ Game End Triggers
+The game state transition from active gameplay to the end screen is managed within `LocalGameEngine.ts`.
+
+#### 💀 Game Over
+Triggered in the `updateGameStatus` method when all players have a status of "dead".
+- **Condition**: `state.players.every((p) => p.status === "dead")`
+- **Result**: `state.status` is set to `"gameOver"`.
+
+#### 🏆 Victory (Game Won)
+A victory is achieved when the player defeats a boss and chooses to extract.
+- **Boss Defeat**: When a boss's health reaches 0, the status becomes `"bossDefeated"` and a teleporter is spawned.
+- **Extraction**: In `GamePage.tsx`, the `handleExtract` callback triggers `engine.extract()`.
+- **Final Step**: The `extract()` method in the engine sets `state.status = "won"`.
+
+---
+
+### 📊 Data Logging & Persistence
+When a game ends (either `"gameOver"` or `"won"`), the engine calls `saveGameStats(state)`.
+
+#### 1. Local Storage (`progressionStorage.ts`)
+- **Last Run Stats**: Saves detailed stats about the specific run using `saveLastRunStats`.
+- **Lifetime Progression**: Increments total games played, updates highest wave reached, and adds to total enemies killed via `recordGameEnd`.
+
+#### 2. Global Leaderboard (`leaderboardApi.ts`)
+If the player has set an Operator Name, `GamePage.tsx` automatically submits their score to the Cloudflare D1 database.
+
+**Logged Data Fields:**
+- `playerName`
+- `characterType`
+- `waveReached`
+- `enemiesKilled`
+- `survivalTimeMs`
+- `isVictory`
+
+---
+
+### 🏆 Competitive Categories
+The leaderboard is split into four categories to reward different playstyles:
+
+| Category | Metric | Goal |
+| :--- | :--- | :--- |
+| **Highest Wave** | `waveReached` | Survive as many waves as possible. |
+| **Most Kills** | `enemiesKilled` | Defeat the most enemies. |
+| **Longest Survival** | `survivalTimeMs` | Endure the longest period of time. |
+| **Fastest Victory** | `survivalTimeMs` | Complete the game (Wave 5 Boss) in minimal time. |
+
+---
+
+### 🖼️ UI Components
+- `LeaderboardPanel.tsx`: The main display on the Home screen, showing the Top 10 per category.
+- `GameOverPage.tsx`: Displays final stats and level-up info after a run.
+- `GameWonPage.tsx`: Celebrates victory and shows similar run statistics.
+
+> [!NOTE]
+> All leaderboard data is currently per-week and resets every Monday at 08:00 UTC. Historical data is archived automatically.
+
+---
+
 ## Implementation Steps
 
 ### Phase 1: Backend Setup
@@ -375,3 +437,4 @@ export async function getPlayerStats(playerName: string): Promise<PlayerStats>
 - All times stored in milliseconds for precision
 - Character type stored for filtering/display
 - Created timestamp for sorting by recency if needed
+- **Weekly Reset**: All leaderboard data is currently per-week and resets every Monday at 08:00 UTC. Historical data is archived automatically.

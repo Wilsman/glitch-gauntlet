@@ -24,6 +24,9 @@ import type {
   ScreenShake,
   Hazard,
   HazardType,
+  EnemyType,
+  BossType,
+  UpgradeType,
 } from "@shared/types";
 import { getRandomUpgrades } from "@shared/upgrades";
 import { applyUpgradeEffect } from "@shared/upgradeEffects";
@@ -42,11 +45,30 @@ import {
   BERSERKER_CHARGE_TELEGRAPH,
   BERSERKER_CHARGE_SPEED,
   BERSERKER_CHARGE_DURATION,
+  BERSERKER_ENRAGED_CHARGE_COUNT,
   BERSERKER_SLAM_TELEGRAPH,
   BERSERKER_SLAM_RINGS,
+  BERSERKER_ENRAGED_SLAM_RINGS,
   BERSERKER_SLAM_RING_SPACING,
   BERSERKER_SLAM_RING_SPEED,
   BERSERKER_SLAM_DAMAGE,
+  GOLEM_SLAM_TELEGRAPH,
+  GOLEM_GLITCH_ZONE_DURATION,
+  GOLEM_ENRAGED_SHOCKWAVE_COUNT,
+  SWARM_DASH_TELEGRAPH,
+  SWARM_DASH_SPEED,
+  SWARM_ENRAGED_BIT_COUNT,
+  OVERCLOCKER_BURST_TELEGRAPH,
+  OVERCLOCKER_TIME_SLOW_RADIUS,
+  OVERCLOCKER_TIME_SLOW_FACTOR,
+  MAGNUS_FLUX_TELEGRAPH,
+  MAGNUS_FLUX_DURATION,
+  REAPER_DASH_TELEGRAPH,
+  REAPER_DECOY_COUNT,
+  REAPER_ENRAGED_DECOY_COUNT,
+  CORE_SATELLITE_COUNT,
+  CORE_BEAM_TELEGRAPH,
+  CORE_ENRAGED_ROTATION_SPEED,
   SUMMONER_PORTAL_TELEGRAPH,
   SUMMONER_PORTAL_SPAWN_INTERVAL,
   SUMMONER_PORTAL_HEALTH,
@@ -55,6 +77,7 @@ import {
   SUMMONER_BEAM_TELEGRAPH,
   SUMMONER_BEAM_SPEED,
   SUMMONER_BEAM_DAMAGE,
+  SUMMONER_VOID_WELL_PULL_FORCE,
   ARCHITECT_LASER_COUNT,
   ARCHITECT_LASER_ROTATION_SPEED,
   ARCHITECT_LASER_TELEGRAPH,
@@ -65,6 +88,18 @@ import {
   ARCHITECT_FLOOR_HAZARD_COUNT,
   ARCHITECT_SHIELD_GENERATOR_HEALTH,
   ARCHITECT_SHIELD_GENERATOR_COUNT,
+  MAGNUS_TESLA_BALL_COUNT,
+  MAGNUS_TESLA_BALL_BASE_RADIUS,
+  MAGNUS_TESLA_BALL_OSCILLATION_AMPLITUDE,
+  MAGNUS_TESLA_BALL_ROTATION_SPEED,
+  MAGNUS_TESLA_BALL_DAMAGE,
+  SWARM_CLOUD_TELEGRAPH,
+  OVERCLOCKER_SLOW_TELEGRAPH,
+  MAGNUS_STORM_TELEGRAPH,
+  SHOTGUN_CONE_ANGLE,
+  SHOTGUN_PROJECTILE_COUNT,
+  RADIAL_PROJECTILE_COUNT,
+  PROJECTILE_BOMB_DELAY,
 } from "@shared/bossConfig";
 
 const MAX_PLAYERS = 4;
@@ -107,7 +142,7 @@ export class LocalGameEngine {
 
   constructor(
     playerId: string,
-    characterType: CharacterType = "spray-n-pray",
+    characterType: CharacterType = "pet-pal-percy",
     playerName?: string
   ) {
     const character = getCharacter(characterType);
@@ -166,22 +201,19 @@ export class LocalGameEngine {
 
     // Pet Pal Percy starts with a pet
     if (character.startsWithPet) {
-      const petEmojis = ["🐶", "🐱", "🐰", "🦊", "🐻", "🐼", "🐨", "🦁"];
-      const randomEmoji =
-        petEmojis[Math.floor(Math.random() * petEmojis.length)];
       const startingPet: Pet = {
         id: uuidv4(),
         ownerId: playerId,
         position: { ...initialPlayer.position },
-        health: 50,
-        maxHealth: 50,
+        health: 100, // Dachshunds are tough
+        maxHealth: 100,
         level: 1,
         xp: 0,
         xpToNextLevel: 10,
-        damage: 5,
-        attackSpeed: 800,
+        damage: 8, // Biting ankles is effective
+        attackSpeed: 600,
         attackCooldown: 0,
-        emoji: randomEmoji,
+        emoji: "🐕",
       };
       this.gameState.pets = [startingPet];
       initialPlayer.hasPet = true;
@@ -213,6 +245,14 @@ export class LocalGameEngine {
     }
   }
 
+  setIsPaused(paused: boolean) {
+    this.gameState.isPaused = paused;
+    // Reset lastTick when unpausing to prevent big delta jump
+    if (!paused) {
+      this.lastTick = Date.now();
+    }
+  }
+
   getGameState(): GameState {
     // Return a deep clone to prevent external mutations
     return JSON.parse(JSON.stringify(this.gameState));
@@ -233,7 +273,20 @@ export class LocalGameEngine {
 
   useBlink() {
     const player = this.gameState.players[0];
-    if (!player || player.characterType !== "dash-dynamo") return;
+    if (!player) return;
+
+    const now = Date.now();
+
+    // Dash (Boss Upgrade) logic
+    if (player.canDash) {
+      if (!player.lastDashTime || now - player.lastDashTime > 3000) {
+        this.handleDash(player);
+        player.lastDashTime = now;
+        return;
+      }
+    }
+
+    if (player.characterType !== "dash-dynamo") return;
     if (!player.blinkReady || player.blinkCooldown! > 0) return;
 
     // Blink 150 units in the direction of movement or toward mouse
@@ -271,6 +324,30 @@ export class LocalGameEngine {
       // Set cooldown (5 seconds)
       player.blinkCooldown = 5000;
     }
+  }
+
+  private handleDash(player: Player) {
+    const input = player.lastInput;
+    if (!input) return;
+
+    let dx = 0;
+    let dy = 0;
+    if (input.up) dy -= 1;
+    if (input.down) dy += 1;
+    if (input.left) dx -= 1;
+    if (input.right) dx += 1;
+
+    if (dx === 0 && dy === 0) return;
+
+    const dist = Math.hypot(dx, dy);
+    dx = (dx / dist) * 200;
+    dy = (dy / dist) * 200;
+
+    player.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, player.position.x + dx));
+    player.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, player.position.y + dy));
+
+    this.spawnParticles(player.position, player.color || "#00FFFF", 20, "glitch", 10);
+    this.triggerScreenShake(5, 200);
   }
 
 
@@ -313,12 +390,27 @@ export class LocalGameEngine {
         player.abilityCooldown = 8000;
         this.triggerScreenShake(10, 300);
         break;
+      case "glass-cannon-carl":
+        player.isAbilityActive = true;
+        player.abilityDuration = 5000; // Duration for the next few shots
+        player.abilityCooldown = 15000;
+        this.triggerScreenShake(5, 400);
+        break;
+      case "pet-pal-percy":
+        player.isAbilityActive = true;
+        player.abilityDuration = 6000;
+        player.abilityCooldown = 18000;
+        this.triggerScreenShake(2, 500);
+        break;
       case "dash-dynamo":
         player.isAbilityActive = true;
         player.abilityDuration = 3000;
         player.abilityCooldown = 15000;
         this.triggerScreenShake(5, 500);
         this.spawnParticles(player.position, "#00FFFF", 40, "glitch", 12);
+        // Overdrive: Invulnerability handled in updateAbilities if we add it
+        player.isInvulnerable = true;
+        player.invulnerableUntil = Date.now() + 3000;
         break;
       case "vampire-vex":
         player.isAbilityActive = true;
@@ -326,6 +418,7 @@ export class LocalGameEngine {
         player.abilityCooldown = 20000;
         // Massive heal
         player.health = Math.min(player.maxHealth, player.health + 50);
+        this.triggerScreenShake(4, 300);
         break;
       case "turret-tina":
         // Mega Turret
@@ -333,6 +426,7 @@ export class LocalGameEngine {
         this.placeTurret();
         this.placeTurret();
         player.abilityCooldown = 10000;
+        this.triggerScreenShake(6, 400);
         break;
     }
   }
@@ -343,6 +437,7 @@ export class LocalGameEngine {
     if (!this.gameState.turrets) this.gameState.turrets = [];
 
     // Limit to 3 turrets - prevent placement if already at max
+
     const playerTurrets = this.gameState.turrets.filter(
       (t) => t.ownerId === player.id
     );
@@ -392,7 +487,7 @@ export class LocalGameEngine {
         "🦁",
         "🐸",
       ];
-      const randomEmoji =
+      const randomEmoji = choice.title.includes("Dachshund") ? "🐕" :
         petEmojis[Math.floor(Math.random() * petEmojis.length)];
       const newPet: Pet = {
         id: uuidv4(),
@@ -452,6 +547,149 @@ export class LocalGameEngine {
     return this.upgradeChoices.get(this.gameState.levelingUpPlayerId) || null;
   }
 
+  // Debug/Sandbox methods
+  debugToggleSandbox(toggle: boolean) {
+    this.gameState.isSandboxMode = toggle;
+    if (toggle) {
+      this.gameState.status = "playing"; // Ensure we're in playing state
+      this.gameState.waveTimer = 0;
+    }
+  }
+
+  debugSpawnEnemy(type: EnemyType) {
+    const player = this.gameState.players[0];
+    if (!player) return;
+
+    // Spawn 100 units away from player in a random direction
+    const angle = Math.random() * Math.PI * 2;
+    const spawnX = player.position.x + Math.cos(angle) * 200;
+    const spawnY = player.position.y + Math.sin(angle) * 200;
+
+    // Clamp to arena bounds
+    const clampedX = Math.max(20, Math.min(ARENA_WIDTH - 20, spawnX));
+    const clampedY = Math.max(20, Math.min(ARENA_HEIGHT - 20, spawnY));
+
+    const newEnemy = createEnemy(
+      uuidv4(),
+      { x: clampedX, y: clampedY },
+      type,
+      this.gameState.wave
+    );
+    this.gameState.enemies.push(newEnemy);
+  }
+
+  debugSpawnBoss(type: BossType) {
+    const player = this.gameState.players[0];
+    if (!player) return;
+
+    const spawnX = ARENA_WIDTH / 2;
+    const spawnY = ARENA_HEIGHT / 2;
+
+    this.gameState.status = "bossFight";
+    this.gameState.boss = createBoss(
+      uuidv4(),
+      { x: spawnX, y: spawnY },
+      type,
+      this.gameState.wave
+    );
+    this.triggerScreenShake(15, 500);
+  }
+
+  debugGiveUpgrade(type: UpgradeType) {
+    const player = this.gameState.players[0];
+    if (!player) return;
+
+    // Find the upgrade config from ALL_UPGRADES (we'll need to import it)
+    // For now, we can just apply the effect since applyUpgradeEffect works on type
+    applyUpgradeEffect(player, type);
+
+    // Track collected upgrade visually
+    if (!player.collectedUpgrades) player.collectedUpgrades = [];
+    const existing = player.collectedUpgrades.find((u) => u.type === type);
+    if (existing) {
+      existing.count++;
+    } else {
+      // We don't have the title/emoji here easily without importing ALL_UPGRADES
+      // But applyUpgradeEffect handles the core stats.
+      // To show it in the UI, we might need more info.
+      player.collectedUpgrades.push({
+        type: type,
+        title: type.charAt(0).toUpperCase() + type.slice(1),
+        rarity: "legendary",
+        emoji: "🧪",
+        count: 1,
+      });
+    }
+
+    // Special cases for certain upgrades
+    if (type === "pet") {
+      if (!this.gameState.pets) this.gameState.pets = [];
+      const newPet: Pet = {
+        id: uuidv4(),
+        ownerId: player.id,
+        position: { ...player.position },
+        health: 50,
+        maxHealth: 50,
+        level: 1,
+        xp: 0,
+        xpToNextLevel: 10,
+        damage: 5,
+        attackSpeed: 800,
+        attackCooldown: 0,
+        emoji: "🐕",
+      };
+      this.gameState.pets.push(newPet);
+      player.hasPet = true;
+    }
+
+    if (type === "orbital") {
+      if (!this.gameState.orbitalSkulls) this.gameState.orbitalSkulls = [];
+      const orbitalCount = player.orbitalCount || 1;
+      const angleOffset = (Math.PI * 2) / orbitalCount;
+      const newSkull: OrbitalSkull = {
+        id: uuidv4(),
+        ownerId: player.id,
+        angle: angleOffset * (orbitalCount - 1),
+        radius: 60,
+        damage: 10 + player.level * 2,
+      };
+      this.gameState.orbitalSkulls.push(newSkull);
+    }
+  }
+
+  debugTriggerBossRound() {
+    this.gameState.status = "bossFight";
+    this.gameState.waveTimer = WAVE_DURATION - 1000; // Trigger it almost immediately
+  }
+
+  debugClearEnemies() {
+    this.gameState.enemies = [];
+    this.gameState.projectiles = [];
+    this.gameState.boss = null;
+    this.gameState.hazards = [];
+    this.gameState.xpOrbs = [];
+    this.gameState.explosions = [];
+    this.gameState.status = "playing";
+  }
+
+  debugSetInvulnerability(toggle: boolean) {
+    const player = this.gameState.players[0];
+    if (!player) return;
+    player.isInvulnerable = toggle;
+    if (toggle) {
+      player.invulnerableUntil = Date.now() + 999999999;
+    } else {
+      player.invulnerableUntil = 0;
+    }
+  }
+
+  debugLevelUp() {
+    const player = this.gameState.players[0];
+    if (!player) return;
+    player.xp = player.xpToNextLevel;
+    // The tick will handle the actual level up
+  }
+
   private tick() {
     const now = Date.now();
     const delta = now - this.lastTick;
@@ -459,14 +697,14 @@ export class LocalGameEngine {
 
     const state = this.gameState;
 
-    // Pause game loop if player is leveling up
-    if (state.levelingUpPlayerId) return;
+    // Pause game loop if player is leveling up or explicit pause
+    if (state.levelingUpPlayerId || state.isPaused) return;
 
     const timeFactor = delta / (1000 / 60);
 
     // Only update game mechanics if still playing or in boss fight
     if (state.status === "playing" || state.status === "bossFight") {
-      this.updatePlayerMovement(state, timeFactor);
+      this.updatePlayerMovement(state, timeFactor, now);
       this.updatePlayerEffects(state, delta, now);
       this.updateVampireDrain(state, delta, now);
       this.updateBlinkCooldown(state, delta);
@@ -486,21 +724,23 @@ export class LocalGameEngine {
         this.updateWaves(state, delta);
       }
 
-      this.updatePlayerAttacks(state, delta);
+      this.updatePlayerAttacks(state, delta, now);
       this.updateProjectiles(state, now, delta, timeFactor);
       this.updateStatusEffects(state, delta);
       this.updateParticles(state, delta, now);
       this.updateScreenShake(state, now);
       this.updateHazards(state, now, delta);
       this.updateAbilities(state, delta);
-      this.updateExplosions(state, now);
+      this.updateExplosions(state, now, timeFactor);
       this.updateChainLightning(state, now);
       this.updateXPOrbs(state, timeFactor);
+      this.updateTrailSegments(state, delta, now);
+      this.updateBinaryDrops(state, delta, now);
     }
 
     // Handle extraction in bossDefeated state
     if (state.status === "bossDefeated") {
-      this.updatePlayerMovement(state, timeFactor);
+      this.updatePlayerMovement(state, timeFactor, now);
       this.updateExtraction(state, delta);
     }
 
@@ -508,15 +748,44 @@ export class LocalGameEngine {
     this.updateGameStatus(state);
   }
 
-  private updatePlayerMovement(state: GameState, timeFactor: number) {
+  private updatePlayerMovement(state: GameState, timeFactor: number, now: number) {
     state.players.forEach((p) => {
       if (p.status === "alive" && p.lastInput) {
+        // Track history for trails
+        if (!p.history) p.history = [];
+        p.history.push({ x: p.position.x, y: p.position.y });
+        if (p.history.length > 5) p.history.shift();
+
         if (p.lastInput.up) p.position.y -= p.speed * timeFactor;
         if (p.lastInput.down) p.position.y += p.speed * timeFactor;
         if (p.lastInput.left) p.position.x -= p.speed * timeFactor;
         if (p.lastInput.right) p.position.x += p.speed * timeFactor;
-        p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
-        p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+
+        // Screen Wrap
+        if (p.hasScreenWrap) {
+          if (p.position.x < 0) p.position.x = ARENA_WIDTH;
+          if (p.position.x > ARENA_WIDTH) p.position.x = 0;
+          if (p.position.y < 0) p.position.y = ARENA_HEIGHT;
+          if (p.position.y > ARENA_HEIGHT) p.position.y = 0;
+        } else {
+          p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
+          p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+        }
+
+        // Neon Trail spawn
+        if (p.hasNeonTrail) {
+          if (!p.lastTrailTimestamp || now - p.lastTrailTimestamp > 100) {
+            if (!state.trailSegments) state.trailSegments = [];
+            state.trailSegments.push({
+              id: uuidv4(),
+              position: { ...p.position },
+              timestamp: now,
+              color: p.color || "#00FFFF",
+              ownerId: p.id
+            });
+            p.lastTrailTimestamp = now;
+          }
+        }
       }
     });
   }
@@ -540,6 +809,47 @@ export class LocalGameEngine {
       if (p.maxShield && p.maxShield > 0) {
         if (!p.shield) p.shield = 0;
         p.shield = Math.min(p.maxShield, p.shield + (10 * delta) / 1000);
+      }
+
+      // Static Field
+      if (p.staticFieldTimer !== undefined) {
+        p.staticFieldTimer += delta;
+        if (p.staticFieldTimer >= 2000) { // Every 2 seconds
+          p.staticFieldTimer = 0;
+          const nearest = state.enemies.reduce((closest, enemy) => {
+            const dist = Math.hypot(enemy.position.x - p.position.x, enemy.position.y - p.position.y);
+            return dist < closest.dist ? { enemy, dist } : closest;
+          }, { enemy: null as Enemy | null, dist: 300 }).enemy;
+
+          if (nearest) {
+            nearest.health -= 20 + p.level * 2;
+            if (!state.chainLightning) state.chainLightning = [];
+            state.chainLightning.push({
+              id: uuidv4(),
+              from: { ...p.position },
+              to: { ...nearest.position },
+              timestamp: now
+            });
+          }
+        }
+      }
+
+      // Satellite Ring Orbit
+      if (p.hasSatelliteRing && p.satelliteOrbs) {
+        p.satelliteOrbs.forEach(orb => {
+          orb.angle += (1.5 * delta) / 1000;
+          const ox = p.position.x + Math.cos(orb.angle) * orb.radius;
+          const oy = p.position.y + Math.sin(orb.angle) * orb.radius;
+
+          // Collision with enemies
+          state.enemies.forEach(enemy => {
+            if (Math.hypot(enemy.position.x - ox, enemy.position.y - oy) < 20) {
+              enemy.health -= 15 + p.level;
+              enemy.lastHitTimestamp = now;
+              this.spawnParticles({ x: ox, y: oy }, orb.color, 5, 'pixel', 5);
+            }
+          });
+        });
       }
     });
   }
@@ -909,7 +1219,7 @@ export class LocalGameEngine {
       const allNormalEnemiesDead = normalEnemies.length === 0;
 
       // Only spawn hellhounds after all normal enemies are dead
-      if (allNormalEnemiesDead) {
+      if (allNormalEnemiesDead && !state.isSandboxMode) {
         const totalHellhounds = state.totalHellhoundsInRound || 0;
         const hellhoundsKilled = state.hellhoundsKilled || 0;
         const currentHellhounds = state.enemies.filter(
@@ -963,7 +1273,7 @@ export class LocalGameEngine {
           state.hellhoundSpawnTimer = 3000 + Math.random() * 2000;
         }
       }
-    } else if (!waitingForHellhoundRound) {
+    } else if (!waitingForHellhoundRound && !state.isSandboxMode) {
       // Only spawn normal enemies if NOT waiting for hellhound round
       const enemySpawnRate = 0.05 + state.wave * 0.01;
       if (
@@ -1069,6 +1379,12 @@ export class LocalGameEngine {
             p.position.y - enemy.position.y,
             p.position.x - enemy.position.x
           );
+
+          // Track history for trails
+          if (!enemy.history) enemy.history = [];
+          enemy.history.push({ x: enemy.position.x, y: enemy.position.y });
+          if (enemy.history.length > 5) enemy.history.shift();
+
           enemy.position.x += Math.cos(angle) * effectiveSpeed * timeFactor;
           enemy.position.y += Math.sin(angle) * effectiveSpeed * timeFactor;
         }
@@ -1076,7 +1392,7 @@ export class LocalGameEngine {
     });
   }
 
-  private updatePlayerAttacks(state: GameState, delta: number) {
+  private updatePlayerAttacks(state: GameState, delta: number, now: number) {
     state.players.forEach((p) => {
       if (p.status !== "alive") return;
       p.attackCooldown -= delta;
@@ -1158,7 +1474,27 @@ export class LocalGameEngine {
               kind: "bullet",
               radius: 5,
             };
+            let echoShots: Projectile[] = [];
+            if (p.hasEchoShots) {
+              const echoBullet: Projectile = {
+                ...bullet,
+                id: uuidv4(),
+                isEcho: true,
+                timestamp: now + 200, // Spawn 200ms later
+              };
+              // I'll need a way to queue this. 
+              // Actually, I can just check isEcho in updateProjectiles and delay its movement.
+            }
             state.projectiles.push(bullet);
+            if (p.hasEchoShots) {
+              const echoBullet: Projectile = {
+                ...bullet,
+                id: uuidv4(),
+                isEcho: true,
+                timestamp: now, // We'll handle the lag in updateProjectiles
+              };
+              state.projectiles.push(echoBullet);
+            }
             p.burstShotsFired++;
             p.attackCooldown = 100; // 100ms between burst shots
           } else {
@@ -1380,8 +1716,51 @@ export class LocalGameEngine {
         }
       }
 
+      // Echo Shots delay
+      if (proj.isEcho && proj.timestamp && now < proj.timestamp) {
+        return true; // Don't move yet
+      }
+
+      // Growth Ray
+      if (proj.isGrowth || (owner && owner.hasGrowthRay)) {
+        if (!proj.isGrowth) proj.isGrowth = true; // Mark it
+        const age = now - (proj.timestamp || now); // I might need timestamp
+        // Actually easier to just scale up per frame
+        proj.radius = (proj.radius || 5) + 0.1 * timeFactor;
+        proj.damage += 0.2 * timeFactor;
+      }
+
+      // Gravity Bullets
+      if (owner && owner.collectedUpgrades?.some(u => u.type === 'gravityBullets')) {
+        state.enemies.forEach(enemy => {
+          const dx = proj.position.x - enemy.position.x;
+          const dy = proj.position.y - enemy.position.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          if (dist < 100) {
+            const pullForce = (1 - dist / 100) * 2 * timeFactor;
+            enemy.position.x += (dx / dist) * pullForce;
+            enemy.position.y += (dy / dist) * pullForce;
+          }
+        });
+      }
+
       proj.position.x += proj.velocity.x * timeFactor;
       proj.position.y += proj.velocity.y * timeFactor;
+
+      // Screen Wrap Projectiles
+      if (owner && owner.hasScreenWrap) {
+        if (proj.position.x < -20) proj.position.x = ARENA_WIDTH + 10;
+        if (proj.position.x > ARENA_WIDTH + 20) proj.position.x = -10;
+        if (proj.position.y < -20) proj.position.y = ARENA_HEIGHT + 10;
+        if (proj.position.y > ARENA_HEIGHT + 20) proj.position.y = -10;
+      }
+
+      // Legenday: Ghost Bullets
+      if (owner && owner.hasGhostBullets) {
+        // Ghost bullets ignore bounds or have much larger bounds
+        return proj.position.x > -500 && proj.position.x < ARENA_WIDTH + 500 &&
+          proj.position.y > -500 && proj.position.y < ARENA_HEIGHT + 500;
+      }
 
       // Omni-Glitch trail
       if (owner && owner.hasOmniGlitch && Math.random() < 0.2) {
@@ -1537,6 +1916,12 @@ export class LocalGameEngine {
             }
             enemy.health -= finalDamage;
 
+            // Glitch Patch heal chance
+            if (owner && owner.hasGlitchPatch && Math.random() < 0.2) {
+              owner.health = Math.min(owner.maxHealth, owner.health + 1);
+              owner.lastHealedTimestamp = now;
+            }
+
             // Particle hit effect
             const isCrit = proj.isCrit || false;
             this.spawnParticles(
@@ -1602,7 +1987,7 @@ export class LocalGameEngine {
             if (!enemy.damageNumbers) enemy.damageNumbers = [];
             enemy.damageNumbers.push({
               id: uuidv4(),
-              damage: proj.damage,
+              damage: Math.round(proj.damage),
               isCrit: proj.isCrit || false,
               position: { ...enemy.position },
               timestamp: now,
@@ -1784,6 +2169,17 @@ export class LocalGameEngine {
           ownerId: killer.id,
         });
       }
+
+      // Binary Rain
+      if (state.players.some(p => p.collectedUpgrades?.some(u => u.type === 'binaryRain')) && Math.random() < 0.3) {
+        if (!state.binaryDrops) state.binaryDrops = [];
+        state.binaryDrops.push({
+          id: uuidv4(),
+          position: { ...dead.position },
+          type: Math.random() < 0.5 ? '0' : '1',
+          timestamp: now
+        });
+      }
     });
     state.enemies = state.enemies.filter((e) => e.health > 0);
 
@@ -1812,9 +2208,23 @@ export class LocalGameEngine {
     });
   }
 
-  private updateExplosions(state: GameState, now: number) {
+  private updateExplosions(state: GameState, now: number, timeFactor: number) {
     if (!state.explosions) return;
     state.explosions.forEach((explosion) => {
+      // Pull effect for Void Implosion
+      if (explosion.type === 'void') {
+        state.enemies.forEach(enemy => {
+          const dx = explosion.position.x - enemy.position.x;
+          const dy = explosion.position.y - enemy.position.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          if (dist < explosion.radius * 2) {
+            const pullForce = (1 - dist / (explosion.radius * 2)) * 5 * timeFactor;
+            enemy.position.x += (dx / dist) * pullForce;
+            enemy.position.y += (dy / dist) * pullForce;
+          }
+        });
+      }
+
       state.enemies.forEach((enemy) => {
         const dist = Math.hypot(
           enemy.position.x - explosion.position.x,
@@ -2079,6 +2489,8 @@ export class LocalGameEngine {
   }
 
   private updateWaves(state: GameState, delta: number) {
+    if (state.isSandboxMode) return;
+
     // If waiting for enemies to clear before starting hellhound round
     if (state.waitingForHellhoundRound && state.enemies.length === 0) {
       // Now increment to the hellhound wave and activate it
@@ -2225,11 +2637,17 @@ export class LocalGameEngine {
     let currentSpeed = config.baseSpeed;
     if (boss.isEnraged) currentSpeed *= 1.5;
 
-    // Check for enrage
+    // Check for enrage (Phase 2)
     if (!boss.isEnraged && boss.health < boss.maxHealth * config.enrageThreshold) {
       boss.isEnraged = true;
-      this.triggerScreenShake(20, 1000);
-      this.spawnParticles(boss.position, "#FF0000", 100, "glitch", 20);
+      boss.phase = 2;
+      this.triggerScreenShake(30, 1500);
+      this.spawnParticles(boss.position, "#FF0000", 200, "glitch", 40);
+
+      // Boss specific enrage effects
+      if (boss.type === "berserker") {
+        this.spawnParticles(boss.position, "#FFAA00", 150, "nebula", 30);
+      }
     }
 
     // Update portals (Summoner)
@@ -2271,6 +2689,11 @@ export class LocalGameEngine {
       }
     }
 
+    // Update Tesla Balls (Magnetic Magnus)
+    if (boss.teslaBalls && boss.teslaBalls.length > 0) {
+      this.updateTeslaBalls(state, boss, now, delta, timeFactor);
+    }
+
     // Update attack cooldown
     if (boss.attackCooldown > 0) {
       boss.attackCooldown -= delta;
@@ -2289,6 +2712,7 @@ export class LocalGameEngine {
 
     // Check if boss is defeated
     if (boss.health <= 0) {
+      this.enemiesKilledCount++;
       state.boss = null;
       state.status = "bossDefeated";
       state.bossDefeatedRewardClaimed = false;
@@ -2301,24 +2725,87 @@ export class LocalGameEngine {
     }
   }
 
+  private updateTeslaBalls(
+    state: GameState,
+    boss: Boss,
+    now: number,
+    delta: number,
+    timeFactor: number
+  ) {
+    if (!boss.teslaBalls) return;
+
+    const config = BOSS_CONFIGS[boss.type];
+    const isEnraged = boss.isEnraged || false;
+
+    boss.teslaBalls.forEach((ball) => {
+      // 1. Rotate
+      ball.angle += (MAGNUS_TESLA_BALL_ROTATION_SPEED * delta) / 1000;
+
+      // 2. Oscillate radius if enraged
+      if (isEnraged) {
+        const oscillationSpeed = 2; // Speed of oscillation
+        const oscillationOffset = Math.sin((now / 1000) * oscillationSpeed) * MAGNUS_TESLA_BALL_OSCILLATION_AMPLITUDE;
+        ball.radius = MAGNUS_TESLA_BALL_BASE_RADIUS + oscillationOffset;
+      } else {
+        ball.radius = MAGNUS_TESLA_BALL_BASE_RADIUS;
+      }
+
+      // 3. Collision detection with players
+      const ballPos = {
+        x: boss.position.x + Math.cos(ball.angle) * ball.radius,
+        y: boss.position.y + Math.sin(ball.angle) * ball.radius,
+      };
+
+      state.players.forEach((p) => {
+        if (p.status !== "alive") return;
+        const dist = Math.hypot(p.position.x - ballPos.x, p.position.y - ballPos.y);
+
+        // Ball radius is roughly 15-20 units
+        if (dist < 20 + 15) {
+          let damage = MAGNUS_TESLA_BALL_DAMAGE * (delta / 1000);
+
+          if (p.dodge && Math.random() < p.dodge) {
+            damage = 0;
+          } else {
+            if (p.armor && p.armor > 0) {
+              damage *= 1 - p.armor;
+            }
+            if (p.shield && p.shield > 0) {
+              const absorbed = Math.min(p.shield, damage);
+              p.shield -= absorbed;
+              damage -= absorbed;
+            }
+          }
+
+          if (damage > 0) {
+            this.damagePlayer(p, damage, now);
+
+            // Visual feedback on hit
+            if (now % 200 < 50) { // Throttle particles
+              this.spawnParticles(ballPos, "#00FFFF", 5, "glitch", 5);
+            }
+          }
+        }
+      });
+    });
+  }
+
   private startBossAttack(state: GameState, boss: Boss, now: number) {
     const config = BOSS_CONFIGS[boss.type];
     // Increase attack frequency when enraged
     const cooldown = (config.attackCooldown + Math.random() * 2000) * (boss.isEnraged ? 0.6 : 1);
 
     if (boss.type === "berserker") {
-      // Choose attack: Charge (60%/80% enraged) or Slam (40%/20%)
-      const chargeChance = boss.isEnraged ? 0.8 : 0.6;
+      const chargeChance = boss.isEnraged ? 0.7 : 0.6;
       const attackType = Math.random() < chargeChance ? "charge" : "slam";
 
       if (attackType === "charge") {
-        // Target nearest player
         const target = this.getNearestPlayer(state, boss.position);
         if (!target) return;
 
         const dx = target.position.x - boss.position.x;
         const dy = target.position.y - boss.position.y;
-        const dist = Math.hypot(dx, dy);
+        const dist = Math.hypot(dx, dy) || 1;
 
         boss.currentAttack = {
           type: "charge",
@@ -2326,32 +2813,42 @@ export class LocalGameEngine {
           telegraphDuration: BERSERKER_CHARGE_TELEGRAPH,
           executeTime: now + BERSERKER_CHARGE_TELEGRAPH,
           direction: { x: dx / dist, y: dy / dist },
+          count: boss.isEnraged ? BERSERKER_ENRAGED_CHARGE_COUNT : 1,
         };
       } else {
-        // Slam attack
+        const isShotgun = boss.isEnraged && Math.random() < 0.5;
         boss.currentAttack = {
-          type: "slam",
+          type: isShotgun ? "shotgun-burst" : "slam",
           telegraphStartTime: now,
           telegraphDuration: BERSERKER_SLAM_TELEGRAPH,
           executeTime: now + BERSERKER_SLAM_TELEGRAPH,
           targetPosition: { ...boss.position },
+          count: boss.isEnraged ? 2 : 1,
         };
       }
     } else if (boss.type === "summoner") {
-      // Choose attack: Summon (40%), Teleport (30%), Beam (30%)
+      // Summoner: Summon, Teleport, Beam, or Shotgun Burst (enraged)
       const rand = Math.random();
-      let attackType: "summon" | "teleport" | "beam";
+      let attackType: "summon" | "teleport" | "beam" | "void-well" | "shotgun-burst";
 
-      if (rand < 0.4) {
-        attackType = "summon";
-      } else if (rand < 0.7) {
+      if (rand < 0.3) {
+        attackType = boss.isEnraged ? "void-well" : "summon";
+      } else if (rand < 0.5) {
+        attackType = boss.isEnraged ? "shotgun-burst" : "beam";
+      } else if (rand < 0.8) {
         attackType = "teleport";
       } else {
         attackType = "beam";
       }
 
-      if (attackType === "summon") {
-        // Spawn portals
+      if (attackType === "shotgun-burst") {
+        boss.currentAttack = {
+          type: "shotgun-burst",
+          telegraphStartTime: now,
+          telegraphDuration: SUMMONER_BEAM_TELEGRAPH,
+          executeTime: now + SUMMONER_BEAM_TELEGRAPH,
+        };
+      } else if (attackType === "summon") {
         boss.currentAttack = {
           type: "summon",
           telegraphStartTime: now,
@@ -2359,15 +2856,11 @@ export class LocalGameEngine {
           executeTime: now + SUMMONER_PORTAL_TELEGRAPH,
         };
 
-        // Initialize portals array if needed
         if (!boss.portals) boss.portals = [];
-
-        // Only spawn portals if under the max limit of 3
-        const maxPortals = 3;
+        const maxPortals = boss.isEnraged ? 5 : 3;
         const currentPortalCount = boss.portals.length;
         const portalsToSpawn = Math.min(SUMMONER_PORTAL_COUNT, maxPortals - currentPortalCount);
 
-        // Create portals at random positions
         for (let i = 0; i < portalsToSpawn; i++) {
           const angle = (Math.PI * 2 * (currentPortalCount + i)) / maxPortals;
           const distance = 200;
@@ -2383,6 +2876,14 @@ export class LocalGameEngine {
             spawnInterval: SUMMONER_PORTAL_SPAWN_INTERVAL,
           });
         }
+      } else if (attackType === "void-well") {
+        boss.currentAttack = {
+          type: "void-well",
+          telegraphStartTime: now,
+          telegraphDuration: 2000,
+          executeTime: now + 2000,
+          targetPosition: { ...boss.position },
+        };
       } else if (attackType === "teleport") {
         // Teleport to random edge
         const edge = Math.floor(Math.random() * 4);
@@ -2421,18 +2922,23 @@ export class LocalGameEngine {
         const target = this.getNearestPlayer(state, boss.position);
         if (!target) return;
 
+        const dx = target.position.x - boss.position.x;
+        const dy = target.position.y - boss.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+
         boss.currentAttack = {
           type: "beam",
           telegraphStartTime: now,
           telegraphDuration: SUMMONER_BEAM_TELEGRAPH,
           executeTime: now + SUMMONER_BEAM_TELEGRAPH,
           targetPosition: { ...target.position },
+          direction: { x: dx / dist, y: dy / dist },
         };
       }
     } else if (boss.type === "architect") {
       // Choose attack: Laser Grid (40%), Floor Hazards (40%), Shield Phase (20% when phase 2)
       const rand = Math.random();
-      let attackType: "laser-grid" | "floor-hazard";
+      let attackType: "laser-grid" | "floor-hazard" | "radial-burst";
 
       if (boss.isEnraged && rand < 0.2 && !boss.isInvulnerable) {
         // Shield phase - only in phase 2 and not already invulnerable
@@ -2461,7 +2967,7 @@ export class LocalGameEngine {
         return;
       }
 
-      attackType = rand < 0.5 ? "laser-grid" : "floor-hazard";
+      attackType = rand < 0.4 ? "laser-grid" : rand < 0.8 ? "floor-hazard" : "radial-burst";
 
       if (attackType === "laser-grid") {
         boss.currentAttack = {
@@ -2469,6 +2975,13 @@ export class LocalGameEngine {
           telegraphStartTime: now,
           telegraphDuration: ARCHITECT_LASER_TELEGRAPH,
           executeTime: now + ARCHITECT_LASER_TELEGRAPH,
+        };
+      } else if (attackType === "radial-burst") {
+        boss.currentAttack = {
+          type: "radial-burst",
+          telegraphStartTime: now,
+          telegraphDuration: 1200,
+          executeTime: now + 1200,
         };
       } else {
         // Floor hazards
@@ -2479,6 +2992,94 @@ export class LocalGameEngine {
           executeTime: now + ARCHITECT_FLOOR_HAZARD_TELEGRAPH,
         };
       }
+    } else if (boss.type === "glitch-golem") {
+      // Glitch Golem: Glitch Slam
+      const target = this.getNearestPlayer(state, boss.position);
+      if (!target) return;
+
+      boss.currentAttack = {
+        type: "slam", // Reusing slam type for mechanics consistency
+        telegraphStartTime: now,
+        telegraphDuration: GOLEM_SLAM_TELEGRAPH,
+        executeTime: now + GOLEM_SLAM_TELEGRAPH,
+        targetPosition: { ...target.position },
+      };
+    } else if (boss.type === "viral-swarm") {
+      const target = this.getNearestPlayer(state, boss.position);
+      if (!target) return;
+
+      const dx = target.position.x - boss.position.x;
+      const dy = target.position.y - boss.position.y;
+      const dist = Math.hypot(dx, dy) || 1;
+
+      const isBomb = boss.isEnraged && Math.random() < 0.4;
+      boss.currentAttack = {
+        type: isBomb ? "projectile-bomb" : (boss.isEnraged ? "summon" : "viral-dash"),
+        telegraphStartTime: now,
+        telegraphDuration: isBomb ? 1200 : (boss.isEnraged ? SWARM_CLOUD_TELEGRAPH : SWARM_DASH_TELEGRAPH),
+        executeTime: now + (isBomb ? 1200 : (boss.isEnraged ? SWARM_CLOUD_TELEGRAPH : SWARM_DASH_TELEGRAPH)),
+        direction: { x: dx / dist, y: dy / dist },
+        targetPosition: isBomb ? { ...target.position } : undefined,
+      };
+    } else if (boss.type === "overclocker") {
+      // Overclocker: Clock Burst (rapid projectile spiral) or Time Slow (enraged)
+      const attackType = boss.isEnraged ? "time-slow" : "clock-burst";
+      const telegraphDuration = boss.isEnraged ? OVERCLOCKER_SLOW_TELEGRAPH : OVERCLOCKER_BURST_TELEGRAPH;
+
+      boss.currentAttack = {
+        type: attackType,
+        telegraphStartTime: now,
+        telegraphDuration: telegraphDuration,
+        executeTime: now + telegraphDuration,
+      };
+    } else if (boss.type === "magnetic-magnus") {
+      // Magnetic Magnus: Magnetic Flux (pull/push) or Magnetic Storm (enraged)
+      const rand = Math.random();
+      const attackType = (boss.isEnraged && rand < 0.5) ? "magnetic-storm" : "magnetic-flux";
+      const telegraphDuration = (attackType === "magnetic-storm") ? MAGNUS_STORM_TELEGRAPH : MAGNUS_FLUX_TELEGRAPH;
+
+      boss.currentAttack = {
+        type: attackType,
+        telegraphStartTime: now,
+        telegraphDuration: telegraphDuration,
+        executeTime: now + telegraphDuration,
+        targetPosition: { ...boss.position }, // Centered on boss
+      };
+    } else if (boss.type === "neon-reaper") {
+      // Neon Reaper: Choice of Stealth Dash or Decoys
+      const rand = Math.random();
+      if (rand < 0.6) {
+        // Stealth Dash
+        const target = this.getNearestPlayer(state, boss.position);
+        if (!target) return;
+        const dx = target.position.x - boss.position.x;
+        const dy = target.position.y - boss.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        boss.currentAttack = {
+          type: "reaper-dash",
+          telegraphStartTime: now,
+          telegraphDuration: REAPER_DASH_TELEGRAPH,
+          executeTime: now + REAPER_DASH_TELEGRAPH,
+          targetPosition: { ...target.position },
+          direction: { x: dx / dist, y: dy / dist },
+        };
+      } else {
+        // Decoys
+        boss.currentAttack = {
+          type: boss.isEnraged ? "shotgun-burst" : "decoy-spawn",
+          telegraphStartTime: now,
+          telegraphDuration: 1000,
+          executeTime: now + 1000,
+        };
+      }
+    } else if (boss.type === "core-destroyer") {
+      // Core Destroyer: Satellite Beam or Radial Burst
+      boss.currentAttack = {
+        type: boss.isEnraged ? "radial-burst" : "satellite-beam",
+        telegraphStartTime: now,
+        telegraphDuration: boss.isEnraged ? 2000 : CORE_BEAM_TELEGRAPH,
+        executeTime: now + (boss.isEnraged ? 2000 : CORE_BEAM_TELEGRAPH),
+      };
     }
 
     boss.attackCooldown = cooldown;
@@ -2497,36 +3098,29 @@ export class LocalGameEngine {
 
     if (attack.type === "charge") {
       // During telegraph, boss is stationary
-      if (now < attack.executeTime!) {
-        return; // Telegraphing
-      }
+      if (now < attack.executeTime!) return;
 
       // Execute charge
       if (!attack.targetPosition) {
         // First frame of charge - set end position
-        const chargeDistance =
-          BERSERKER_CHARGE_SPEED * (BERSERKER_CHARGE_DURATION / 1000);
+        const dirX = attack.direction?.x ?? 0;
+        const dirY = attack.direction?.y ?? 0;
+        const chargeDistance = BERSERKER_CHARGE_SPEED * (BERSERKER_CHARGE_DURATION / 1000);
         attack.targetPosition = {
-          x: boss.position.x + attack.direction!.x * chargeDistance,
-          y: boss.position.y + attack.direction!.y * chargeDistance,
+          x: boss.position.x + dirX * chargeDistance,
+          y: boss.position.y + dirY * chargeDistance,
         };
       }
 
       // Move boss
-      boss.position.x +=
-        attack.direction!.x * BERSERKER_CHARGE_SPEED * timeFactor;
-      boss.position.y +=
-        attack.direction!.y * BERSERKER_CHARGE_SPEED * timeFactor;
+      const dirX = attack.direction?.x ?? 0;
+      const dirY = attack.direction?.y ?? 0;
+      boss.position.x += dirX * BERSERKER_CHARGE_SPEED * timeFactor;
+      boss.position.y += dirY * BERSERKER_CHARGE_SPEED * timeFactor;
 
       // Clamp to arena
-      boss.position.x = Math.max(
-        40,
-        Math.min(ARENA_WIDTH - 40, boss.position.x)
-      );
-      boss.position.y = Math.max(
-        40,
-        Math.min(ARENA_HEIGHT - 40, boss.position.y)
-      );
+      boss.position.x = Math.max(40, Math.min(ARENA_WIDTH - 40, boss.position.x));
+      boss.position.y = Math.max(40, Math.min(ARENA_HEIGHT - 40, boss.position.y));
 
       // Leave fire trail
       if (!state.fireTrails) state.fireTrails = [];
@@ -2542,157 +3136,519 @@ export class LocalGameEngine {
       // Check collision with players
       state.players.forEach((p) => {
         if (p.status !== "alive") return;
-        const dist = Math.hypot(
-          p.position.x - boss.position.x,
-          p.position.y - boss.position.y
-        );
+        const dist = Math.hypot(p.position.x - boss.position.x, p.position.y - boss.position.y);
         if (dist < 40 + 15) {
-          // boss radius + player radius
           const config = BOSS_CONFIGS[boss.type];
-          const damage = Math.round(
-            config.baseDamage *
-            Math.pow(config.damageScaling, Math.floor(state.wave / 10) - 1)
-          );
+          const damage = Math.round(config.baseDamage * Math.pow(config.damageScaling, Math.floor(state.wave / 10) - 1));
           this.damagePlayer(p, damage, now);
         }
       });
 
-      // End charge after duration
+      // End charge or chain to next one if enraged
       if (now >= attack.executeTime! + BERSERKER_CHARGE_DURATION) {
-        boss.currentAttack = undefined;
+        if (attack.count && attack.count > 1) {
+          const target = this.getNearestPlayer(state, boss.position);
+          if (target) {
+            const dx = target.position.x - boss.position.x;
+            const dy = target.position.y - boss.position.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            attack.direction = { x: dx / dist, y: dy / dist };
+            attack.executeTime = now + 400; // Shorter telegraph for follow-up
+            attack.count--;
+            attack.targetPosition = undefined; // Reset for next charge
+          } else {
+            boss.currentAttack = undefined;
+          }
+        } else {
+          boss.currentAttack = undefined;
+        }
       }
     } else if (attack.type === "slam") {
-      // During telegraph, boss is stationary
-      if (now < attack.executeTime!) {
-        return; // Telegraphing
-      }
+      if (now < attack.executeTime!) return;
 
-      // Execute slam - spawn shockwave rings
       if (!state.shockwaveRings) state.shockwaveRings = [];
 
-      // Spawn rings only once
       if (now < attack.executeTime! + 100) {
-        // 100ms grace period
-        for (let i = 0; i < BERSERKER_SLAM_RINGS; i++) {
-          state.shockwaveRings.push({
+        if (boss.type === "glitch-golem") {
+          if (!state.hazards) state.hazards = [];
+          if (!attack.targetPosition) return;
+          state.hazards.push({
             id: uuidv4(),
-            position: { ...attack.targetPosition! },
-            currentRadius: i * BERSERKER_SLAM_RING_SPACING,
-            maxRadius: 300,
-            damage: BERSERKER_SLAM_DAMAGE,
-            timestamp: now,
-            speed: BERSERKER_SLAM_RING_SPEED,
-            hitPlayers: new Set(),
+            position: { ...attack.targetPosition },
+            type: "spike-trap",
+            health: 100,
+            maxHealth: 100,
+            isActive: true,
+            lastToggle: now,
           });
+
+          if (boss.isEnraged) {
+            const count = GOLEM_ENRAGED_SHOCKWAVE_COUNT;
+            for (let i = 0; i < count; i++) {
+              state.shockwaveRings.push({
+                id: uuidv4(),
+                position: { ...attack.targetPosition },
+                currentRadius: 0,
+                maxRadius: 400,
+                damage: 40,
+                timestamp: now,
+                speed: 300,
+                hitPlayers: new Set(),
+              });
+            }
+          }
+          this.triggerScreenShake(20, 800);
+        } else {
+          // Berserker Slam
+          const rings = boss.isEnraged ? BERSERKER_ENRAGED_SLAM_RINGS : BERSERKER_SLAM_RINGS;
+          for (let i = 0; i < rings; i++) {
+            state.shockwaveRings.push({
+              id: uuidv4(),
+              position: { ...attack.targetPosition },
+              currentRadius: i * BERSERKER_SLAM_RING_SPACING,
+              maxRadius: 350,
+              damage: BERSERKER_SLAM_DAMAGE,
+              timestamp: now,
+              speed: BERSERKER_SLAM_RING_SPEED,
+              hitPlayers: new Set(),
+            });
+          }
+          this.triggerScreenShake(10, 300);
         }
       }
 
-      // End slam after rings spawn
-      if (now >= attack.executeTime! + 500) {
-        boss.currentAttack = undefined;
+      const duration = 500;
+      if (now >= attack.executeTime! + duration) {
+        if (attack.count && attack.count > 1) {
+          const target = this.getNearestPlayer(state, boss.position);
+          attack.targetPosition = target ? { ...target.position } : { ...boss.position };
+          attack.executeTime = now + 800;
+          attack.count--;
+        } else {
+          boss.currentAttack = undefined;
+        }
       }
     } else if (attack.type === "summon") {
-      // Portals are already spawned, just end the attack after telegraph
-      if (now >= attack.executeTime!) {
-        boss.currentAttack = undefined;
+      if (boss.type === "viral-swarm") {
+        if (now >= attack.executeTime! && now < attack.executeTime! + 100) {
+          for (let i = 0; i < SWARM_ENRAGED_BIT_COUNT; i++) {
+            const angle = (Math.PI * 2 * i) / SWARM_ENRAGED_BIT_COUNT;
+            const pos = {
+              x: boss.position.x + Math.cos(angle) * 60,
+              y: boss.position.y + Math.sin(angle) * 60,
+            };
+            const bit = createEnemy(uuidv4(), pos, "mini-splitter", state.wave);
+            bit.health = 50;
+            bit.maxHealth = 50;
+            bit.speed = 4;
+            state.enemies.push(bit);
+          }
+          boss.currentAttack = undefined;
+        }
+      } else {
+        if (now >= attack.executeTime!) {
+          boss.currentAttack = undefined;
+        }
       }
     } else if (attack.type === "teleport") {
       if (now >= attack.executeTime!) {
-        // Execute teleport
         boss.position = { ...attack.targetPosition! };
         boss.currentAttack = undefined;
       }
     } else if (attack.type === "beam") {
-      // During telegraph, boss is stationary
-      if (now < attack.executeTime!) {
-        return; // Telegraphing
-      }
-
-      // Execute beam - spawn projectile once
+      if (now < attack.executeTime!) return;
       if (!state.bossProjectiles) state.bossProjectiles = [];
-
-      // Spawn beam projectile only once
-      if (now < attack.executeTime! + 100) { // 100ms grace period
-        const direction = {
-          x: attack.targetPosition!.x - boss.position.x,
-          y: attack.targetPosition!.y - boss.position.y,
-        };
-        const length = Math.hypot(direction.x, direction.y);
-        const normalized = {
-          x: direction.x / length,
-          y: direction.y / length,
-        };
-
+      if (now < attack.executeTime! + 100) {
+        const dirX = attack.direction?.x ?? 0;
+        const dirY = attack.direction?.y ?? 0;
         state.bossProjectiles.push({
           id: uuidv4(),
           position: { ...boss.position },
           velocity: {
-            x: normalized.x * SUMMONER_BEAM_SPEED * 60, // Convert to pixels per second
-            y: normalized.y * SUMMONER_BEAM_SPEED * 60,
+            x: dirX * SUMMONER_BEAM_SPEED * 100,
+            y: dirY * SUMMONER_BEAM_SPEED * 100,
           },
           damage: SUMMONER_BEAM_DAMAGE,
-          radius: 15,
-          type: 'beam',
+          radius: 20,
+          type: "beam",
           hitPlayers: new Set(),
         });
       }
-
-      // End beam attack after projectile spawns
       if (now >= attack.executeTime! + 500) {
         boss.currentAttack = undefined;
       }
     } else if (attack.type === "laser-grid") {
-      // Laser grid attack - rotating lasers
-      if (now < attack.executeTime!) {
-        return; // Telegraphing
-      }
-
-      // Check collision with players
-      const rotationSpeed =
-        ARCHITECT_LASER_ROTATION_SPEED * (boss.isEnraged ? 1.5 : 1);
+      if (now < attack.executeTime!) return;
+      const rotationSpeed = ARCHITECT_LASER_ROTATION_SPEED * (boss.isEnraged ? 1.5 : 1);
       const elapsed = (now - attack.executeTime!) / 1000;
-
       for (let i = 0; i < ARCHITECT_LASER_COUNT; i++) {
         const angle = (i * Math.PI) / 2 + elapsed * rotationSpeed;
-        const laserLength = Math.max(ARENA_WIDTH, ARENA_HEIGHT); // Extend to arena edges
-
-        // Check if any player intersects with this laser beam
+        const laserLength = Math.max(ARENA_WIDTH, ARENA_HEIGHT);
         state.players.forEach((p) => {
           if (p.status !== "alive") return;
-
-          // Calculate distance from player to laser line
           const dx = p.position.x - boss.position.x;
           const dy = p.position.y - boss.position.y;
           const dist = Math.hypot(dx, dy);
-
           if (dist > laserLength) return;
-
           const playerAngle = Math.atan2(dy, dx);
           let angleDiff = Math.abs(playerAngle - angle);
-
-          // Normalize angle difference
           while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
           angleDiff = Math.abs(angleDiff);
-
-          // If player is close to laser beam (within ~5 degrees)
           if (angleDiff < 0.1) {
-            // Damage player (once per 500ms)
             if (!p.lastHitTimestamp || now - p.lastHitTimestamp > 500) {
               this.damagePlayer(p, ARCHITECT_LASER_DAMAGE, now);
             }
           }
         });
       }
-
-      // End attack after 5 seconds
       if (now >= attack.executeTime! + 5000) {
         boss.currentAttack = undefined;
       }
     } else if (attack.type === "floor-hazard") {
-      // Floor hazards - simplified for now
       if (now >= attack.executeTime! + 1000) {
         boss.currentAttack = undefined;
       }
+    } else if (attack.type === "viral-dash") {
+      if (now < attack.executeTime!) return;
+      const dirX = attack.direction?.x ?? 0;
+      const dirY = attack.direction?.y ?? 0;
+      boss.position.x += dirX * SWARM_DASH_SPEED * timeFactor;
+      boss.position.y += dirY * SWARM_DASH_SPEED * timeFactor;
+      state.players.forEach((p) => {
+        if (p.status !== "alive") return;
+        const dist = Math.hypot(p.position.x - boss.position.x, p.position.y - boss.position.y);
+        if (dist < 45) {
+          const config = BOSS_CONFIGS[boss.type];
+          this.damagePlayer(p, config.baseDamage, now);
+        }
+      });
+      if (now >= attack.executeTime! + 500) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "void-well") {
+      if (now < attack.executeTime!) return;
+      state.players.forEach(p => {
+        if (p.status !== "alive") return;
+        const dx = boss.position.x - p.position.x;
+        const dy = boss.position.y - p.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < 400) {
+          const force = (1 - dist / 400) * SUMMONER_VOID_WELL_PULL_FORCE * timeFactor;
+          p.position.x += (dx / dist) * force;
+          p.position.y += (dy / dist) * force;
+        }
+      });
+      if (now >= attack.executeTime! + 5000) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "clock-burst" || attack.type === "time-slow") {
+      if (now < attack.executeTime!) return;
+      if (boss.isEnraged) {
+        state.players.forEach(p => {
+          if (p.status !== "alive") return;
+          const dist = Math.hypot(p.position.x - boss.position.x, p.position.y - boss.position.y);
+          if (dist < OVERCLOCKER_TIME_SLOW_RADIUS) {
+            if (!p.statusEffects) p.statusEffects = [];
+            if (!p.statusEffects.some(se => se.type === 'slowed')) {
+              p.statusEffects.push({ type: 'slowed', duration: 500, slowAmount: OVERCLOCKER_TIME_SLOW_FACTOR });
+            }
+          }
+        });
+      }
+      if (!state.bossProjectiles) state.bossProjectiles = [];
+      const interval = boss.isEnraged ? 30 : 50;
+      const elapsed = (now - attack.executeTime!) / interval;
+      if (Math.floor(elapsed) !== Math.floor((now - attack.executeTime! - delta) / interval)) {
+        const burstAngle = elapsed * (boss.isEnraged ? 0.8 : 0.5);
+        const config = BOSS_CONFIGS[boss.type];
+        const damage = Math.round(config.baseDamage * 0.5);
+        state.bossProjectiles.push({
+          id: uuidv4(),
+          position: { ...boss.position },
+          velocity: { x: Math.cos(burstAngle) * 350, y: Math.sin(burstAngle) * 350 },
+          damage,
+          radius: 12,
+          type: "beam",
+          hitPlayers: new Set(),
+        });
+      }
+      if (now >= attack.executeTime! + 2500) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "magnetic-flux") {
+      if (now < attack.executeTime!) return;
+      const duration = MAGNUS_FLUX_DURATION;
+      const elapsed = now - attack.executeTime!;
+      const isPush = Math.floor(elapsed / 1000) % 2 === 0;
+      state.players.forEach((p) => {
+        if (p.status !== "alive") return;
+        const dx = p.position.x - boss.position.x;
+        const dy = p.position.y - boss.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist > 600) return;
+        const force = (isPush ? 1.5 : -1.5) * (1 - dist / 600) * 6 * timeFactor;
+        p.position.x += (dx / dist) * force;
+        p.position.y += (dy / dist) * force;
+        p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
+        p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+      });
+      if (now >= attack.executeTime! + duration) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "magnetic-storm") {
+      if (now < attack.executeTime!) return;
+      state.projectiles.forEach(proj => {
+        const dx = proj.position.x - boss.position.x;
+        const dy = proj.position.y - boss.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < 300) {
+          const force = (1 - dist / 300) * 10;
+          proj.velocity.x += (dx / dist) * force;
+          proj.velocity.y += (dy / dist) * force;
+        }
+      });
+      if (now >= attack.executeTime! + 4000) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "reaper-dash") {
+      if (now < attack.executeTime!) return;
+      const dirX = attack.direction?.x ?? 0;
+      const dirY = attack.direction?.y ?? 0;
+      boss.position.x += dirX * 20 * timeFactor;
+      boss.position.y += dirY * 20 * timeFactor;
+      state.players.forEach((p) => {
+        if (p.status !== "alive") return;
+        const dist = Math.hypot(p.position.x - boss.position.x, p.position.y - boss.position.y);
+        if (dist < 50) {
+          const config = BOSS_CONFIGS[boss.type];
+          this.damagePlayer(p, config.baseDamage * 1.5, now);
+        }
+      });
+      if (now >= attack.executeTime! + 400) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "decoy-spawn") {
+      if (now >= attack.executeTime! && now < attack.executeTime! + 100) {
+        if (!state.clones) state.clones = [];
+        const count = boss.isEnraged ? REAPER_ENRAGED_DECOY_COUNT : REAPER_DECOY_COUNT;
+        for (let i = 0; i < count; i++) {
+          const decoyAngle = (Math.PI * 2 * i) / count;
+          state.clones.push({
+            id: uuidv4(),
+            ownerId: boss.id,
+            position: { x: boss.position.x + Math.cos(decoyAngle) * 120, y: boss.position.y + Math.sin(decoyAngle) * 120 },
+            damage: 0.2,
+            attackSpeed: 1500,
+            attackCooldown: 0,
+            range: 250,
+            expiresAt: now + (boss.isEnraged ? 8000 : 5000),
+            opacity: 0,
+          });
+        }
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "satellite-beam") {
+      if (now < attack.executeTime!) return;
+      if (!state.bossProjectiles) state.bossProjectiles = [];
+      if (boss.isEnraged) {
+        const elapsed = (now - attack.executeTime!) / 1000;
+        for (let i = 0; i < CORE_SATELLITE_COUNT; i++) {
+          const satAngle = (Math.PI * 2 * i) / CORE_SATELLITE_COUNT + elapsed * CORE_ENRAGED_ROTATION_SPEED;
+          const dir = { x: Math.cos(satAngle), y: Math.sin(satAngle) };
+          if (now % 200 < 50) {
+            state.bossProjectiles.push({
+              id: uuidv4(),
+              position: { x: boss.position.x + dir.x * 120, y: boss.position.y + dir.y * 120 },
+              velocity: { x: dir.x * 400, y: dir.y * 400 },
+              damage: 20,
+              radius: 15,
+              type: "beam",
+              hitPlayers: new Set(),
+            });
+          }
+        }
+        if (now >= attack.executeTime! + 5000) boss.currentAttack = undefined;
+      } else {
+        if (now < attack.executeTime! + 100) {
+          for (let i = 0; i < CORE_SATELLITE_COUNT; i++) {
+            const angle = (Math.PI * 2 * i) / CORE_SATELLITE_COUNT;
+            const target = this.getNearestPlayer(state, boss.position);
+            if (target) {
+              const satPos = { x: boss.position.x + Math.cos(angle) * 150, y: boss.position.y + Math.sin(angle) * 150 };
+              const dx = target.position.x - satPos.x;
+              const dy = target.position.y - satPos.y;
+              const dist = Math.hypot(dx, dy) || 1;
+              state.bossProjectiles.push({
+                id: uuidv4(),
+                position: satPos,
+                velocity: { x: (dx / dist) * 500, y: (dy / dist) * 500 },
+                damage: 25,
+                radius: 20,
+                type: "beam",
+                hitPlayers: new Set(),
+              });
+            }
+          }
+        }
+        if (now >= attack.executeTime! + 500) boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "shotgun-burst") {
+      if (now < attack.executeTime!) return;
+      if (now < attack.executeTime! + 100) {
+        const config = BOSS_CONFIGS[boss.type];
+        const damage = config.baseDamage * (boss.isEnraged ? 0.8 : 0.6);
+        const speed = 400;
+
+        if (boss.type === "berserker") {
+          const target = this.getNearestPlayer(state, boss.position);
+          if (target) {
+            const dx = target.position.x - boss.position.x;
+            const dy = target.position.y - boss.position.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            this.spawnShotgunBurst(state, boss.position, { x: dx / dist, y: dy / dist }, SHOTGUN_PROJECTILE_COUNT, SHOTGUN_CONE_ANGLE, speed, damage);
+          }
+        } else if (boss.type === "summoner") {
+          if (boss.portals) {
+            boss.portals.forEach(portal => {
+              const target = this.getNearestPlayer(state, portal.position);
+              if (target) {
+                const dx = target.position.x - portal.position.x;
+                const dy = target.position.y - portal.position.y;
+                const dist = Math.hypot(dx, dy) || 1;
+                this.spawnShotgunBurst(state, portal.position, { x: dx / dist, y: dy / dist }, 3, Math.PI / 6, speed, damage * 0.5);
+              }
+            });
+          }
+        } else if (boss.type === "neon-reaper") {
+          if (state.clones) {
+            state.clones.filter(c => c.ownerId === boss.id).forEach(clone => {
+              const target = this.getNearestPlayer(state, clone.position);
+              if (target) {
+                const dx = target.position.x - clone.position.x;
+                const dy = target.position.y - clone.position.y;
+                const dist = Math.hypot(dx, dy) || 1;
+                this.spawnShotgunBurst(state, clone.position, { x: dx / dist, y: dy / dist }, 3, Math.PI / 8, speed * 1.2, damage * 0.4);
+              }
+            });
+          }
+        }
+      }
+      if (now >= attack.executeTime! + 200) boss.currentAttack = undefined;
+    } else if (attack.type === "radial-burst") {
+      if (now < attack.executeTime!) return;
+      if (now < attack.executeTime! + 100) {
+        const config = BOSS_CONFIGS[boss.type];
+        const damage = config.baseDamage * 0.7;
+        const speed = 350;
+
+        if (boss.type === "architect") {
+          this.spawnRadialBurst(state, boss.position, RADIAL_PROJECTILE_COUNT, speed, damage);
+        } else if (boss.type === "core-destroyer") {
+          const dist = 120;
+          for (let i = 0; i < CORE_SATELLITE_COUNT; i++) {
+            const angle = (Math.PI * 2 * i) / CORE_SATELLITE_COUNT;
+            const satPos = {
+              x: boss.position.x + Math.cos(angle) * dist,
+              y: boss.position.y + Math.sin(angle) * dist
+            };
+            this.spawnRadialBurst(state, satPos, 6, speed * 0.8, damage * 0.5);
+          }
+        }
+      }
+      if (now >= attack.executeTime! + 200) boss.currentAttack = undefined;
+    } else if (attack.type === "projectile-bomb") {
+      if (now < attack.executeTime!) return;
+      if (!attack.bombId) {
+        attack.bombId = uuidv4();
+        if (!state.bossProjectiles) state.bossProjectiles = [];
+
+        if (!attack.targetPosition) return;
+        const dx = attack.targetPosition.x - boss.position.x;
+        const dy = attack.targetPosition.y - boss.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+
+        state.bossProjectiles.push({
+          id: attack.bombId,
+          position: { ...boss.position },
+          velocity: {
+            x: (dx / dist) * 500,
+            y: (dy / dist) * 500
+          },
+          damage: 20,
+          radius: 20,
+          type: 'bomb',
+          hitPlayers: new Set()
+        });
+        attack.executeTime = now + PROJECTILE_BOMB_DELAY;
+      } else {
+        if (now >= attack.executeTime!) {
+          const bomb = state.bossProjectiles?.find(p => p.id === attack.bombId);
+          if (bomb) {
+            this.spawnRadialBurst(state, bomb.position, 16, 400, BOSS_CONFIGS[boss.type].baseDamage);
+            this.triggerScreenShake(15, 500);
+            state.bossProjectiles = state.bossProjectiles?.filter(p => p.id !== attack.bombId);
+          }
+          boss.currentAttack = undefined;
+        }
+      }
+    }
+  }
+
+  private spawnShotgunBurst(
+    state: GameState,
+    position: Vector2D,
+    direction: Vector2D,
+    count: number,
+    coneAngle: number,
+    speed: number,
+    damage: number,
+    type: "beam" | "hazard" = "beam"
+  ) {
+    if (!state.bossProjectiles) state.bossProjectiles = [];
+    const baseAngle = Math.atan2(direction.y, direction.x);
+    const startAngle = baseAngle - coneAngle / 2;
+    const angleStep = count > 1 ? coneAngle / (count - 1) : 0;
+
+    for (let i = 0; i < count; i++) {
+      const angle = startAngle + i * angleStep;
+      state.bossProjectiles.push({
+        id: uuidv4(),
+        position: { ...position },
+        velocity: {
+          x: Math.cos(angle) * speed,
+          y: Math.sin(angle) * speed,
+        },
+        damage,
+        radius: 15,
+        type,
+        hitPlayers: new Set(),
+      });
+    }
+  }
+
+  private spawnRadialBurst(
+    state: GameState,
+    position: Vector2D,
+    count: number,
+    speed: number,
+    damage: number,
+    type: "beam" | "hazard" = "beam"
+  ) {
+    if (!state.bossProjectiles) state.bossProjectiles = [];
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count;
+      state.bossProjectiles.push({
+        id: uuidv4(),
+        position: { ...position },
+        velocity: {
+          x: Math.cos(angle) * speed,
+          y: Math.sin(angle) * speed,
+        },
+        damage,
+        radius: 12,
+        type,
+        hitPlayers: new Set(),
+      });
     }
   }
 
@@ -2779,8 +3735,6 @@ export class LocalGameEngine {
     if (!state.bossProjectiles) return;
 
     const now = Date.now();
-    const ARENA_WIDTH = 800;
-    const ARENA_HEIGHT = 600;
     const projectilesToRemove = new Set<string>();
 
     state.bossProjectiles.forEach((projectile) => {
@@ -2799,6 +3753,16 @@ export class LocalGameEngine {
         );
 
         if (dist < projectile.radius + 20) { // Player radius ~20
+          // Reflect logic
+          if (p.hasReflect && Math.random() < 0.5) {
+            projectile.velocity.x *= -1.5;
+            projectile.velocity.y *= -1.5;
+            if (!projectile.hitPlayers) projectile.hitPlayers = new Set();
+            projectile.hitPlayers.add(p.id); // Don't hit self immediately
+            this.spawnParticles(p.position, "#00FFFF", 5, "pixel");
+            return;
+          }
+
           // Hit player
           this.damagePlayer(p, projectile.damage, now);
           if (!projectile.hitPlayers) projectile.hitPlayers = new Set();
@@ -2811,14 +3775,15 @@ export class LocalGameEngine {
     });
 
     // Remove projectiles that hit players or are out of bounds
-    state.bossProjectiles = state.bossProjectiles.filter(
-      (proj) =>
-        !projectilesToRemove.has(proj.id) &&
-        proj.position.x >= -50 &&
-        proj.position.x <= ARENA_WIDTH + 50 &&
-        proj.position.y >= -50 &&
-        proj.position.y <= ARENA_HEIGHT + 50
-    );
+    state.bossProjectiles = state.bossProjectiles.filter((proj) => {
+      const isOut =
+        proj.position.x < -100 ||
+        proj.position.x > ARENA_WIDTH + 100 ||
+        proj.position.y < -100 ||
+        proj.position.y > ARENA_HEIGHT + 100;
+
+      return !projectilesToRemove.has(proj.id) && !isOut;
+    });
   }
 
   continueAfterBoss() {
@@ -2846,6 +3811,17 @@ export class LocalGameEngine {
     }
 
     state.bossDefeatedRewardClaimed = true;
+  }
+
+  extract() {
+    const state = this.gameState;
+    if (state.status !== "bossDefeated") return;
+
+    // Trigger victory
+    state.status = "won";
+
+    // Final save of stats
+    this.saveGameStats(state);
   }
 
   private updateAbilities(state: GameState, delta: number) {
@@ -2885,6 +3861,14 @@ export class LocalGameEngine {
 
   private updateHazards(state: GameState, now: number, delta: number) {
     if (!state.hazards) state.hazards = [];
+
+    // Reset Plot Armor for new wave
+    state.players.forEach(p => {
+      if (!p.invincibilityUsedInWave && state.wave !== (p as any)._lastWaveRef) {
+        p.invincibilityUsedInWave = false;
+        (p as any)._lastWaveRef = state.wave;
+      }
+    });
 
     // Handle spike-trap toggle and damage
     state.hazards.forEach((h) => {
@@ -3068,6 +4052,19 @@ export class LocalGameEngine {
     if (player.status !== "alive") return;
     if (amount <= 0) return;
 
+    let finalAmount = amount;
+
+    // Aura implementation: Reduce damage from nearby enemies
+    if (player.hasAura) {
+      const auraRadius = 150;
+      const isEnemyNear = this.gameState.enemies.some(e =>
+        Math.hypot(e.position.x - player.position.x, e.position.y - player.position.y) < auraRadius
+      );
+      if (isEnemyNear) {
+        finalAmount *= 0.7; // 30% reduction
+      }
+    }
+
     // Legenday: God Mode logic
     if (player.hasGodMode && player.health <= amount + 1) {
       if (!player.godModeCooldown || now - player.godModeCooldown > 60000) {
@@ -3079,6 +4076,17 @@ export class LocalGameEngine {
         this.triggerScreenShake(15, 500);
         return;
       }
+    }
+
+    // Legenday: Plot Armor (Invincibility) - Survive lethal once per wave
+    if (player.hasInvincibility && !player.invincibilityUsedInWave && player.health <= amount) {
+      player.health = 1;
+      player.invincibilityUsedInWave = true;
+      player.isInvulnerable = true;
+      player.invulnerableUntil = now + 2000;
+      this.spawnParticles(player.position, "#FFD700", 30, "pixel", 10);
+      this.triggerScreenShake(10, 300);
+      return;
     }
 
     // Invulnerability check
@@ -3097,5 +4105,42 @@ export class LocalGameEngine {
       player.health = 0;
       player.status = "dead";
     }
+  }
+
+  private updateTrailSegments(state: GameState, delta: number, now: number) {
+    if (!state.trailSegments) return;
+    state.trailSegments = state.trailSegments.filter(seg => {
+      const age = now - seg.timestamp;
+      if (age > 2000) return false; // 2s duration
+
+      // Damage enemies
+      state.enemies.forEach(enemy => {
+        if (Math.hypot(enemy.position.x - seg.position.x, enemy.position.y - seg.position.y) < 30) {
+          enemy.health -= 0.5 * (delta / 50); // Small DoT
+          enemy.lastHitTimestamp = now;
+        }
+      });
+      return true;
+    });
+  }
+
+  private updateBinaryDrops(state: GameState, delta: number, now: number) {
+    if (!state.binaryDrops) return;
+    state.binaryDrops = state.binaryDrops.filter(drop => {
+      const age = now - drop.timestamp;
+      if (age > 10000) return false;
+
+      // Collection
+      const player = state.players.find(p => p.status === 'alive' && Math.hypot(p.position.x - drop.position.x, p.position.y - drop.position.y) < 50);
+      if (player) {
+        if (drop.type === '1') {
+          player.projectileDamage += 0.5; // Small permanent buff
+        } else {
+          player.health = Math.min(player.maxHealth, player.health + 2); // Small heal
+        }
+        return false;
+      }
+      return true;
+    });
   }
 }

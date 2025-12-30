@@ -39,6 +39,9 @@ export interface CharacterStats {
   baseAttackSpeed: number;
   baseSpeed: number;
   description: string;
+  abilityName: string;
+  abilityDescription: string;
+  baseAbilityCooldown: number;
   pro: string;
   con: string;
   locked?: boolean;
@@ -161,6 +164,28 @@ export interface Player {
   godModeCooldown?: number;
   isInvulnerable?: boolean;
   invulnerableUntil?: number;
+  // New Legendary/Boss effects
+  hasInvincibility?: boolean; // Plot Armor
+  invincibilityUsedInWave?: boolean;
+  hasGhostBullets?: boolean;
+  hasAura?: boolean;
+  hasReflect?: boolean;
+  canDash?: boolean;
+  canDoubleJump?: boolean;
+  lastDashTime?: number;
+  // Creative Upgrades
+  hasScreenWrap?: boolean;
+  hasNeonTrail?: boolean;
+  lastTrailTimestamp?: number;
+  staticFieldTimer?: number;
+  hasGrowthRay?: boolean;
+  hasEchoShots?: boolean;
+  hasGlitchPatch?: boolean;
+  hasSatelliteRing?: boolean;
+  satelliteOrbs?: SatelliteOrb[];
+  // Visual history
+  history?: Vector2D[];
+  statusEffects?: StatusEffect[];
 }
 export interface DamageNumber {
   id: string;
@@ -200,6 +225,8 @@ export interface Enemy {
   attackCooldown?: number;
   attackSpeed?: number;
   projectileSpeed?: number;
+  // Visual history
+  history?: Vector2D[];
 }
 export interface Projectile {
   id: string;
@@ -222,6 +249,12 @@ export interface Projectile {
   pierceRemaining?: number; // how many more enemies can be pierced
   // Ricochet tracking
   ricochetRemaining?: number; // how many more bounces
+  // Creative Upgrades
+  isShard?: boolean;
+  isEcho?: boolean;
+  isGrowth?: boolean;
+  pullRadius?: number;
+  timestamp?: number;
 }
 export interface XpOrb {
   id: string;
@@ -274,7 +307,17 @@ export type UpgradeType =
   | 'omniGlitch'
   | 'systemOverload'
   | 'godMode'
-  | 'reflect';
+  | 'reflect'
+  | 'screenWrap'
+  | 'prismShards'
+  | 'neonTrail'
+  | 'staticField'
+  | 'growthRay'
+  | 'binaryRain'
+  | 'echoShots'
+  | 'gravityBullets'
+  | 'glitchPatch'
+  | 'satelliteRing';
 
 export interface UpgradeOption {
   id: string;
@@ -304,12 +347,35 @@ export interface Explosion {
   timestamp: number;
   damage: number;
   ownerId: string;
+  type?: 'normal' | 'void';
 }
 
 export interface ChainLightning {
   id: string;
   from: Vector2D;
   to: Vector2D;
+  timestamp: number;
+}
+
+export interface SatelliteOrb {
+  id: string;
+  angle: number;
+  radius: number;
+  color: string;
+}
+
+export interface TrailSegment {
+  id: string;
+  position: Vector2D;
+  timestamp: number;
+  color: string;
+  ownerId: string;
+}
+
+export interface BinaryDrop {
+  id: string;
+  position: Vector2D;
+  type: '0' | '1';
   timestamp: number;
 }
 
@@ -368,15 +434,17 @@ export interface Hazard {
   lastToggle?: number;
 }
 
-export type BossType = 'berserker' | 'summoner' | 'architect';
+export type BossType = 'berserker' | 'summoner' | 'architect' | 'glitch-golem' | 'viral-swarm' | 'overclocker' | 'magnetic-magnus' | 'neon-reaper' | 'core-destroyer';
 
 export interface BossAttack {
-  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard';
+  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard' | 'glitch-zone' | 'viral-dash' | 'clock-burst' | 'magnetic-flux' | 'reaper-dash' | 'decoy-spawn' | 'satellite-beam' | 'void-well' | 'magnetic-storm' | 'system-collapse' | 'time-slow' | 'shotgun-burst' | 'radial-burst' | 'projectile-bomb';
   telegraphStartTime: number;
   telegraphDuration: number;
   executeTime?: number;
   targetPosition?: Vector2D;
   direction?: Vector2D;
+  count?: number; // For multi-part attacks
+  bombId?: string; // For tracking projectile bombs
 }
 
 export interface Boss {
@@ -396,6 +464,7 @@ export interface Boss {
   maxShieldHealth?: number;
   isInvulnerable?: boolean;
   isEnraged?: boolean;
+  teslaBalls?: TeslaBall[];
 }
 
 export interface ShockwaveRing {
@@ -418,6 +487,12 @@ export interface Portal {
   spawnInterval: number;
 }
 
+export interface TeslaBall {
+  id: string;
+  angle: number;
+  radius: number;
+}
+
 export interface ShieldGenerator {
   id: string;
   position: Vector2D;
@@ -431,7 +506,7 @@ export interface BossProjectile {
   velocity: Vector2D;
   damage: number;
   radius: number;
-  type: 'beam'; // Can extend for other projectile types
+  type: 'beam' | 'hazard' | 'bomb'; // Extended for diverse patterns
   hitPlayers?: Set<string>;
 }
 
@@ -518,4 +593,8 @@ export interface GameState {
   particles?: Particle[];
   screenShake?: ScreenShake;
   hazards?: Hazard[];
+  trailSegments?: TrailSegment[];
+  binaryDrops?: BinaryDrop[];
+  isSandboxMode?: boolean;
+  isPaused?: boolean;
 }

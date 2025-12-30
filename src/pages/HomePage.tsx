@@ -4,6 +4,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { CharacterSelect } from "@/components/CharacterSelect";
@@ -183,24 +189,38 @@ export function HomePage() {
       </AnimatePresence>
 
       {/* Last Run Stats - Left Side */}
-      <motion.div
-        initial={{ x: -400, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ delay: 0.5, duration: 0.8, type: "spring", bounce: 0.3 }}
-        className="fixed left-8 top-1/2 -translate-y-1/2 z-20 w-80 hidden lg:block"
-      >
-        <LastRunStatsCard />
-      </motion.div>
+      <div className="fixed left-8 top-0 bottom-0 z-20 w-80 hidden lg:flex items-center">
+        <motion.div
+          initial={{ x: -400, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{
+            delay: 0.5,
+            duration: 0.8,
+            type: "spring",
+            bounce: 0.3,
+          }}
+          className="w-full"
+        >
+          <LastRunStatsCard />
+        </motion.div>
+      </div>
 
       {/* Leaderboard - Right Side */}
-      <motion.div
-        initial={{ x: 400, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ delay: 0.7, duration: 0.8, type: "spring", bounce: 0.3 }}
-        className="fixed right-8 top-1/2 -translate-y-1/2 z-20 w-96 h-[600px] hidden lg:block"
-      >
-        <LeaderboardPanel />
-      </motion.div>
+      <div className="fixed right-8 top-0 bottom-0 z-20 w-96 hidden lg:flex items-center">
+        <motion.div
+          initial={{ x: 400, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          transition={{
+            delay: 0.7,
+            duration: 0.8,
+            type: "spring",
+            bounce: 0.3,
+          }}
+          className="w-full h-[66vh]"
+        >
+          <LeaderboardPanel />
+        </motion.div>
+      </div>
 
       <div className="relative z-20 flex flex-col items-center justify-center text-center space-y-12">
         <motion.div
@@ -270,19 +290,23 @@ export function HomePage() {
             </Button>
           </motion.div>
 
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button
-              onClick={handleHostGame}
-              disabled={isHosting || isJoining}
-              className="w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-neon-cyan text-neon-cyan h-16 hover:bg-neon-cyan hover:text-black hover:shadow-[0_0_30px_rgba(0,255,255,0.5)] transition-all duration-300"
-            >
-              {isHosting ? (
-                <Loader2 className="mr-2 h-6 w-6 animate-spin" />
-              ) : (
-                "Host Game"
-              )}
-            </Button>
-          </motion.div>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <motion.div>
+                  <Button
+                    disabled
+                    className="w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-gray-600 text-gray-500 h-16 cursor-not-allowed opacity-50 transition-all duration-300"
+                  >
+                    Host Game
+                  </Button>
+                </motion.div>
+              </TooltipTrigger>
+              <TooltipContent className="font-press-start text-sm bg-black/90 border border-neon-pink text-neon-pink px-4 py-2">
+                Coming Soon
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
 
           <motion.div
             initial={{ opacity: 0 }}
@@ -290,27 +314,40 @@ export function HomePage() {
             transition={{ delay: 1.4 }}
             className="flex items-center space-x-4"
           >
-            <Input
-              type="text"
-              placeholder="ENTER GAME CODE"
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.trim())}
-              disabled={isHosting || isJoining}
-              className="font-press-start text-center h-16 text-lg bg-black/60 backdrop-blur-md border-2 border-neon-pink text-neon-pink placeholder:text-neon-pink/30 focus:ring-neon-pink focus:ring-offset-0 transition-all focus:shadow-[0_0_20px_rgba(255,0,255,0.3)]"
-            />
-            <motion.div whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}>
-              <Button
-                onClick={handleJoinGame}
-                disabled={isHosting || isJoining}
-                className="font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-neon-pink text-neon-pink h-16 hover:bg-neon-pink hover:text-black hover:shadow-[0_0_30px_rgba(255,0,255,0.5)] transition-all duration-300"
-              >
-                {isJoining ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  "Join"
-                )}
-              </Button>
-            </motion.div>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Input
+                    type="text"
+                    placeholder="ENTER GAME CODE"
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value.trim())}
+                    disabled
+                    className="font-press-start text-center h-16 text-lg bg-black/60 backdrop-blur-md border-2 border-gray-600 text-gray-500 placeholder:text-gray-600 cursor-not-allowed opacity-50 transition-all"
+                  />
+                </TooltipTrigger>
+                <TooltipContent className="font-press-start text-sm bg-black/90 border border-neon-pink text-neon-pink px-4 py-2">
+                  Coming Soon
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <motion.div>
+                    <Button
+                      disabled
+                      className="font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-gray-600 text-gray-500 h-16 cursor-not-allowed opacity-50 transition-all duration-300"
+                    >
+                      Join
+                    </Button>
+                  </motion.div>
+                </TooltipTrigger>
+                <TooltipContent className="font-press-start text-sm bg-black/90 border border-neon-pink text-neon-pink px-4 py-2">
+                  Coming Soon
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </motion.div>
         </motion.div>
       </div>

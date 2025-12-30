@@ -40,7 +40,7 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
 
   // ========== BOSS (Yellow) ==========
   { type: 'aura', title: 'Intimidating Boss Music', description: 'Enemies near you deal 30% less damage. *Epic orchestra intensifies*', rarity: 'boss', emoji: '🎵' },
-  { type: 'pet', title: 'Angry Chihuahua Familiar', description: 'Summons a tiny rage demon that attacks enemies. Yappy but effective.', rarity: 'boss', emoji: '🐕' },
+  { type: 'pet', title: 'Miniature Dachshund Defender', description: 'Summons a low-profile long-boy that bites ankles. Highly aerodynamic.', rarity: 'boss', emoji: '🐕' },
   { type: 'turret', title: 'Sentient Toaster Turret', description: 'Deploy a turret that shoots toast. Breakfast AND death!', rarity: 'boss', emoji: '🍞' },
   { type: 'reflect', title: 'Uno Reverse Card (Laminated)', description: 'Reflect 50% of projectiles. No u!', rarity: 'boss', emoji: '🔄' },
   { type: 'dash', title: 'Anime Protagonist Dash', description: 'Dash through enemies. Leaves speed lines.', rarity: 'boss', emoji: '💨' },
@@ -76,7 +76,7 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'shield', title: 'Inflatable Pool Toy', description: 'Absorb 50 damage. Squeaky!', rarity: 'uncommon', emoji: '🦆' },
   { type: 'thorns', title: 'Cactus Costume', description: 'Reflect 20% damage. Prickly!', rarity: 'uncommon', emoji: '🌵' },
   { type: 'vampiric', title: 'Mosquito Swarm', description: 'Heal 10% of damage. Bzzzz!', rarity: 'uncommon', emoji: '🦟' },
-  { type: 'homingShots', title: 'Bloodhound Bullets', description: 'Bullets track enemies. Good boy!', rarity: 'uncommon', emoji: '🐶' },
+  { type: 'homingShots', title: 'Dachshund Detection', description: 'Bullets track enemies with long-boy precision. Good boy!', rarity: 'uncommon', emoji: '🐕' },
   { type: 'chain', title: 'Social Butterfly Effect', description: 'Chain to 2 enemies. Spread the love!', rarity: 'uncommon', emoji: '🦋' },
 
   // ========== MORE LEGENDARIES ==========
@@ -91,6 +91,18 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'omniGlitch', title: 'Omni-Glitch Matrix', description: 'Infinite piercing. Bullets leave a trail of glitch destruction.', rarity: 'legendary', emoji: '🌀' },
   { type: 'systemOverload', title: 'System Overload', description: 'Using your active ability deletes all non-boss enemies. Rebooting!', rarity: 'legendary', emoji: '💥' },
   { type: 'godMode', title: 'Absolute Zero Protocol', description: 'When at 1 HP, become invulnerable for 5 seconds. (60s cooldown).', rarity: 'legendary', emoji: '😇' },
+
+  // ========== CREATIVE ADDITIONS ==========
+  { type: 'screenWrap', title: 'Pac-Man Physics Diploma', description: 'Screen edges are now suggestions. Warp from one side to the other.', rarity: 'common', emoji: '🌀' },
+  { type: 'prismShards', title: 'Disco Ball Ammunition', description: 'Bullets split into rainbow shards on hit. Let\'s get this party started!', rarity: 'legendary', emoji: '🪩' },
+  { type: 'neonTrail', title: 'TRON Legacy Bootleg', description: 'Leave a glowing neon trail that damages enemies. Cool factor: 100.', rarity: 'uncommon', emoji: '🏁' },
+  { type: 'staticField', title: 'Wool Socks on Carpet', description: 'Periodic blue zaps hit nearby enemies. Don\'t touch anything metal.', rarity: 'uncommon', emoji: '🧤' },
+  { type: 'growthRay', title: 'Compensating for Something?', description: 'Bullets grow larger and stronger as they travel. Size DOES matter.', rarity: 'legendary', emoji: '📈' },
+  { type: 'binaryRain', title: 'The Matrix Reloaded (Low Budget)', description: 'Enemies occasionally drop \'0\' or \'1\' bits that buff you. Digital loot!', rarity: 'lunar', emoji: '🔢' },
+  { type: 'echoShots', title: 'Double Tap (Literally)', description: 'Every shot is followed by a ghostly echo bullet 200ms later.', rarity: 'legendary', emoji: '🔁' },
+  { type: 'gravityBullets', title: 'Event Horizon in a Box', description: 'Bullets pull nearby enemies toward them. Gravity is a harsh mistress.', rarity: 'void', emoji: '🕳️' },
+  { type: 'glitchPatch', title: 'System Recovery Tool', description: '20% chance to heal 1 HP when dealing damage. Re-compiling...', rarity: 'boss', emoji: '🩹' },
+  { type: 'satelliteRing', title: 'Saturn\'s Jewelry Collection', description: 'Orbs of energy orbit you, striking enemies they touch.', rarity: 'boss', emoji: '🪐' },
 ];
 
 // Weighted rarity chances

@@ -23,6 +23,7 @@ import PetStatsPanel from "@/components/PetStatsPanel";
 import BossDefeatedModal from "@/components/BossDefeatedModal";
 import UnifiedHUD from "@/components/UnifiedHUD";
 import { LocalGameEngine } from "@/lib/LocalGameEngine";
+import TestingArenaPanel from "@/components/TestingArenaPanel";
 import { toast } from "@/components/ui/sonner";
 import { getCharacter } from "@shared/characterConfig";
 import { submitLeaderboardScore } from "@/lib/leaderboardApi";
@@ -41,6 +42,7 @@ export default function GamePage() {
   const closeUpgradeModal = useGameStore((state) => state.closeUpgradeModal);
   const openUpgradeModal = useGameStore((state) => state.openUpgradeModal);
   const isUpgradeModalOpen = useGameStore((state) => state.isUpgradeModalOpen);
+  const [isTestingArenaOpen, setIsTestingArenaOpen] = useState(false);
   const rawGameState = useGameStore((state) => state.gameState);
 
   const activeGameState = useMemo(() => {
@@ -71,9 +73,31 @@ export default function GamePage() {
 
   // Use appropriate game loop based on mode
   useGameLoop(isLocalMode ? undefined : gameId, isPaused);
-  useLocalGameLoop(isLocalMode ? localEngineRef.current : null, isPaused);
+  useLocalGameLoop(
+    isLocalMode ? localEngineRef.current : null,
+    isPaused || isTestingArenaOpen
+  );
 
   useGameAudio();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "\\") {
+        if (isLocalMode) {
+          setIsTestingArenaOpen((prev) => !prev);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isLocalMode]);
+
+  // Sync engine pause state with Testing Arena visibility
+  useEffect(() => {
+    if (isLocalMode && localEngineRef.current) {
+      localEngineRef.current.setIsPaused(isTestingArenaOpen);
+    }
+  }, [isTestingArenaOpen, isLocalMode]);
 
   useEffect(() => {
     if (!gameStatus || !gameId) return;
@@ -141,7 +165,7 @@ export default function GamePage() {
       const characterFromUrl = searchParams.get(
         "character"
       ) as CharacterType | null;
-      const characterType = characterFromUrl || "spray-n-pray";
+      const characterType = characterFromUrl || "pet-pal-percy";
       const playerName = getPlayerName();
 
       const engine = new LocalGameEngine(
@@ -297,9 +321,8 @@ export default function GamePage() {
     // Player chose to extract - trigger win condition
     if (isLocalMode && localEngineRef.current) {
       const engine = localEngineRef.current;
-      const state = engine.getGameState();
-      state.status = "won";
-      setGameState(state);
+      engine.extract();
+      setGameState(engine.getGameState());
     }
   };
 
@@ -416,6 +439,15 @@ export default function GamePage() {
         <BossDefeatedModal
           onExtract={handleExtract}
           onContinue={handleContinue}
+        />
+      )}
+
+      {isTestingArenaOpen && (
+        <TestingArenaPanel
+          onClose={() => setIsTestingArenaOpen(false)}
+          engine={isLocalMode ? localEngineRef.current : null} // Only works in local mode for now
+          isSandbox={activeGameState?.isSandboxMode || false}
+          isInvulnerable={localPlayer?.isInvulnerable || false}
         />
       )}
     </div>
