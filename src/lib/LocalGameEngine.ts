@@ -37,6 +37,10 @@ import {
   checkUnlocks,
   saveLastRunStats,
   recordGameEnd,
+  incrementBossDefeats,
+  recordExtractionWin,
+  recordSurvivalTime,
+  recordNoHitAfterWave5Win,
 } from "./progressionStorage";
 import {
   createBoss,
@@ -114,11 +118,52 @@ const EXTRACTION_DURATION = 5000; // 5 seconds to extract
 const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
 const HELLHOUND_ROUND_START = 5; // First hellhound round at wave 5
 
+// Performance optimization constants
+const DAMAGE_NUMBER_THROTTLE_MS = 100; // Merge hits within this window
+const MAX_DAMAGE_NUMBERS_PER_ENEMY = 5; // Cap visible damage numbers per enemy
+const MAX_STATUS_EFFECTS_PER_ENEMY = 3; // Cap status effects per enemy
+
 function uuidv4() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
     let r = (Math.random() * 16) | 0,
       v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
+  });
+}
+
+// Helper to add damage numbers with throttling and capping
+function addDamageNumber(
+  enemy: { damageNumbers?: { id: string; damage: number; isCrit: boolean; position: { x: number; y: number }; timestamp: number }[] },
+  damage: number,
+  isCrit: boolean,
+  position: { x: number; y: number },
+  now: number
+) {
+  if (!enemy.damageNumbers) enemy.damageNumbers = [];
+
+  // Throttle: merge with recent damage number if within threshold
+  const recentNumber = enemy.damageNumbers.find(
+    (dmg) => now - dmg.timestamp < DAMAGE_NUMBER_THROTTLE_MS
+  );
+
+  if (recentNumber) {
+    // Merge damage into existing number
+    recentNumber.damage += damage;
+    recentNumber.isCrit = recentNumber.isCrit || isCrit; // Keep crit if either was crit
+    return;
+  }
+
+  // Cap: remove oldest if at limit
+  if (enemy.damageNumbers.length >= MAX_DAMAGE_NUMBERS_PER_ENEMY) {
+    enemy.damageNumbers.shift(); // Remove oldest
+  }
+
+  enemy.damageNumbers.push({
+    id: uuidv4(),
+    damage: Math.round(damage),
+    isCrit,
+    position: { ...position },
+    timestamp: now,
   });
 }
 
@@ -139,6 +184,7 @@ export class LocalGameEngine {
   private gameStartTime: number = 0;
   private enemiesKilledCount: number = 0;
   private characterType: CharacterType;
+  private tookDamageAfterWave5: boolean = false;
 
   constructor(
     playerId: string,
@@ -1724,10 +1770,26 @@ export class LocalGameEngine {
       // Growth Ray
       if (proj.isGrowth || (owner && owner.hasGrowthRay)) {
         if (!proj.isGrowth) proj.isGrowth = true; // Mark it
-        const age = now - (proj.timestamp || now); // I might need timestamp
-        // Actually easier to just scale up per frame
-        proj.radius = (proj.radius || 5) + 0.1 * timeFactor;
-        proj.damage += 0.2 * timeFactor;
+        if (proj.growthBaseRadius === undefined) {
+          proj.growthBaseRadius = proj.radius || 5;
+          proj.growthBaseDamage = proj.damage;
+          proj.spawnPosition = proj.spawnPosition || {
+            x: proj.position.x,
+            y: proj.position.y,
+          };
+        }
+
+        const maxRange = proj.maxRange || 600;
+        const distFromOrigin = Math.hypot(
+          proj.position.x - proj.spawnPosition.x,
+          proj.position.y - proj.spawnPosition.y
+        );
+        const progress = Math.min(1, Math.max(0, distFromOrigin / maxRange));
+        const sizeMultiplier = 1 + 1.25 * progress;
+        const damageMultiplier = 1 + 0.5 * progress;
+
+        proj.radius = proj.growthBaseRadius * sizeMultiplier;
+        proj.damage = proj.growthBaseDamage * damageMultiplier;
       }
 
       // Gravity Bullets
@@ -1962,36 +2024,43 @@ export class LocalGameEngine {
             if (proj.isCrit) enemy.lastCritTimestamp = now;
             if (owner) {
               if (!enemy.statusEffects) enemy.statusEffects = [];
+
+              // Helper to add/refresh status effects with capping
+              const addOrRefreshEffect = (effectType: string, effectData: any) => {
+                const existing = enemy.statusEffects!.find(e => e.type === effectType);
+                if (existing) {
+                  // Refresh existing effect
+                  existing.duration = Math.max(existing.duration, effectData.duration);
+                  if (effectData.damage) existing.damage = Math.max(existing.damage || 0, effectData.damage);
+                  if (effectData.slowAmount) existing.slowAmount = Math.min(existing.slowAmount || 1, effectData.slowAmount);
+                } else if (enemy.statusEffects!.length < MAX_STATUS_EFFECTS_PER_ENEMY) {
+                  enemy.statusEffects!.push(effectData);
+                }
+              };
+
               if (owner.fireDamage && owner.fireDamage > 0) {
-                enemy.statusEffects.push({
+                addOrRefreshEffect("burning", {
                   type: "burning",
                   damage: owner.fireDamage * proj.damage,
                   duration: 2000,
                 });
               }
               if (owner.poisonDamage && owner.poisonDamage > 0) {
-                enemy.statusEffects.push({
+                addOrRefreshEffect("poisoned", {
                   type: "poisoned",
                   damage: owner.poisonDamage * proj.damage,
                   duration: 3000,
                 });
               }
               if (owner.iceSlow && owner.iceSlow > 0) {
-                enemy.statusEffects.push({
+                addOrRefreshEffect("slowed", {
                   type: "slowed",
                   slowAmount: owner.iceSlow,
                   duration: 2000,
                 });
               }
             }
-            if (!enemy.damageNumbers) enemy.damageNumbers = [];
-            enemy.damageNumbers.push({
-              id: uuidv4(),
-              damage: Math.round(proj.damage),
-              isCrit: proj.isCrit || false,
-              position: { ...enemy.position },
-              timestamp: now,
-            });
+            addDamageNumber(enemy, proj.damage, proj.isCrit || false, enemy.position, now);
 
             if (owner && owner.chainCount && owner.chainCount > 0) {
               const chainRange = 150;
@@ -2026,14 +2095,7 @@ export class LocalGameEngine {
 
                 nextTarget.health -= chainDamage;
                 nextTarget.lastHitTimestamp = now;
-                if (!nextTarget.damageNumbers) nextTarget.damageNumbers = [];
-                nextTarget.damageNumbers.push({
-                  id: uuidv4(),
-                  damage: Math.round(chainDamage),
-                  isCrit: false,
-                  position: { ...nextTarget.position },
-                  timestamp: now,
-                });
+                addDamageNumber(nextTarget, chainDamage, false, nextTarget.position, now);
 
                 if (!state.chainLightning) state.chainLightning = [];
                 state.chainLightning.push({
@@ -2615,6 +2677,13 @@ export class LocalGameEngine {
     console.log("Saving game stats:", stats, "Game status:", state.status);
     saveLastRunStats(stats);
     recordGameEnd(state.wave, this.enemiesKilledCount);
+    recordSurvivalTime(survivalTimeMs);
+    if (state.status === "won") {
+      recordExtractionWin();
+      if (state.wave >= 5 && !this.tookDamageAfterWave5) {
+        recordNoHitAfterWave5Win();
+      }
+    }
 
     // Check for unlocks after updating progression
     const newlyUnlocked = checkUnlocks();
@@ -2713,6 +2782,7 @@ export class LocalGameEngine {
     // Check if boss is defeated
     if (boss.health <= 0) {
       this.enemiesKilledCount++;
+      incrementBossDefeats();
       state.boss = null;
       state.status = "bossDefeated";
       state.bossDefeatedRewardClaimed = false;
@@ -4096,6 +4166,10 @@ export class LocalGameEngine {
       now < player.invulnerableUntil
     ) {
       return;
+    }
+
+    if (this.gameState.wave >= 5) {
+      this.tookDamageAfterWave5 = true;
     }
 
     player.health = Math.max(0, player.health - amount);

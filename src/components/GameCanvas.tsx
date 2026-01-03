@@ -30,7 +30,7 @@ const LOW_HEALTH_VIGNETTE_STOPS = [0, "transparent", 1, "rgba(255, 0, 0, 0.2)"];
 
 const RenderParticles = memo(({ particles }: { particles: Particle[] }) => {
   return (
-    <Group>
+    <Group listening={false}>
       {particles.map((p) => (
         <Rect
           key={p.id}
@@ -40,6 +40,7 @@ const RenderParticles = memo(({ particles }: { particles: Particle[] }) => {
           height={p.size}
           fill={p.color}
           opacity={p.life}
+          listening={false}
         />
       ))}
     </Group>
@@ -48,7 +49,7 @@ const RenderParticles = memo(({ particles }: { particles: Particle[] }) => {
 
 const RenderHazards = memo(({ hazards }: { hazards: Hazard[] }) => {
   return (
-    <Group>
+    <Group listening={false}>
       {hazards.map((h) => (
         <Group key={h.id} x={h.position.x} y={h.position.y}>
           {h.type === "spike-trap" ? (
@@ -206,7 +207,7 @@ const PlayerVisuals = memo(
       player.lastHealedTimestamp &&
       now - player.lastHealedTimestamp < HEAL_FLASH_DURATION;
     const isBerserker = player.health < player.maxHealth * 0.3;
-    const hasShield = player.shield && player.shield > 0;
+    const hasShield = (player.shield ?? 0) > 0;
     const isLocal = player.id === localPlayerId;
     const isDead = player.status === "dead";
 
@@ -249,7 +250,7 @@ const PlayerVisuals = memo(
           {/* Vampire Vex drain aura */}
           {player.characterType === "vampire-vex" &&
             !isDead &&
-            player.vampireDrainRadius && (
+            player.vampireDrainRadius > 0 && (
               <Circle
                 radius={player.vampireDrainRadius}
                 fillRadialGradientStartRadius={0}
@@ -678,15 +679,16 @@ const EnemyVisuals = memo(
             />
           )}
 
-          {/* Low Health Sparkles */}
+          {/* Low Health Sparkles - use deterministic position based on enemy.id + time */}
           {isLowHealth && (
             <Rect
-              x={(Math.random() - 0.5) * 30}
-              y={(Math.random() - 0.5) * 30}
+              x={Math.sin(enemy.id.charCodeAt(0) + now / 50) * 15}
+              y={Math.cos(enemy.id.charCodeAt(1) + now / 50) * 15}
               width={4}
               height={4}
               fill="#FFFFFF"
               opacity={0.8}
+              listening={false}
             />
           )}
 
@@ -751,7 +753,7 @@ const EnemyVisuals = memo(
 
 // Memoized background grid for performance
 const BackgroundGrid = memo(({ isSandbox }: { isSandbox?: boolean }) => (
-  <>
+  <Group listening={false}>
     {[...Array(Math.floor(SERVER_ARENA_WIDTH / 40))].map((_, i) => (
       <Rect
         key={`v-${i}`}
@@ -784,7 +786,7 @@ const BackgroundGrid = memo(({ isSandbox }: { isSandbox?: boolean }) => (
         opacity={0.03}
       />
     )}
-  </>
+  </Group>
 ));
 
 // Calculate responsive display size while maintaining aspect ratio
@@ -860,7 +862,7 @@ export default function GameCanvas() {
 
   const scale = displaySize.scaleX;
 
-  // Calculate screen shake offset
+  // Calculate screen shake offset - use deterministic seed instead of Math.random
   const shakeOffset = useMemo(() => {
     if (!screenShake || !screenShake.startTime) return { x: 0, y: 0 };
 
@@ -870,9 +872,11 @@ export default function GameCanvas() {
     const remainingRatio = 1 - elapsed / screenShake.duration;
     const currentIntensity = screenShake.intensity * remainingRatio;
 
+    // Use deterministic pseudo-random based on elapsed time
+    const seed = elapsed * 0.1;
     return {
-      x: (Math.random() - 0.5) * currentIntensity * 2,
-      y: (Math.random() - 0.5) * currentIntensity * 2,
+      x: Math.sin(seed * 7.3) * currentIntensity,
+      y: Math.cos(seed * 11.7) * currentIntensity,
     };
   }, [screenShake, now]);
 
@@ -920,7 +924,7 @@ export default function GameCanvas() {
           <RenderParticles particles={particles} />
           {/* Teleporter */}
           {teleporter && (
-            <>
+            <Group listening={false}>
               <Circle
                 x={teleporter.position.x}
                 y={teleporter.position.y}
@@ -1000,7 +1004,7 @@ export default function GameCanvas() {
                     </Group>
                   );
                 })}
-            </>
+            </Group>
           )}
           {/* Render XP Orbs */}
           {xpOrbs &&
@@ -1956,11 +1960,13 @@ export default function GameCanvas() {
                   const t = i / segments;
                   const baseX = chain.from.x + dx * t;
                   const baseY = chain.from.y + dy * t;
-                  // Add random offset perpendicular to the line
+                  // Use deterministic offset based on chain.id + segment index
                   const perpX = -dy;
                   const perpY = dx;
                   const length = Math.hypot(perpX, perpY) || 1;
-                  const offset = (Math.random() - 0.5) * 20;
+                  // Deterministic "random" offset using sin with chain-specific seed
+                  const seed = chain.id.charCodeAt(i % chain.id.length) + i * 7;
+                  const offset = Math.sin(seed) * 10;
                   points.push(
                     baseX + (perpX / length) * offset,
                     baseY + (perpY / length) * offset
@@ -1981,6 +1987,7 @@ export default function GameCanvas() {
                       shadowBlur={20}
                       lineCap="round"
                       lineJoin="round"
+                      listening={false}
                     />
                     {/* Inner bolt */}
                     <Line
@@ -1992,6 +1999,7 @@ export default function GameCanvas() {
                       shadowBlur={10}
                       lineCap="round"
                       lineJoin="round"
+                      listening={false}
                     />
                   </Group>
                 );

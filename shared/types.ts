@@ -21,7 +21,16 @@ export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl
 
 export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot' | 'burst-fire' | 'heavy-cannon' | 'shotgun';
 
-export type UnlockCriteriaType = 'level10Count' | 'waveReached' | 'gamesPlayed' | 'enemiesKilled' | 'surviveWithoutHealth';
+export type UnlockCriteriaType =
+  | 'level10Count'
+  | 'waveReached'
+  | 'gamesPlayed'
+  | 'enemiesKilled'
+  | 'surviveWithoutHealth'
+  | 'bossesDefeated'
+  | 'survivalTime'
+  | 'extractions'
+  | 'noHitAfterWave5Win';
 
 export interface UnlockCriteria {
   type: UnlockCriteriaType;
@@ -65,6 +74,10 @@ export interface PlayerProgression {
   highestWaveReached: number;
   totalGamesPlayed: number;
   totalEnemiesKilled: number;
+  totalBossesDefeated: number;
+  successfulExtractions: number;
+  bestSurvivalTimeMs: number;
+  noHitAfterWave5Wins: number;
   lastUpdated: number;
   lastRunStats?: LastRunStats;
 }
@@ -253,6 +266,8 @@ export interface Projectile {
   isShard?: boolean;
   isEcho?: boolean;
   isGrowth?: boolean;
+  growthBaseRadius?: number;
+  growthBaseDamage?: number;
   pullRadius?: number;
   timestamp?: number;
 }

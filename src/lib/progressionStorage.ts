@@ -1,15 +1,19 @@
 import type { PlayerProgression, CharacterType } from '@shared/types';
 
 const STORAGE_KEY = 'glitch-gauntlet-progression';
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
 const DEFAULT_PROGRESSION: PlayerProgression = {
   playerName: undefined,
   timesReachedLevel10: 0,
-  unlockedCharacters: ['spray-n-pray', 'boom-bringer', 'glass-cannon-carl'],
+  unlockedCharacters: ['spray-n-pray'],
   highestWaveReached: 0,
   totalGamesPlayed: 0,
   totalEnemiesKilled: 0,
+  totalBossesDefeated: 0,
+  successfulExtractions: 0,
+  bestSurvivalTimeMs: 0,
+  noHitAfterWave5Wins: 0,
   lastUpdated: Date.now(),
 };
 
@@ -30,8 +34,15 @@ export function getProgression(): PlayerProgression {
     
     // Version migration logic (for future use)
     if (data.version !== STORAGE_VERSION) {
-      console.warn('Progression version mismatch, using defaults');
-      return { ...DEFAULT_PROGRESSION };
+      console.warn('Progression version mismatch, migrating progression');
+      const merged: PlayerProgression = {
+        ...DEFAULT_PROGRESSION,
+        ...data.progression,
+        unlockedCharacters: [...DEFAULT_PROGRESSION.unlockedCharacters],
+      };
+      const { updated } = applyUnlocks(merged);
+      saveProgression(updated);
+      return updated;
     }
 
     // Merge with defaults to ensure all fields exist (for backwards compatibility)
@@ -80,6 +91,34 @@ export function incrementLevel10Count(): PlayerProgression {
   });
 }
 
+export function incrementBossDefeats(count: number = 1): PlayerProgression {
+  const current = getProgression();
+  return updateProgression({
+    totalBossesDefeated: current.totalBossesDefeated + count,
+  });
+}
+
+export function recordExtractionWin(): PlayerProgression {
+  const current = getProgression();
+  return updateProgression({
+    successfulExtractions: current.successfulExtractions + 1,
+  });
+}
+
+export function recordSurvivalTime(survivalTimeMs: number): PlayerProgression {
+  const current = getProgression();
+  return updateProgression({
+    bestSurvivalTimeMs: Math.max(current.bestSurvivalTimeMs, survivalTimeMs),
+  });
+}
+
+export function recordNoHitAfterWave5Win(): PlayerProgression {
+  const current = getProgression();
+  return updateProgression({
+    noHitAfterWave5Wins: current.noHitAfterWave5Wins + 1,
+  });
+}
+
 /**
  * Check if a character is unlocked
  */
@@ -101,50 +140,56 @@ export function unlockCharacter(characterType: CharacterType): PlayerProgression
   return current;
 }
 
+function applyUnlocks(
+  progression: PlayerProgression
+): { updated: PlayerProgression; newlyUnlocked: CharacterType[] } {
+  const unlocked = new Set(progression.unlockedCharacters);
+  const newlyUnlocked: CharacterType[] = [];
+
+  const unlockIf = (characterType: CharacterType, condition: boolean) => {
+    if (condition && !unlocked.has(characterType)) {
+      unlocked.add(characterType);
+      newlyUnlocked.push(characterType);
+    }
+  };
+
+  // Pet Pal Percy unlock (survive 15 minutes)
+  unlockIf(
+    'pet-pal-percy',
+    progression.bestSurvivalTimeMs >= 15 * 60 * 1000
+  );
+
+  // Vampire Vex unlock (reach wave 10)
+  unlockIf('vampire-vex', progression.highestWaveReached >= 10);
+
+  // Turret Tina unlock (500 total enemies killed)
+  unlockIf('turret-tina', progression.totalEnemiesKilled >= 500);
+
+  // Dash Dynamo unlock (extract 5 times)
+  unlockIf('dash-dynamo', progression.successfulExtractions >= 5);
+
+  // Boom Bringer unlock (defeat 3 bosses total)
+  unlockIf('boom-bringer', progression.totalBossesDefeated >= 3);
+
+  // Glass Cannon Carl unlock (win without damage after wave 5)
+  unlockIf('glass-cannon-carl', progression.noHitAfterWave5Wins >= 1);
+
+  return {
+    updated: { ...progression, unlockedCharacters: Array.from(unlocked) },
+    newlyUnlocked,
+  };
+}
+
 /**
  * Check if any characters should be unlocked based on current progression
  * Returns array of newly unlocked character types
  */
 export function checkUnlocks(): CharacterType[] {
   const progression = getProgression();
-  const newlyUnlocked: CharacterType[] = [];
-
-  // Check Pet Pal Percy unlock (3 times reached level 10)
-  if (
-    progression.timesReachedLevel10 >= 3 &&
-    !progression.unlockedCharacters.includes('pet-pal-percy')
-  ) {
-    unlockCharacter('pet-pal-percy');
-    newlyUnlocked.push('pet-pal-percy');
+  const { updated, newlyUnlocked } = applyUnlocks(progression);
+  if (newlyUnlocked.length > 0) {
+    saveProgression(updated);
   }
-
-  // Check Vampire Vex unlock (reach wave 10)
-  if (
-    progression.highestWaveReached >= 10 &&
-    !progression.unlockedCharacters.includes('vampire-vex')
-  ) {
-    unlockCharacter('vampire-vex');
-    newlyUnlocked.push('vampire-vex');
-  }
-
-  // Check Turret Tina unlock (500 total enemies killed)
-  if (
-    progression.totalEnemiesKilled >= 500 &&
-    !progression.unlockedCharacters.includes('turret-tina')
-  ) {
-    unlockCharacter('turret-tina');
-    newlyUnlocked.push('turret-tina');
-  }
-
-  // Check Dash Dynamo unlock (reach wave 15)
-  if (
-    progression.highestWaveReached >= 15 &&
-    !progression.unlockedCharacters.includes('dash-dynamo')
-  ) {
-    unlockCharacter('dash-dynamo');
-    newlyUnlocked.push('dash-dynamo');
-  }
-
   return newlyUnlocked;
 }
 
@@ -157,8 +202,8 @@ export function getUnlockProgress(characterType: CharacterType): { current: numb
   switch (characterType) {
     case 'pet-pal-percy':
       return {
-        current: progression.timesReachedLevel10,
-        required: 3,
+        current: Math.floor(progression.bestSurvivalTimeMs / 60000),
+        required: 15,
       };
     case 'vampire-vex':
       return {
@@ -172,8 +217,18 @@ export function getUnlockProgress(characterType: CharacterType): { current: numb
       };
     case 'dash-dynamo':
       return {
-        current: progression.highestWaveReached,
-        required: 15,
+        current: progression.successfulExtractions,
+        required: 5,
+      };
+    case 'boom-bringer':
+      return {
+        current: progression.totalBossesDefeated,
+        required: 3,
+      };
+    case 'glass-cannon-carl':
+      return {
+        current: progression.noHitAfterWave5Wins,
+        required: 1,
       };
     default:
       return null;

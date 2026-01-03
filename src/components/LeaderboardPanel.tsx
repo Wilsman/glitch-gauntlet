@@ -173,7 +173,7 @@ export function LeaderboardPanel() {
         onValueChange={(value) => setActiveCategory(value as LeaderboardCategory)}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList className="grid grid-cols-2 gap-2 bg-transparent mb-4">
+        <TabsList className="grid h-auto grid-cols-2 gap-2 bg-transparent mb-4">
           <TabsTrigger 
             value="highest-wave"
             className="font-press-start text-xs data-[state=active]:bg-neon-cyan data-[state=active]:text-black bg-black border border-neon-cyan text-neon-cyan"

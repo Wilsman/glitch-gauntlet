@@ -189,7 +189,7 @@ export function HomePage() {
       </AnimatePresence>
 
       {/* Last Run Stats - Left Side */}
-      <div className="fixed left-8 top-0 bottom-0 z-20 w-80 hidden lg:flex items-center">
+      <div className="fixed left-8 top-0 bottom-0 z-30 w-80 hidden lg:flex items-center">
         <motion.div
           initial={{ x: -400, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
@@ -206,7 +206,7 @@ export function HomePage() {
       </div>
 
       {/* Leaderboard - Right Side */}
-      <div className="fixed right-8 top-0 bottom-0 z-20 w-96 hidden lg:flex items-center">
+      <div className="fixed right-8 top-0 bottom-0 z-40 w-96 hidden lg:flex items-center">
         <motion.div
           initial={{ x: 400, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
@@ -367,7 +367,7 @@ export function HomePage() {
         initial={{ y: -50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.3 }}
-        className="fixed right-4 top-0 z-30"
+        className="fixed right-4 top-0 z-50"
       >
         <SettingsPanel />
       </motion.div>

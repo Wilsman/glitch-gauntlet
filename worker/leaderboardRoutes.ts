@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from './core-utils';
 import type { LeaderboardSubmission, LeaderboardCategory, LeaderboardEntry, LeaderboardResponse } from '@shared/types';
 import { getCurrentResetTimestamp, getNextResetTimestamp } from './leaderboardUtils';
+import { validatePlayerName } from '@shared/nameValidation';
 
 export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
   // Submit a leaderboard entry
@@ -15,6 +16,11 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
           submission.waveReached === undefined || submission.enemiesKilled === undefined ||
           submission.survivalTimeMs === undefined) {
         return c.json({ success: false, error: 'Missing required fields' }, 400);
+      }
+
+      const { error: nameError, normalizedName } = validatePlayerName(submission.playerName);
+      if (nameError) {
+        return c.json({ success: false, error: nameError }, 400);
       }
 
       // Validate reasonable values to prevent cheating
@@ -33,7 +39,7 @@ export function leaderboardRoutes(app: Hono<{ Bindings: Env }>) {
         (player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at, reset_timestamp)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
-        submission.playerName,
+        normalizedName,
         submission.characterType,
         submission.waveReached,
         submission.enemiesKilled,

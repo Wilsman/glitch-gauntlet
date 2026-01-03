@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import * as LeoProfanity from 'leo-profanity';
+import { validatePlayerName } from '@shared/nameValidation';
 
 interface PlayerNameDialogProps {
   open: boolean;
@@ -16,45 +16,18 @@ export function PlayerNameDialog({ open, onNameSubmit, initialName = '' }: Playe
   const [error, setError] = useState('');
 
   useEffect(() => {
-    // Initialize profanity filter
-    LeoProfanity.loadDictionary('en');
-  }, []);
-
-  function validateName(value: string): string | null {
-    const trimmed = value.trim();
-    
-    if (trimmed.length === 0) {
-      return 'Please enter a name';
-    }
-    
-    if (trimmed.length < 2) {
-      return 'Name must be at least 2 characters';
-    }
-    
-    if (trimmed.length > 20) {
-      return 'Name must be 20 characters or less';
-    }
-    
-    if (!/^[a-zA-Z0-9_\s-]+$/.test(trimmed)) {
-      return 'Name can only contain letters, numbers, spaces, hyphens, and underscores';
-    }
-    
-    if (LeoProfanity.check(trimmed)) {
-      return 'Please choose a more appropriate name';
-    }
-    
-    return null;
-  }
+    setName(initialName);
+  }, [initialName]);
 
   const handleSubmit = useCallback(() => {
-    const validationError = validateName(name);
+    const { error: validationError, normalizedName } = validatePlayerName(name);
     
     if (validationError) {
       setError(validationError);
       return;
     }
     
-    onNameSubmit(name.trim());
+    onNameSubmit(normalizedName);
   }, [name, onNameSubmit]);
 
   const handleNameChange = useCallback((value: string) => {
@@ -105,9 +78,9 @@ export function PlayerNameDialog({ open, onNameSubmit, initialName = '' }: Playe
           </div>
           
           <div className="font-vt323 text-sm text-neon-cyan/70 space-y-1">
-            <p>• 2-20 characters</p>
-            <p>• Letters, numbers, spaces, hyphens, underscores only</p>
-            <p>• Keep it clean!</p>
+            <p>- 2-20 characters</p>
+            <p>- Letters, numbers, spaces, hyphens, underscores only</p>
+            <p>- Keep it clean!</p>
           </div>
         </div>
         
@@ -123,3 +96,4 @@ export function PlayerNameDialog({ open, onNameSubmit, initialName = '' }: Playe
     </Dialog>
   );
 }
+

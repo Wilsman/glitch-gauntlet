@@ -5,8 +5,8 @@ import type { CharacterStats, CharacterType } from './types';
  * 
  * Seven distinct playstyles:
  * 1. Spray 'n' Pray - Balanced rapid-fire character
- * 2. Boom Bringer - AoE explosion specialist
- * 3. Glass Cannon Carl - High damage, low survivability sniper
+ * 2. Boom Bringer - AoE explosion specialist (UNLOCKABLE)
+ * 3. Glass Cannon Carl - High damage, low survivability sniper (UNLOCKABLE)
  * 4. Pet Pal Percy - Starts with a companion pet (UNLOCKABLE)
  * 5. Vampire Vex - Life drain specialist with AoE drain (UNLOCKABLE)
  * 6. Turret Tina - Deploys time-limited turrets (UNLOCKABLE)
@@ -45,6 +45,12 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     baseAbilityCooldown: 8000,
     pro: 'Built-in AoE explosions, safe distance combat',
     con: 'Slow fire rate, poor single-target burst',
+    locked: true,
+    unlockCriteria: {
+      type: 'bossesDefeated',
+      required: 3,
+      description: 'Defeat 3 bosses total across all runs',
+    },
   },
   'glass-cannon-carl': {
     type: 'glass-cannon-carl',
@@ -61,6 +67,12 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     baseAbilityCooldown: 15000,
     pro: 'Massive damage per shot, high base crit multiplier (3x)',
     con: 'Very low HP, slow fire rate, vulnerable up close',
+    locked: true,
+    unlockCriteria: {
+      type: 'noHitAfterWave5Win',
+      required: 1,
+      description: 'Win a run without taking damage after wave 5',
+    },
   },
   'pet-pal-percy': {
     type: 'pet-pal-percy',
@@ -77,12 +89,12 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     baseAbilityCooldown: 18000,
     pro: 'Starts with a miniature dachshund companion for extra DPS',
     con: 'Slightly lower HP, but has a very good boy',
-    locked: false,
+    locked: true,
     startsWithPet: true,
     unlockCriteria: {
-      type: 'level10Count',
-      required: 3,
-      description: 'Reach level 10 in 3 different games',
+      type: 'survivalTime',
+      required: 15,
+      description: 'Survive 15 minutes in a single run',
     },
   },
   'vampire-vex': {
@@ -146,9 +158,9 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     con: 'Very low HP, short weapon range, blink has cooldown',
     locked: true,
     unlockCriteria: {
-      type: 'waveReached',
-      required: 15,
-      description: 'Reach wave 15 in any game',
+      type: 'extractions',
+      required: 5,
+      description: 'Extract successfully 5 times',
     },
   },
 };
