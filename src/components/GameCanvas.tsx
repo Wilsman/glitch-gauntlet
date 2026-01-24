@@ -8,7 +8,9 @@ import {
   Ring,
   Line,
   Group,
+  Image as KonvaImage,
 } from "react-konva";
+import { SPRITE_MAP } from "@/lib/spriteMap";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
 import type { Particle, Hazard } from "@shared/types";
@@ -27,6 +29,58 @@ const WAVE_DURATION = 20000;
 
 const VAMPIRE_DRAIN_STOPS = [0, "#FF000055", 0.7, "#FF000022", 1, "#FF000000"];
 const LOW_HEALTH_VIGNETTE_STOPS = [0, "transparent", 1, "rgba(255, 0, 0, 0.2)"];
+
+const useSprite = (url?: string) => {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    if (!url) {
+      setImage(null);
+      return;
+    }
+    const img = new window.Image();
+    img.src = url;
+    img.onload = () => setImage(img);
+    img.onerror = () => setImage(null);
+  }, [url]);
+
+  return image;
+};
+
+const useAnimatedSprite = (framePath?: string, frames?: number) => {
+  const [images, setImages] = useState<HTMLImageElement[]>([]);
+
+  useEffect(() => {
+    if (!framePath || !frames) {
+      setImages([]);
+      return;
+    }
+
+    const loadedImages: HTMLImageElement[] = [];
+    let loadedCount = 0;
+
+    for (let i = 0; i < frames; i++) {
+      const img = new window.Image();
+      img.src = framePath.replace("{i}", i.toString());
+      img.onload = () => {
+        loadedCount++;
+        if (loadedCount === frames) {
+          setImages(loadedImages);
+        }
+      };
+      img.onerror = (e) => {
+        console.error(`Failed to load frame ${i}`, e);
+        loadedCount++;
+        if (loadedCount === frames) {
+          setImages(loadedImages);
+        }
+      };
+      loadedImages[i] = img;
+    }
+  }, [framePath, frames]);
+
+  return images;
+};
 
 const RenderParticles = memo(({ particles }: { particles: Particle[] }) => {
   return (
@@ -215,18 +269,34 @@ const PlayerVisuals = memo(
       player.characterType === "spray-n-pray"
         ? "🔫"
         : player.characterType === "boom-bringer"
-        ? "💣"
-        : player.characterType === "glass-cannon-carl"
-        ? "🎯"
-        : player.characterType === "pet-pal-percy"
-        ? "🐾"
-        : player.characterType === "vampire-vex"
-        ? "🧛"
-        : player.characterType === "turret-tina"
-        ? "🏗️"
-        : player.characterType === "dash-dynamo"
-        ? "⚡"
-        : "🔫";
+          ? "💣"
+          : player.characterType === "glass-cannon-carl"
+            ? "🎯"
+            : player.characterType === "pet-pal-percy"
+              ? "🐾"
+              : player.characterType === "vampire-vex"
+                ? "🧛"
+                : player.characterType === "turret-tina"
+                  ? "🏗️"
+                  : player.characterType === "dash-dynamo"
+                    ? "⚡"
+                    : "🔫";
+
+    const spriteConfig = (SPRITE_MAP.characters as any)[player.characterType];
+    const staticSprite = useSprite(spriteConfig?.url);
+    const animatedFrames = useAnimatedSprite(
+      spriteConfig?.framePath,
+      spriteConfig?.frames,
+    );
+
+    // Calculate current frame if it's an animation
+    const currentFrameIndex = spriteConfig?.frames
+      ? Math.floor(now / (spriteConfig.animationSpeed || 100)) %
+        spriteConfig.frames
+      : 0;
+    const sprite = spriteConfig?.frames
+      ? animatedFrames[currentFrameIndex]
+      : staticSprite;
 
     const color = player.color || "#00FFFF";
     const glowColor = isBerserker ? "#FF0000" : color;
@@ -339,19 +409,21 @@ const PlayerVisuals = memo(
             />
           )}
 
-          {/* 3. Main Body */}
-          <Circle
-            radius={15}
-            fill={isHit ? "#FFFFFF" : color}
-            stroke={isLocal && !isDead ? "#FFFFFF" : color}
-            strokeWidth={isLocal && !isDead ? 3 : 2}
-            shadowColor={glowColor}
-            shadowBlur={isBerserker ? 30 : 15}
-            opacity={isDead ? 0.3 : 1}
-          />
+          {/* 3. Main Body - only show if no sprite or for hit effect if desired */}
+          {!sprite && (
+            <Circle
+              radius={15}
+              fill={isHit ? "#FFFFFF" : color}
+              stroke={isLocal && !isDead ? "#FFFFFF" : color}
+              strokeWidth={isLocal && !isDead ? 3 : 2}
+              shadowColor={glowColor}
+              shadowBlur={isBerserker ? 30 : 15}
+              opacity={isDead ? 0.3 : 1}
+            />
+          )}
 
           {/* 4. Core Inner Pulse */}
-          {!isDead && (
+          {!isDead && !sprite && (
             <Circle
               radius={8}
               fill="#FFFFFF"
@@ -359,14 +431,25 @@ const PlayerVisuals = memo(
             />
           )}
 
-          {/* 5. Emoji & Indicators */}
-          <Text
-            text={characterEmoji}
-            fontSize={18}
-            offsetX={9}
-            offsetY={9}
-            opacity={isDead ? 0.3 : 0.9}
-          />
+          {/* 5. Sprite or Emoji */}
+          {sprite ? (
+            <KonvaImage
+              image={sprite}
+              width={40}
+              height={40}
+              offsetX={20}
+              offsetY={20}
+              opacity={isDead ? 0.3 : 1}
+            />
+          ) : (
+            <Text
+              text={characterEmoji}
+              fontSize={18}
+              offsetX={9}
+              offsetY={9}
+              opacity={isDead ? 0.3 : 0.9}
+            />
+          )}
 
           {/* Status Indicators */}
           {hasShield && !isDead && (
@@ -441,7 +524,7 @@ const PlayerVisuals = memo(
         </Group>
       </Group>
     );
-  }
+  },
 );
 
 const EnemyVisuals = memo(
@@ -462,6 +545,22 @@ const EnemyVisuals = memo(
       now - enemy.lastCritTimestamp < CRIT_FLASH_DURATION;
 
     const isBurning = enemy.statusEffects?.some((e) => e.type === "burning");
+
+    const spriteConfig = (SPRITE_MAP.enemies as any)[enemy.type];
+    const staticSprite = useSprite(spriteConfig?.url);
+    const animatedFrames = useAnimatedSprite(
+      spriteConfig?.framePath,
+      spriteConfig?.frames,
+    );
+
+    // Calculate current frame if it's an animation
+    const currentFrameIndex = spriteConfig?.frames
+      ? Math.floor(now / (spriteConfig.animationSpeed || 100)) %
+        spriteConfig.frames
+      : 0;
+    const sprite = spriteConfig?.frames
+      ? animatedFrames[currentFrameIndex]
+      : staticSprite;
     const isPoisoned = enemy.statusEffects?.some((e) => e.type === "poisoned");
     const isSlowed = enemy.statusEffects?.some((e) => e.type === "slowed");
 
@@ -545,138 +644,151 @@ const EnemyVisuals = memo(
           )}
 
           {/* Main Shape */}
-          {enemy.type === "hellhound" ? (
-            <Group>
-              <Circle
-                radius={size / 2}
-                fill={fill}
-                shadowColor={shadow}
-                shadowBlur={18}
-                opacity={isHit ? 1 : 0.8}
-              />
-              <Text
-                text="🐕"
-                fontSize={24}
-                offsetX={12}
-                offsetY={12}
-                rotation={Math.sin(now / 100 + enemy.position.x) * 15}
-              />
-            </Group>
-          ) : enemy.type === "glitch-spider" ? (
-            <Group>
-              <Circle
-                radius={size / 2}
-                fill={fill}
-                shadowColor={shadow}
-                shadowBlur={15}
-                opacity={isHit ? 1 : 0.8}
-              />
-              <Text
-                text="🕷️"
-                fontSize={18}
-                offsetX={9}
-                offsetY={9}
-                rotation={Math.sin(now / 50 + enemy.position.x) * 20}
-              />
-            </Group>
-          ) : enemy.type === "tank-bot" ? (
-            <Group>
-              <Rect
-                x={-size / 2}
-                y={-size / 2}
-                width={size}
-                height={size}
-                fill={fill}
-                shadowColor={shadow}
-                shadowBlur={20}
-                cornerRadius={4}
-                stroke="#333333"
-                strokeWidth={2}
-                opacity={isHit ? 1 : 0.9}
-              />
-              <Circle radius={size / 2 - 5} fill="#222222" opacity={0.3} />
-              <Text text="🤖" fontSize={28} offsetX={14} offsetY={14} />
-            </Group>
-          ) : enemy.type === "neon-pulse" ? (
-            <Group>
-              <Circle
-                radius={Math.max(0, size / 2 + Math.sin(now / 200) * 3)}
-                fill={fill}
-                shadowColor={shadow}
-                shadowBlur={25}
-                opacity={0.4}
-              />
-              <Circle
-                radius={size / 2}
-                fill={fill}
-                shadowColor={shadow}
-                shadowBlur={15}
-                opacity={isHit ? 1 : 0.8}
-              />
-              <Text text="💠" fontSize={20} offsetX={10} offsetY={10} />
-            </Group>
-          ) : enemy.type === "slugger" ? (
-            <Group>
-              <Circle
-                radius={size / 2}
-                fill={fill}
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                shadowColor={shadow}
-                shadowBlur={18}
-                opacity={isHit ? 1 : 0.9}
-              />
-              <Ring
-                innerRadius={size / 4}
-                outerRadius={size / 2 - 2}
-                fill="#FFFFFF"
-                opacity={0.3}
-              />
-            </Group>
-          ) : enemy.type === "splitter" ? (
-            <Group rotation={now / 10}>
-              {[0, 90, 180, 270].map((rot) => (
-                <Rect
-                  key={rot}
-                  x={2}
-                  y={2}
-                  width={size / 2 - 2}
-                  height={size / 2 - 2}
+          {sprite ? (
+            <KonvaImage
+              image={sprite}
+              width={size * 1.5}
+              height={size * 1.5}
+              offsetX={size * 0.75}
+              offsetY={size * 0.75}
+              opacity={isHit ? 1 : 0.9}
+            />
+          ) : (
+            <>
+              {enemy.type === "hellhound" ? (
+                <Group>
+                  <Circle
+                    radius={size / 2}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={18}
+                    opacity={isHit ? 1 : 0.8}
+                  />
+                  <Text
+                    text="🐕"
+                    fontSize={24}
+                    offsetX={12}
+                    offsetY={12}
+                    rotation={Math.sin(now / 100 + enemy.position.x) * 15}
+                  />
+                </Group>
+              ) : enemy.type === "glitch-spider" ? (
+                <Group>
+                  <Circle
+                    radius={size / 2}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={15}
+                    opacity={isHit ? 1 : 0.8}
+                  />
+                  <Text
+                    text="🕷️"
+                    fontSize={18}
+                    offsetX={9}
+                    offsetY={9}
+                    rotation={Math.sin(now / 50 + enemy.position.x) * 20}
+                  />
+                </Group>
+              ) : enemy.type === "tank-bot" ? (
+                <Group>
+                  <Rect
+                    x={-size / 2}
+                    y={-size / 2}
+                    width={size}
+                    height={size}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={20}
+                    cornerRadius={4}
+                    stroke="#333333"
+                    strokeWidth={2}
+                    opacity={isHit ? 1 : 0.9}
+                  />
+                  <Circle radius={size / 2 - 5} fill="#222222" opacity={0.3} />
+                  <Text text="🤖" fontSize={28} offsetX={14} offsetY={14} />
+                </Group>
+              ) : enemy.type === "neon-pulse" ? (
+                <Group>
+                  <Circle
+                    radius={Math.max(0, size / 2 + Math.sin(now / 200) * 3)}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={25}
+                    opacity={0.4}
+                  />
+                  <Circle
+                    radius={size / 2}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={15}
+                    opacity={isHit ? 1 : 0.8}
+                  />
+                  <Text text="💠" fontSize={20} offsetX={10} offsetY={10} />
+                </Group>
+              ) : enemy.type === "slugger" ? (
+                <Group>
+                  <Circle
+                    radius={size / 2}
+                    fill={fill}
+                    stroke="#FFFFFF"
+                    strokeWidth={2}
+                    shadowColor={shadow}
+                    shadowBlur={18}
+                    opacity={isHit ? 1 : 0.9}
+                  />
+                  <Ring
+                    innerRadius={size / 4}
+                    outerRadius={size / 2 - 2}
+                    fill="#FFFFFF"
+                    opacity={0.3}
+                  />
+                </Group>
+              ) : enemy.type === "splitter" ? (
+                <Group rotation={now / 10}>
+                  {[0, 90, 180, 270].map((rot) => (
+                    <Rect
+                      key={rot}
+                      x={2}
+                      y={2}
+                      width={size / 2 - 2}
+                      height={size / 2 - 2}
+                      fill={fill}
+                      shadowColor={shadow}
+                      shadowBlur={15}
+                      rotation={rot}
+                      cornerRadius={2}
+                    />
+                  ))}
+                </Group>
+              ) : (
+                /* Grunts & Minis: Jagged Star / Polygon */
+                <Line
+                  points={[
+                    0,
+                    -size / 2,
+                    size / 4,
+                    -size / 4,
+                    size / 2,
+                    0,
+                    size / 4,
+                    size / 4,
+                    0,
+                    size / 2,
+                    -size / 4,
+                    size / 4,
+                    -size / 2,
+                    0,
+                    -size / 4,
+                    -size / 4,
+                  ]}
+                  closed
                   fill={fill}
                   shadowColor={shadow}
-                  shadowBlur={15}
-                  rotation={rot}
-                  cornerRadius={2}
+                  shadowBlur={18}
+                  opacity={isLowHealth ? 0.7 + Math.sin(now / 50) * 0.3 : 1}
                 />
-              ))}
-            </Group>
-          ) : (
-            /* Grunts & Minis: Jagged Star / Polygon */
-            <Line
-              points={[
-                0,
-                -size / 2,
-                size / 4,
-                -size / 4,
-                size / 2,
-                0,
-                size / 4,
-                size / 4,
-                0,
-                size / 2,
-                -size / 4,
-                size / 4,
-                -size / 2,
-                0,
-                -size / 4,
-                -size / 4,
-              ]}
-              closed
-              fill={fill}
-              shadowColor={shadow}
-              shadowBlur={18}
-              opacity={isLowHealth ? 0.7 + Math.sin(now / 50) * 0.3 : 1}
-            />
+              )}
+            </>
           )}
 
           {/* Low Health Sparkles - use deterministic position based on enemy.id + time */}
@@ -719,8 +831,8 @@ const EnemyVisuals = memo(
                 progress < 0.2
                   ? 1 + progress * 2.5
                   : progress < 0.4
-                  ? 1.5 - (progress - 0.2) * 2.5
-                  : 1;
+                    ? 1.5 - (progress - 0.2) * 2.5
+                    : 1;
               const jitterX = Math.sin(dmg.timestamp + age * 0.01) * 2;
               const fontSize = dmg.isCrit ? 20 : 14;
               const color = dmg.isCrit ? "#FF3333" : "#FFFFFF";
@@ -748,7 +860,7 @@ const EnemyVisuals = memo(
         </Group>
       </Group>
     );
-  }
+  },
 );
 
 // Memoized background grid for performance
@@ -820,7 +932,7 @@ const selectGameState = (state: any) => ({
 
 export default function GameCanvas() {
   const { gameState, localPlayerId } = useGameStore(
-    useShallow(selectGameState)
+    useShallow(selectGameState),
   );
   const {
     players = [],
@@ -950,14 +1062,14 @@ export default function GameCanvas() {
                   (p) =>
                     p.status === "alive" &&
                     p.extractionProgress &&
-                    p.extractionProgress > 0
+                    p.extractionProgress > 0,
                 )
                 .map((player) => {
                   const progress =
                     (player.extractionProgress || 0) / EXTRACTION_DURATION;
                   const timeRemaining = Math.ceil(
                     (EXTRACTION_DURATION - (player.extractionProgress || 0)) /
-                      1000
+                      1000,
                   );
                   const pulseOpacity = 0.7 + Math.sin(now / 100) * 0.3;
 
@@ -1185,18 +1297,18 @@ export default function GameCanvas() {
                   owner.characterType === "spray-n-pray"
                     ? "🔫"
                     : owner.characterType === "boom-bringer"
-                    ? "💣"
-                    : owner.characterType === "glass-cannon-carl"
-                    ? "🎯"
-                    : owner.characterType === "pet-pal-percy"
-                    ? "🐾"
-                    : owner.characterType === "vampire-vex"
-                    ? "🧛"
-                    : owner.characterType === "turret-tina"
-                    ? "🏗️"
-                    : owner.characterType === "dash-dynamo"
-                    ? "⚡"
-                    : "🔫";
+                      ? "💣"
+                      : owner.characterType === "glass-cannon-carl"
+                        ? "🎯"
+                        : owner.characterType === "pet-pal-percy"
+                          ? "🐾"
+                          : owner.characterType === "vampire-vex"
+                            ? "🧛"
+                            : owner.characterType === "turret-tina"
+                              ? "🏗️"
+                              : owner.characterType === "dash-dynamo"
+                                ? "⚡"
+                                : "🔫";
 
                 return (
                   <Group key={clone.id}>
@@ -1396,7 +1508,7 @@ export default function GameCanvas() {
                       const angle = (i * Math.PI) / 2 + elapsed * rotationSpeed;
                       const length = Math.max(
                         SERVER_ARENA_WIDTH,
-                        SERVER_ARENA_HEIGHT
+                        SERVER_ARENA_HEIGHT,
                       );
                       return (
                         <Line
@@ -1595,26 +1707,26 @@ export default function GameCanvas() {
                       ? "#8B0000"
                       : "#FF0000"
                     : boss.type === "summoner"
-                    ? boss.isEnraged
-                      ? "#4B0082"
-                      : "#9370DB"
-                    : boss.type === "architect"
-                    ? boss.isEnraged
-                      ? "#006666"
-                      : "#00CCCC"
-                    : boss.type === "glitch-golem"
-                    ? "#555555"
-                    : boss.type === "viral-swarm"
-                    ? "#00FF00"
-                    : boss.type === "overclocker"
-                    ? "#FFFF00"
-                    : boss.type === "magnetic-magnus"
-                    ? "#FF00FF"
-                    : boss.type === "neon-reaper"
-                    ? "#0000FF"
-                    : boss.type === "core-destroyer"
-                    ? "#FF8800"
-                    : "#FF0000"
+                      ? boss.isEnraged
+                        ? "#4B0082"
+                        : "#9370DB"
+                      : boss.type === "architect"
+                        ? boss.isEnraged
+                          ? "#006666"
+                          : "#00CCCC"
+                        : boss.type === "glitch-golem"
+                          ? "#555555"
+                          : boss.type === "viral-swarm"
+                            ? "#00FF00"
+                            : boss.type === "overclocker"
+                              ? "#FFFF00"
+                              : boss.type === "magnetic-magnus"
+                                ? "#FF00FF"
+                                : boss.type === "neon-reaper"
+                                  ? "#0000FF"
+                                  : boss.type === "core-destroyer"
+                                    ? "#FF8800"
+                                    : "#FF0000"
                 }
                 stroke={
                   boss.lastHitTimestamp &&
@@ -1629,26 +1741,26 @@ export default function GameCanvas() {
                       ? "#FF0000"
                       : "#8B0000"
                     : boss.type === "summoner"
-                    ? boss.isEnraged
-                      ? "#9370DB"
-                      : "#4B0082"
-                    : boss.type === "architect"
-                    ? boss.isEnraged
-                      ? "#00CCCC"
-                      : "#006666"
-                    : boss.type === "glitch-golem"
-                    ? "#888888"
-                    : boss.type === "viral-swarm"
-                    ? "#AAFF00"
-                    : boss.type === "overclocker"
-                    ? "#FFCC00"
-                    : boss.type === "magnetic-magnus"
-                    ? "#CC00CC"
-                    : boss.type === "neon-reaper"
-                    ? "#00FFFF"
-                    : boss.type === "core-destroyer"
-                    ? "#FF0000"
-                    : "#8B0000"
+                      ? boss.isEnraged
+                        ? "#9370DB"
+                        : "#4B0082"
+                      : boss.type === "architect"
+                        ? boss.isEnraged
+                          ? "#00CCCC"
+                          : "#006666"
+                        : boss.type === "glitch-golem"
+                          ? "#888888"
+                          : boss.type === "viral-swarm"
+                            ? "#AAFF00"
+                            : boss.type === "overclocker"
+                              ? "#FFCC00"
+                              : boss.type === "magnetic-magnus"
+                                ? "#CC00CC"
+                                : boss.type === "neon-reaper"
+                                  ? "#00FFFF"
+                                  : boss.type === "core-destroyer"
+                                    ? "#FF0000"
+                                    : "#8B0000"
                 }
                 shadowBlur={boss.isEnraged ? 40 : 25}
                 opacity={boss.isInvulnerable ? 0.5 : 1}
@@ -1660,22 +1772,22 @@ export default function GameCanvas() {
                   boss.type === "berserker"
                     ? "👹"
                     : boss.type === "summoner"
-                    ? "🧙"
-                    : boss.type === "architect"
-                    ? "🤖"
-                    : boss.type === "glitch-golem"
-                    ? "🗿"
-                    : boss.type === "viral-swarm"
-                    ? "🦠"
-                    : boss.type === "overclocker"
-                    ? "⏲️"
-                    : boss.type === "magnetic-magnus"
-                    ? "🧲"
-                    : boss.type === "neon-reaper"
-                    ? "👤"
-                    : boss.type === "core-destroyer"
-                    ? "☄️"
-                    : "👹"
+                      ? "🧙"
+                      : boss.type === "architect"
+                        ? "🤖"
+                        : boss.type === "glitch-golem"
+                          ? "🗿"
+                          : boss.type === "viral-swarm"
+                            ? "🦠"
+                            : boss.type === "overclocker"
+                              ? "⏲️"
+                              : boss.type === "magnetic-magnus"
+                                ? "🧲"
+                                : boss.type === "neon-reaper"
+                                  ? "👤"
+                                  : boss.type === "core-destroyer"
+                                    ? "☄️"
+                                    : "👹"
                 }
                 x={boss.position.x}
                 y={boss.position.y}
@@ -1715,10 +1827,10 @@ export default function GameCanvas() {
                   boss.type === "berserker"
                     ? "#FF0000"
                     : boss.type === "summoner"
-                    ? "#9370DB"
-                    : boss.type === "architect"
-                    ? "#00CCCC"
-                    : "#FF0000"
+                      ? "#9370DB"
+                      : boss.type === "architect"
+                        ? "#00CCCC"
+                        : "#FF0000"
                 }
                 offsetX={50}
                 shadowColor="#000000"
@@ -1969,7 +2081,7 @@ export default function GameCanvas() {
                   const offset = Math.sin(seed) * 10;
                   points.push(
                     baseX + (perpX / length) * offset,
-                    baseY + (perpY / length) * offset
+                    baseY + (perpY / length) * offset,
                   );
                 }
 
@@ -2104,7 +2216,7 @@ export default function GameCanvas() {
                 const progress = age / maxDuration;
                 const currentRadius = Math.max(
                   0,
-                  explosion.radius * (0.3 + progress * 0.7)
+                  explosion.radius * (0.3 + progress * 0.7),
                 );
                 const opacity = 1 - progress;
 

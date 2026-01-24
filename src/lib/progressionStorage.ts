@@ -31,7 +31,7 @@ export function getProgression(): PlayerProgression {
     if (!stored) return { ...DEFAULT_PROGRESSION };
 
     const data: StorageData = JSON.parse(stored);
-    
+
     // Version migration logic (for future use)
     if (data.version !== STORAGE_VERSION) {
       console.warn('Progression version mismatch, migrating progression');
@@ -138,6 +138,25 @@ export function unlockCharacter(characterType: CharacterType): PlayerProgression
     });
   }
   return current;
+}
+
+/**
+ * Unlock all characters (cheat command)
+ */
+export function unlockAllCharacters(): PlayerProgression {
+  const allTypes: CharacterType[] = [
+    'spray-n-pray',
+    'boom-bringer',
+    'glass-cannon-carl',
+    'pet-pal-percy',
+    'vampire-vex',
+    'turret-tina',
+    'dash-dynamo'
+  ];
+
+  return updateProgression({
+    unlockedCharacters: allTypes,
+  });
 }
 
 function applyUnlocks(

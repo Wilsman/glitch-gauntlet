@@ -22,6 +22,8 @@ interface CharacterSelectProps {
   onCancel: () => void;
 }
 
+import { SPRITE_MAP } from "@/lib/spriteMap";
+
 function CharacterCard({
   char,
   isSelected,
@@ -37,6 +39,22 @@ function CharacterCard({
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseLeave: () => void;
 }) {
+  const [frame, setFrame] = useState(0);
+  const spriteConfig = (SPRITE_MAP.characters as any)[char.type];
+
+  // Simple animation loop for the selection screen
+  useEffect(() => {
+    if (!spriteConfig?.frames) return;
+    const interval = setInterval(() => {
+      setFrame((prev) => (prev + 1) % spriteConfig.frames);
+    }, spriteConfig.animationSpeed || 100);
+    return () => clearInterval(interval);
+  }, [spriteConfig]);
+
+  const spriteUrl = spriteConfig?.framePath
+    ? spriteConfig.framePath.replace("{i}", frame.toString())
+    : spriteConfig?.url;
+
   const x = useMotionValue(0);
   const y = useMotionValue(0);
 
@@ -84,21 +102,29 @@ function CharacterCard({
           isLocked
             ? "border-gray-800 bg-black/40 opacity-60 cursor-not-allowed grayscale"
             : isSelected
-            ? "border-neon-yellow bg-neon-yellow/10 shadow-[0_0_30px_rgba(255,255,0,0.3)] cursor-pointer"
-            : "border-neon-pink bg-black/60 hover:border-neon-cyan hover:shadow-[0_0_30px_rgba(0,255,255,0.2)] cursor-pointer"
+              ? "border-neon-yellow bg-neon-yellow/10 shadow-[0_0_30px_rgba(255,255,0,0.3)] cursor-pointer"
+              : "border-neon-pink bg-black/60 hover:border-neon-cyan hover:shadow-[0_0_30px_rgba(0,255,255,0.2)] cursor-pointer"
         }
       `}
     >
       <div style={{ transform: "translateZ(50px)" }} className="relative">
-        {/* Emoji / Avatar */}
+        {/* Sprite / Avatar */}
         <motion.div
-          animate={
-            isSelected ? { scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] } : {}
-          }
+          animate={isSelected ? { scale: [1, 1.05, 1], y: [0, -5, 0] } : {}}
           transition={{ duration: 2, repeat: Infinity }}
-          className="text-7xl mb-6 text-center drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]"
+          className="relative h-40 mb-6 flex items-center justify-center"
         >
-          {char.emoji}
+          {spriteUrl ? (
+            <img
+              src={spriteUrl}
+              alt={char.name}
+              className="w-40 h-40 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.3)] pixelated"
+            />
+          ) : (
+            <div className="text-7xl drop-shadow-[0_0_15px_rgba(255,255,255,0.5)]">
+              {char.emoji}
+            </div>
+          )}
         </motion.div>
 
         {/* Name */}
@@ -254,7 +280,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
 
   const handleMouseMove = (
     e: React.MouseEvent,
-    char: (typeof characters)[0]
+    char: (typeof characters)[0],
   ) => {
     const unlocked = isCharacterUnlocked(char.type);
     const isLocked = char.locked && !unlocked;
@@ -355,7 +381,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
                       setSelected(char.type);
                       // Center the selected character
                       const index = characters.findIndex(
-                        (c) => c.type === char.type
+                        (c) => c.type === char.type,
                       );
                       setCurrentIndex(index);
                     }}
