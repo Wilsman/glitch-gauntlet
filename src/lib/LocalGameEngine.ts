@@ -117,6 +117,8 @@ const REVIVE_DURATION = 3000; // 3 seconds to revive
 const EXTRACTION_DURATION = 5000; // 5 seconds to extract
 const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
 const HELLHOUND_ROUND_START = 5; // First hellhound round at wave 5
+const FACEHUGGER_SLOW_MULTIPLIER = 0.72;
+const FACEHUGGER_REQUIRED_SHAKES = 5;
 
 // Performance optimization constants
 const DAMAGE_NUMBER_THROTTLE_MS = 100; // Merge hits within this window
@@ -169,6 +171,9 @@ function addDamageNumber(
 
 export class LocalGameEngine {
   private gameState: GameState;
+  private stateVersion: number = 0;
+  private snapshotVersion: number = -1;
+  private cachedSnapshot: GameState | null = null;
   private lastTick: number = 0;
   private tickInterval: number | null = null;
   private upgradeChoices: Map<string, UpgradeOption[]> = new Map();
@@ -185,6 +190,7 @@ export class LocalGameEngine {
   private enemiesKilledCount: number = 0;
   private characterType: CharacterType;
   private tookDamageAfterWave5: boolean = false;
+  private lastToasterDeployAt: Map<string, number> = new Map();
 
   constructor(
     playerId: string,
@@ -292,16 +298,24 @@ export class LocalGameEngine {
   }
 
   setIsPaused(paused: boolean) {
+    if (this.gameState.isPaused === paused) return;
     this.gameState.isPaused = paused;
     // Reset lastTick when unpausing to prevent big delta jump
     if (!paused) {
       this.lastTick = Date.now();
     }
+    this.markStateDirty();
   }
 
   getGameState(): GameState {
-    // Return a deep clone to prevent external mutations
-    return JSON.parse(JSON.stringify(this.gameState));
+    // Clone only when game state changed since the previous snapshot.
+    if (this.cachedSnapshot && this.snapshotVersion === this.stateVersion) {
+      return this.cachedSnapshot;
+    }
+
+    this.cachedSnapshot = JSON.parse(JSON.stringify(this.gameState));
+    this.snapshotVersion = this.stateVersion;
+    return this.cachedSnapshot;
   }
 
   setOnUnlockCallback(callback: (characterType: CharacterType) => void) {
@@ -311,16 +325,17 @@ export class LocalGameEngine {
   updateInput(input: InputState) {
     // Clone the input to avoid reference issues
     this.inputState = { ...input };
-    const player = this.gameState.players[0];
-    if (player) {
-      player.lastInput = { ...input };
-    }
   }
 
   useBlink() {
     const player = this.gameState.players[0];
-    if (!player) return;
+    if (player) {
+      this.handleBlinkForPlayer(player);
+      this.markStateDirty();
+    }
+  }
 
+  handleBlinkForPlayer(player: Player) {
     const now = Date.now();
 
     // Dash (Boss Upgrade) logic
@@ -333,18 +348,24 @@ export class LocalGameEngine {
     }
 
     if (player.characterType !== "dash-dynamo") return;
-    if (!player.blinkReady || player.blinkCooldown! > 0) return;
+    if (!player.blinkReady || (player.blinkCooldown !== undefined && player.blinkCooldown > 0)) return;
 
-    // Blink 150 units in the direction of movement or toward mouse
-    const input = player.lastInput;
+    // Blink 150 units in the direction of movement
+    const input = this.getCurrentInput(player);
     if (!input) return;
 
     let dx = 0;
     let dy = 0;
-    if (input.up) dy -= 1;
-    if (input.down) dy += 1;
-    if (input.left) dx -= 1;
-    if (input.right) dx += 1;
+
+    if (input.analogX !== undefined && input.analogY !== undefined) {
+      dx = input.analogX;
+      dy = input.analogY;
+    } else {
+      if (input.up) dy -= 1;
+      if (input.down) dy += 1;
+      if (input.left) dx -= 1;
+      if (input.right) dx += 1;
+    }
 
     // If no movement input, blink forward (right)
     if (dx === 0 && dy === 0) {
@@ -373,7 +394,7 @@ export class LocalGameEngine {
   }
 
   private handleDash(player: Player) {
-    const input = player.lastInput;
+    const input = this.getCurrentInput(player);
     if (!input) return;
 
     let dx = 0;
@@ -399,6 +420,13 @@ export class LocalGameEngine {
 
   useAbility() {
     const player = this.gameState.players[0];
+    if (player) {
+      this.handleAbilityForPlayer(player);
+      this.markStateDirty();
+    }
+  }
+
+  handleAbilityForPlayer(player: Player) {
     if (!player || player.status !== "alive") return;
     if (player.abilityCooldown && player.abilityCooldown > 0) return;
 
@@ -468,9 +496,9 @@ export class LocalGameEngine {
         break;
       case "turret-tina":
         // Mega Turret
-        this.placeTurret();
-        this.placeTurret();
-        this.placeTurret();
+        this.placeTurretForPlayer(player);
+        this.placeTurretForPlayer(player);
+        this.placeTurretForPlayer(player);
         player.abilityCooldown = 10000;
         this.triggerScreenShake(6, 400);
         break;
@@ -479,35 +507,97 @@ export class LocalGameEngine {
 
   placeTurret() {
     const player = this.gameState.players[0];
+    if (player) {
+      this.placeTurretForPlayer(player);
+      this.markStateDirty();
+    }
+  }
+
+  private getCurrentInput(player: Player): InputState | undefined {
+    if (player.id === this.gameState.players[0]?.id) {
+      return this.inputState;
+    }
+    return player.lastInput;
+  }
+
+  private markStateDirty() {
+    this.stateVersion++;
+    this.cachedSnapshot = null;
+  }
+
+  placeTurretForPlayer(player: Player) {
     if (!player || player.characterType !== "turret-tina") return;
+    this.spawnTurretForPlayer(player, "standard");
+  }
+
+  private getTurretUpgradeStacks(player: Player): number {
+    return player.collectedUpgrades?.find((u) => u.type === "turret")?.count || 0;
+  }
+
+  private getToasterTurretCap(player: Player): number {
+    const stacks = this.getTurretUpgradeStacks(player);
+    if (stacks <= 0) return 0;
+    return Math.min(4, Math.max(2, 1 + stacks));
+  }
+
+  private spawnTurretForPlayer(
+    player: Player,
+    style: Turret["style"] = "standard"
+  ) {
     if (!this.gameState.turrets) this.gameState.turrets = [];
 
-    // Limit to 3 turrets - prevent placement if already at max
-
-    const playerTurrets = this.gameState.turrets.filter(
-      (t) => t.ownerId === player.id
+    const playerTurrets = this.gameState.turrets.filter((t) =>
+      style === "toaster"
+        ? t.ownerId === player.id && t.style === "toaster"
+        : t.ownerId === player.id && t.style !== "toaster"
     );
-    if (playerTurrets.length >= 3) {
+    const maxTurrets =
+      style === "toaster" ? this.getToasterTurretCap(player) : 3;
+    if (playerTurrets.length >= maxTurrets) {
       return; // Cannot place more turrets until one expires
     }
 
     const now = Date.now();
-    // Scale turret attack speed with player's attack speed (turrets are 50% slower than player)
-    const turretAttackSpeed = Math.max(300, player.attackSpeed * 1.5);
+    const turretAttackSpeed =
+      style === "toaster"
+        ? Math.max(280, player.attackSpeed * 1.25)
+        : Math.max(300, player.attackSpeed * 1.5);
 
     const newTurret: Turret = {
       id: uuidv4(),
       ownerId: player.id,
-      position: { ...player.position },
-      health: 50,
-      maxHealth: 50,
-      damage: 8 + player.level * 2,
+      position:
+        style === "toaster"
+          ? {
+              x: Math.max(
+                20,
+                Math.min(
+                  ARENA_WIDTH - 20,
+                  player.position.x + Math.cos(Math.random() * Math.PI * 2) * 65
+                )
+              ),
+              y: Math.max(
+                20,
+                Math.min(
+                  ARENA_HEIGHT - 20,
+                  player.position.y + Math.sin(Math.random() * Math.PI * 2) * 65
+                )
+              ),
+            }
+          : { ...player.position },
+      health: style === "toaster" ? 70 : 50,
+      maxHealth: style === "toaster" ? 70 : 50,
+      damage: (style === "toaster" ? 10 : 8) + player.level * 2,
       attackSpeed: turretAttackSpeed,
       attackCooldown: 0,
-      range: 300,
+      range: style === "toaster" ? 340 : 300,
       expiresAt: now + 20000, // 20 seconds duration
+      style,
     };
     this.gameState.turrets.push(newTurret);
+    if (style === "toaster") {
+      this.lastToasterDeployAt.set(player.id, now);
+    }
   }
 
   selectUpgrade(upgradeId: string) {
@@ -567,6 +657,15 @@ export class LocalGameEngine {
       this.gameState.orbitalSkulls.push(newSkull);
     }
 
+    // Spawn toaster turret if turret upgrade selected
+    if (choice.type === "turret") {
+      const existingStacks = this.getTurretUpgradeStacks(player);
+      const burstCount = Math.min(3, 2 + Math.floor(existingStacks / 2));
+      for (let i = 0; i < burstCount; i++) {
+        this.spawnTurretForPlayer(player, "toaster");
+      }
+    }
+
     // Track collected upgrade
     if (!player.collectedUpgrades) player.collectedUpgrades = [];
     const existing = player.collectedUpgrades.find(
@@ -586,6 +685,7 @@ export class LocalGameEngine {
 
     this.gameState.levelingUpPlayerId = null;
     this.upgradeChoices.delete(player.id);
+    this.markStateDirty();
   }
 
   getUpgradeOptions(): UpgradeOption[] | null {
@@ -600,6 +700,7 @@ export class LocalGameEngine {
       this.gameState.status = "playing"; // Ensure we're in playing state
       this.gameState.waveTimer = 0;
     }
+    this.markStateDirty();
   }
 
   debugSpawnEnemy(type: EnemyType) {
@@ -622,6 +723,7 @@ export class LocalGameEngine {
       this.gameState.wave
     );
     this.gameState.enemies.push(newEnemy);
+    this.markStateDirty();
   }
 
   debugSpawnBoss(type: BossType) {
@@ -639,6 +741,7 @@ export class LocalGameEngine {
       this.gameState.wave
     );
     this.triggerScreenShake(15, 500);
+    this.markStateDirty();
   }
 
   debugGiveUpgrade(type: UpgradeType) {
@@ -701,11 +804,21 @@ export class LocalGameEngine {
       };
       this.gameState.orbitalSkulls.push(newSkull);
     }
+
+    if (type === "turret") {
+      const stacks = this.getTurretUpgradeStacks(player);
+      const burstCount = Math.min(3, 2 + Math.floor(stacks / 2));
+      for (let i = 0; i < burstCount; i++) {
+        this.spawnTurretForPlayer(player, "toaster");
+      }
+    }
+    this.markStateDirty();
   }
 
   debugTriggerBossRound() {
     this.gameState.status = "bossFight";
     this.gameState.waveTimer = WAVE_DURATION - 1000; // Trigger it almost immediately
+    this.markStateDirty();
   }
 
   debugClearEnemies() {
@@ -716,6 +829,7 @@ export class LocalGameEngine {
     this.gameState.xpOrbs = [];
     this.gameState.explosions = [];
     this.gameState.status = "playing";
+    this.markStateDirty();
   }
 
   debugSetInvulnerability(toggle: boolean) {
@@ -727,6 +841,7 @@ export class LocalGameEngine {
     } else {
       player.invulnerableUntil = 0;
     }
+    this.markStateDirty();
   }
 
   debugLevelUp() {
@@ -734,6 +849,7 @@ export class LocalGameEngine {
     if (!player) return;
     player.xp = player.xpToNextLevel;
     // The tick will handle the actual level up
+    this.markStateDirty();
   }
 
   private tick() {
@@ -742,6 +858,10 @@ export class LocalGameEngine {
     this.lastTick = now;
 
     const state = this.gameState;
+    const localPlayer = state.players[0];
+    if (localPlayer) {
+      localPlayer.lastInput = { ...this.inputState };
+    }
 
     // Pause game loop if player is leveling up or explicit pause
     if (state.levelingUpPlayerId || state.isPaused) return;
@@ -758,6 +878,7 @@ export class LocalGameEngine {
       this.updatePets(state, now, delta, timeFactor);
       this.updateOrbitalSkulls(state, now, delta);
       this.updateFireTrails(state, now, delta);
+      this.updateToasterTurretDeployment(state, now);
       this.updateTurrets(state, now, delta);
       this.updateClones(state, now, delta);
 
@@ -792,6 +913,47 @@ export class LocalGameEngine {
 
     // Always check game status to save stats when game ends
     this.updateGameStatus(state);
+
+    // Final safety check to prevent NaN position propagation
+    this.sanitizeState(state);
+    this.markStateDirty();
+  }
+
+  private sanitizeState(state: GameState) {
+    state.players.forEach(p => {
+      if (isNaN(p.position.x)) p.position.x = ARENA_WIDTH / 2;
+      if (isNaN(p.position.y)) p.position.y = ARENA_HEIGHT / 2;
+    });
+    state.enemies.forEach(e => {
+      if (isNaN(e.position.x)) e.position.x = 0;
+      if (isNaN(e.position.y)) e.position.y = 0;
+    });
+    state.projectiles.forEach(p => {
+      if (isNaN(p.position.x)) p.position.x = -1000;
+      if (isNaN(p.position.y)) p.position.y = -1000;
+    });
+  }
+
+  private updateToasterTurretDeployment(state: GameState, now: number) {
+    if (!state.turrets) state.turrets = [];
+
+    for (const player of state.players) {
+      if (player.status !== "alive") continue;
+      const stacks = this.getTurretUpgradeStacks(player);
+      if (stacks <= 0) continue;
+
+      const toasterTurrets = state.turrets.filter(
+        (t) => t.ownerId === player.id && t.style === "toaster"
+      );
+      const cap = this.getToasterTurretCap(player);
+      if (toasterTurrets.length >= cap) continue;
+
+      const lastDeployAt = this.lastToasterDeployAt.get(player.id) || 0;
+      const redeployInterval = Math.max(1800, 5000 - stacks * 650);
+      if (now - lastDeployAt >= redeployInterval) {
+        this.spawnTurretForPlayer(player, "toaster");
+      }
+    }
   }
 
   private updatePlayerMovement(state: GameState, timeFactor: number, now: number) {
@@ -802,10 +964,71 @@ export class LocalGameEngine {
         p.history.push({ x: p.position.x, y: p.position.y });
         if (p.history.length > 5) p.history.shift();
 
-        if (p.lastInput.up) p.position.y -= p.speed * timeFactor;
-        if (p.lastInput.down) p.position.y += p.speed * timeFactor;
-        if (p.lastInput.left) p.position.x -= p.speed * timeFactor;
-        if (p.lastInput.right) p.position.x += p.speed * timeFactor;
+        let movedAnalog = false;
+        let repositionSpeedMultiplier = 1;
+        if (state.hazards && state.hazards.length > 0) {
+          const isInsideIceZone = state.hazards.some(
+            (hazard) =>
+              hazard.type === "freeze-barrel" &&
+              hazard.variant === "zone" &&
+              hazard.zoneUntil !== undefined &&
+              hazard.zoneUntil > now &&
+              Math.hypot(
+                p.position.x - hazard.position.x,
+                p.position.y - hazard.position.y
+              ) < (hazard.radius || 140)
+          );
+          if (isInsideIceZone) {
+            repositionSpeedMultiplier = 1.12;
+          }
+        }
+
+        const facehuggerSpeedMultiplier = p.attachedBug
+          ? FACEHUGGER_SLOW_MULTIPLIER
+          : 1;
+
+        if (p.lastInput.analogX !== undefined && p.lastInput.analogY !== undefined) {
+          const ax = p.lastInput.analogX || 0;
+          const ay = p.lastInput.analogY || 0;
+          const mag = Math.hypot(ax, ay);
+          if (mag > 0.1 && !isNaN(mag)) {
+            // Apply analog movement
+            const speed =
+              (p.speed || 4) * repositionSpeedMultiplier * facehuggerSpeedMultiplier;
+            const tf = isNaN(timeFactor) ? 1 : timeFactor;
+            p.position.x += (ax / (mag > 1 ? mag : 1)) * speed * tf;
+            p.position.y += (ay / (mag > 1 ? mag : 1)) * speed * tf;
+            movedAnalog = true;
+          }
+        }
+
+        if (!movedAnalog) {
+          // Digital movement (keyboard or d-pad)
+          const speed =
+            (p.speed || 4) * repositionSpeedMultiplier * facehuggerSpeedMultiplier;
+          const tf = isNaN(timeFactor) ? 1 : timeFactor;
+          if (p.lastInput.up) p.position.y -= speed * tf;
+          if (p.lastInput.down) p.position.y += speed * tf;
+          if (p.lastInput.left) p.position.x -= speed * tf;
+          if (p.lastInput.right) p.position.x += speed * tf;
+        }
+
+        // Handle one-shot triggers from online input (since they are sent via input state)
+        if (p.id !== 'local-player' && p.id !== state.players[0].id) { // Simple check if it's not local
+          if (p.lastInput.blink && !p.lastBlinkTriggered) {
+            this.handleBlinkForPlayer(p);
+            p.lastBlinkTriggered = true;
+          } else if (!p.lastInput.blink) {
+            p.lastBlinkTriggered = false;
+          }
+          if (p.lastInput.ability && !p.lastAbilityTriggered) {
+            this.handleAbilityForPlayer(p);
+            p.lastAbilityTriggered = true;
+          } else if (!p.lastInput.ability) {
+            p.lastAbilityTriggered = false;
+          }
+        }
+
 
         // Screen Wrap
         if (p.hasScreenWrap) {
@@ -839,6 +1062,28 @@ export class LocalGameEngine {
   private updatePlayerEffects(state: GameState, delta: number, now: number) {
     state.players.forEach((p) => {
       if (p.status !== "alive") return;
+
+      if (p.attachedBug) {
+        const shakePressed = !!p.lastInput?.shake;
+        if (shakePressed && !p.wasShakePressed) {
+          p.attachedBug.shakes += 1;
+          this.triggerScreenShake(2, 90);
+          this.spawnParticles(p.position, "#FF66CC", 4, "glitch", 4);
+        }
+        p.wasShakePressed = shakePressed;
+
+        if (p.attachedBug.shakes >= p.attachedBug.requiredShakes) {
+          p.attachedBug = undefined;
+          p.wasShakePressed = false;
+          this.triggerScreenShake(6, 220);
+          this.spawnParticles(p.position, "#FF99EE", 24, "glitch", 12);
+        }
+      } else {
+        p.wasShakePressed = false;
+      }
+
+      if (p.status !== "alive") return;
+
       // Regeneration
       if (p.regeneration && p.regeneration > 0) {
         p.health = Math.min(
@@ -1016,7 +1261,7 @@ export class LocalGameEngine {
               velocity: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
               damage: finalDamage,
               isCrit,
-              kind: "bullet",
+              kind: turret.style === "toaster" ? "toast" : "bullet",
               radius: 5,
               hitEnemies: [],
               pierceRemaining: owner.pierceCount || 0, // Inherit pierce
@@ -1339,6 +1584,8 @@ export class LocalGameEngine {
       }
     }
 
+    const attachedSpiderIds = new Set<string>();
+
     state.enemies.forEach((enemy) => {
       const alivePlayers = state.players.filter((p) => p.status === "alive");
       if (alivePlayers.length === 0) return;
@@ -1384,6 +1631,18 @@ export class LocalGameEngine {
         }
 
         if (closestPlayer.dist < 20) {
+          if (enemy.type === "glitch-spider" && !p.attachedBug) {
+            p.attachedBug = {
+              shakes: 0,
+              requiredShakes: FACEHUGGER_REQUIRED_SHAKES,
+            };
+            p.wasShakePressed = false;
+            attachedSpiderIds.add(enemy.id);
+            this.spawnParticles(p.position, "#FF55CC", 18, "glitch", 10);
+            this.triggerScreenShake(5, 220);
+            return;
+          }
+
           let incomingDamage = enemy.damage * (delta / 1000);
           if (p.dodge && Math.random() < p.dodge) {
             incomingDamage = 0;
@@ -1436,6 +1695,10 @@ export class LocalGameEngine {
         }
       }
     });
+
+    if (attachedSpiderIds.size > 0) {
+      state.enemies = state.enemies.filter((enemy) => !attachedSpiderIds.has(enemy.id));
+    }
   }
 
   private updatePlayerAttacks(state: GameState, delta: number, now: number) {
@@ -1721,7 +1984,7 @@ export class LocalGameEngine {
       }
 
       // Check shotgun range limit
-      if (proj.kind === "bullet" && proj.maxRange && proj.spawnPosition) {
+      if (proj.kind !== "bananarang" && proj.maxRange && proj.spawnPosition) {
         const distFromOrigin = Math.hypot(
           proj.position.x - proj.spawnPosition.x,
           proj.position.y - proj.spawnPosition.y
@@ -1732,7 +1995,7 @@ export class LocalGameEngine {
       }
 
       if (
-        proj.kind === "bullet" &&
+        proj.kind !== "bananarang" &&
         owner &&
         owner.homingStrength &&
         owner.homingStrength > 0
@@ -2385,6 +2648,7 @@ export class LocalGameEngine {
     if (!state.fireTrails) return;
 
     const FIRE_TRAIL_DURATION = 2000; // 2 seconds
+    const HAZARD_FIRE_TRAIL_DURATION = 6000; // 3x longer for TNT hazard patches
     const FIRE_TRAIL_DAMAGE_INTERVAL = 200; // Damage every 200ms
 
     state.fireTrails.forEach((trail) => {
@@ -2425,7 +2689,11 @@ export class LocalGameEngine {
 
     // Remove old fire trails
     state.fireTrails = state.fireTrails.filter(
-      (trail) => now - trail.timestamp < FIRE_TRAIL_DURATION
+      (trail) =>
+        now - trail.timestamp <
+        (trail.ownerId === "hazard"
+          ? HAZARD_FIRE_TRAIL_DURATION
+          : FIRE_TRAIL_DURATION)
     );
   }
 
@@ -3246,10 +3514,19 @@ export class LocalGameEngine {
             id: uuidv4(),
             position: { ...attack.targetPosition },
             type: "spike-trap",
+            variant: "wall",
+            radius: 56,
+            damage: 65,
+            activationRadius: 130,
+            activationThreshold: 1050,
+            activationCharge: 0,
             health: 100,
             maxHealth: 100,
             isActive: true,
+            activeUntil: now + 1150,
+            zoneUntil: now + 8000,
             lastToggle: now,
+            lastSlamAt: now - 1,
           });
 
           if (boss.isEnraged) {
@@ -3881,6 +4158,7 @@ export class LocalGameEngine {
     }
 
     state.bossDefeatedRewardClaimed = true;
+    this.markStateDirty();
   }
 
   extract() {
@@ -3892,6 +4170,7 @@ export class LocalGameEngine {
 
     // Final save of stats
     this.saveGameStats(state);
+    this.markStateDirty();
   }
 
   private updateAbilities(state: GameState, delta: number) {
@@ -3931,59 +4210,224 @@ export class LocalGameEngine {
 
   private updateHazards(state: GameState, now: number, delta: number) {
     if (!state.hazards) state.hazards = [];
+    const SPIKE_ACTIVE_MS = 1150;
+    const SPIKE_WALL_RADIUS = 56;
+    const SPIKE_SLAM_RADIUS = 190;
+    const SPIKE_SLAM_DAMAGE = 65;
+    const SPIKE_SLAM_KNOCKBACK = 90;
+    const SPIKE_ACTIVATION_RADIUS = 130;
+    const SPIKE_ACTIVATION_THRESHOLD = 1050;
+    const TNT_EXPLOSION_RADIUS = 170;
+    const TNT_CHAIN_RADIUS = 270;
+    const TNT_KNOCKBACK_RADIUS = 230;
+    const TNT_KNOCKBACK_FORCE = 72;
+    const TNT_ACTIVATION_RADIUS = 112;
+    const TNT_ACTIVATION_THRESHOLD = 950;
+    const ICE_BURST_RADIUS = 220;
+    const ICE_ZONE_DURATION = 13500;
+    const ICE_ZONE_RADIUS = 225;
+    const ICE_ACTIVATION_RADIUS = 122;
+    const ICE_ACTIVATION_THRESHOLD = 900;
 
-    // Reset Plot Armor for new wave
-    state.players.forEach(p => {
-      if (!p.invincibilityUsedInWave && state.wave !== (p as any)._lastWaveRef) {
-        p.invincibilityUsedInWave = false;
-        (p as any)._lastWaveRef = state.wave;
+    const applyEnemyEffect = (
+      enemy: Enemy,
+      type: "frozen" | "slowed",
+      slowAmount: number,
+      duration: number
+    ) => {
+      if (!enemy.statusEffects) enemy.statusEffects = [];
+      const existing = enemy.statusEffects.find((effect) => effect.type === type);
+      if (existing) {
+        existing.duration = Math.max(existing.duration, duration);
+        existing.slowAmount = existing.slowAmount
+          ? Math.min(existing.slowAmount, slowAmount)
+          : slowAmount;
+      } else {
+        enemy.statusEffects.push({
+          type,
+          duration,
+          slowAmount,
+        });
+      }
+    };
+
+    // Proximity activation: players stand near hazards to charge and trigger them.
+    state.hazards.forEach((hazard) => {
+      if (hazard.variant === "zone") return;
+
+      if (hazard.type === "spike-trap") {
+        if (!hazard.variant) hazard.variant = "wall";
+        if (!hazard.radius) hazard.radius = SPIKE_WALL_RADIUS;
+        if (!hazard.activationRadius) hazard.activationRadius = SPIKE_ACTIVATION_RADIUS;
+        if (!hazard.activationThreshold) hazard.activationThreshold = SPIKE_ACTIVATION_THRESHOLD;
+      } else if (hazard.type === "explosive-barrel") {
+        if (!hazard.variant) hazard.variant = "barrel";
+        if (!hazard.activationRadius) hazard.activationRadius = TNT_ACTIVATION_RADIUS;
+        if (!hazard.activationThreshold) hazard.activationThreshold = TNT_ACTIVATION_THRESHOLD;
+      } else if (hazard.type === "freeze-barrel") {
+        if (!hazard.variant) hazard.variant = "barrel";
+        if (!hazard.activationRadius) hazard.activationRadius = ICE_ACTIVATION_RADIUS;
+        if (!hazard.activationThreshold) hazard.activationThreshold = ICE_ACTIVATION_THRESHOLD;
+      }
+      if (hazard.activationCharge === undefined) hazard.activationCharge = 0;
+
+      const activationRadius = hazard.activationRadius || 110;
+      const activationThreshold = hazard.activationThreshold || 1000;
+      const hasChargingPlayer = state.players.some(
+        (player) =>
+          player.status === "alive" &&
+          Math.hypot(
+            player.position.x - hazard.position.x,
+            player.position.y - hazard.position.y
+          ) < activationRadius
+      );
+
+      if (hasChargingPlayer) {
+        hazard.activationCharge = Math.min(
+          activationThreshold,
+          hazard.activationCharge + delta
+        );
+      } else {
+        hazard.activationCharge = Math.max(0, hazard.activationCharge - delta * 0.75);
+      }
+
+      if (hazard.type === "spike-trap") {
+        if (
+          !hazard.isActive &&
+          hazard.activationCharge >= activationThreshold
+        ) {
+          hazard.isActive = true;
+          hazard.lastToggle = now;
+          hazard.activeUntil = now + SPIKE_ACTIVE_MS;
+          hazard.lastSlamAt = now - 1;
+          hazard.activationCharge = 0;
+          this.triggerScreenShake(6, 170);
+          this.spawnParticles(hazard.position, "#FF5A45", 16, "glitch", 12);
+        }
+      } else if (hazard.activationCharge >= activationThreshold) {
+        hazard.activationCharge = 0;
+        hazard.health = 0;
       }
     });
 
-    // Handle spike-trap toggle and damage
-    state.hazards.forEach((h) => {
-      if (h.type === "spike-trap") {
-        if (!h.lastToggle || now - h.lastToggle > 2000) {
-          h.isActive = !h.isActive;
-          h.lastToggle = now;
-          if (h.isActive) {
-            this.triggerScreenShake(2, 100);
-            this.spawnParticles(h.position, "#9D00FF", 5, "pixel");
-          }
-        }
+    // Spike walls: once activated they slam and block movement/projectiles.
+    state.hazards.forEach((hazard) => {
+      if (hazard.type !== "spike-trap" || !hazard.isActive) return;
 
-        if (h.isActive) {
-          state.players.forEach((p) => {
-            if (p.status !== "alive") return;
-            const dist = Math.hypot(
-              p.position.x - h.position.x,
-              p.position.y - h.position.y
-            );
-            if (dist < 30) {
-              this.damagePlayer(p, 0.2 * (delta / 50), now);
-            }
-          });
-        }
+      if (hazard.activeUntil && now >= hazard.activeUntil) {
+        hazard.isActive = false;
+        return;
       }
+
+      if (!hazard.lastSlamAt || hazard.lastSlamAt < (hazard.lastToggle || 0)) {
+        hazard.lastSlamAt = now;
+        state.enemies.forEach((enemy) => {
+          const dx = enemy.position.x - hazard.position.x;
+          const dy = enemy.position.y - hazard.position.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          if (dist > SPIKE_SLAM_RADIUS) return;
+
+          const slamScale = 1 - dist / SPIKE_SLAM_RADIUS;
+          enemy.health -= SPIKE_SLAM_DAMAGE * (0.5 + slamScale * 0.5);
+          enemy.lastHitTimestamp = now;
+          enemy.position.x += (dx / dist) * SPIKE_SLAM_KNOCKBACK * slamScale;
+          enemy.position.y += (dy / dist) * SPIKE_SLAM_KNOCKBACK * slamScale;
+        });
+      }
+
+      state.enemies.forEach((enemy) => {
+        const dx = enemy.position.x - hazard.position.x;
+        const dy = enemy.position.y - hazard.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const radius = hazard.radius || SPIKE_WALL_RADIUS;
+        if (dist >= radius) return;
+        const push = radius - dist + 1;
+        enemy.position.x += (dx / dist) * push;
+        enemy.position.y += (dy / dist) * push;
+      });
     });
 
-    // Spawn hazards occasionally
-    if (state.hazards.length < 8 && Math.random() < 0.005) {
+    // Ice zones: slow enemies and help players reposition while active.
+    state.hazards.forEach((hazard) => {
+      if (
+        hazard.type !== "freeze-barrel" ||
+        hazard.variant !== "zone" ||
+        hazard.zoneUntil === undefined ||
+        hazard.zoneUntil <= now
+      ) {
+        return;
+      }
+
+      const zoneRadius = hazard.radius || ICE_ZONE_RADIUS;
+      state.enemies.forEach((enemy) => {
+        const dist = Math.hypot(
+          enemy.position.x - hazard.position.x,
+          enemy.position.y - hazard.position.y
+        );
+        if (dist >= zoneRadius) return;
+        applyEnemyEffect(enemy, "slowed", 0.5, 840);
+        if (dist < zoneRadius * 0.45) {
+          applyEnemyEffect(enemy, "frozen", 0.2, 540);
+        }
+      });
+    });
+
+    // Spawn hazards occasionally; keep count/chance low for readability.
+    const maxHazards = state.wave >= 15 ? 5 : state.wave >= 8 ? 4 : 3;
+    const hazardSpawnChance =
+      state.wave >= 15 ? 0.0018 : state.wave >= 8 ? 0.0014 : 0.001;
+
+    if (state.hazards.length < maxHazards && Math.random() < hazardSpawnChance) {
       const rand = Math.random();
       const type: HazardType =
-        rand < 0.4
-          ? "explosive-barrel"
-          : rand < 0.7
-            ? "freeze-barrel"
-            : "spike-trap";
+        rand < 0.45 ? "explosive-barrel" : rand < 0.8 ? "freeze-barrel" : "spike-trap";
+
+      let spawnPosition = {
+        x: 100 + Math.random() * (ARENA_WIDTH - 200),
+        y: 100 + Math.random() * (ARENA_HEIGHT - 200),
+      };
+      // Try a few times to avoid popping hazards directly under players.
+      for (let i = 0; i < 6; i++) {
+        const candidate = {
+          x: 100 + Math.random() * (ARENA_WIDTH - 200),
+          y: 100 + Math.random() * (ARENA_HEIGHT - 200),
+        };
+        const isNearAlivePlayer = state.players.some(
+          (p) =>
+            p.status === "alive" &&
+            Math.hypot(p.position.x - candidate.x, p.position.y - candidate.y) < 140
+        );
+        if (!isNearAlivePlayer) {
+          spawnPosition = candidate;
+          break;
+        }
+      }
 
       state.hazards.push({
         id: uuidv4(),
-        position: {
-          x: 100 + Math.random() * (ARENA_WIDTH - 200),
-          y: 100 + Math.random() * (ARENA_HEIGHT - 200),
-        },
+        position: spawnPosition,
         type,
+        variant: type === "spike-trap" ? "wall" : "barrel",
+        radius:
+          type === "spike-trap"
+            ? SPIKE_WALL_RADIUS
+            : type === "freeze-barrel"
+              ? ICE_ZONE_RADIUS
+              : TNT_EXPLOSION_RADIUS,
+        damage: type === "spike-trap" ? SPIKE_SLAM_DAMAGE : undefined,
+        activationRadius:
+          type === "spike-trap"
+            ? SPIKE_ACTIVATION_RADIUS
+            : type === "freeze-barrel"
+              ? ICE_ACTIVATION_RADIUS
+              : TNT_ACTIVATION_RADIUS,
+        activationThreshold:
+          type === "spike-trap"
+            ? SPIKE_ACTIVATION_THRESHOLD
+            : type === "freeze-barrel"
+              ? ICE_ACTIVATION_THRESHOLD
+              : TNT_ACTIVATION_THRESHOLD,
+        activationCharge: 0,
         health: type === "spike-trap" ? 9999 : 20,
         maxHealth: type === "spike-trap" ? 9999 : 20,
         isActive: false,
@@ -3991,58 +4435,190 @@ export class LocalGameEngine {
       });
     }
 
-    // Hazard collision with projectiles
+    // Hazard collision with projectiles.
     state.projectiles = state.projectiles.filter((proj) => {
       for (const hazard of state.hazards!) {
         const dist = Math.hypot(
           proj.position.x - hazard.position.x,
           proj.position.y - hazard.position.y
         );
-        if (dist < 25) {
-          hazard.health -= proj.damage;
-          this.spawnParticles(hazard.position, "#CCCCCC", 5, "pixel");
+
+        if (
+          hazard.type === "spike-trap" &&
+          hazard.isActive &&
+          dist < (hazard.radius || SPIKE_WALL_RADIUS)
+        ) {
+          this.spawnParticles(proj.position, "#9A9A9A", 4, "pixel");
           return false;
         }
+
+        // Barrels are proximity-triggered now, not shot-triggered.
       }
       return true;
     });
 
-    // Handle hazard destruction
-    state.hazards = state.hazards.filter((hazard) => {
-      if (hazard.health <= 0) {
-        if (hazard.type === "explosive-barrel") {
-          if (!state.explosions) state.explosions = [];
-          state.explosions.push({
-            id: uuidv4(),
-            position: hazard.position,
-            radius: 120,
-            timestamp: now,
-            damage: 100,
-            ownerId: "hazard",
-          });
-          this.triggerScreenShake(15, 400);
-          this.spawnParticles(hazard.position, "#FF5500", 30, "glitch", 15);
-        } else if (hazard.type === "freeze-barrel") {
-          // Freeze nearby enemies
-          state.enemies.forEach((e) => {
-            const dist = Math.hypot(
-              e.position.x - hazard.position.x,
-              e.position.y - hazard.position.y
-            );
-            if (dist < 150) {
-              if (!e.statusEffects) e.statusEffects = [];
-              e.statusEffects.push({
-                type: "frozen",
-                duration: 3000,
-              });
-            }
-          });
-          this.spawnParticles(hazard.position, "#00FFFF", 40, "nebula", 10);
+    // Active spike walls can also block boss projectiles.
+    if (state.bossProjectiles && state.bossProjectiles.length > 0) {
+      state.bossProjectiles = state.bossProjectiles.filter((proj) => {
+        for (const hazard of state.hazards!) {
+          if (
+            hazard.type !== "spike-trap" ||
+            !hazard.isActive
+          ) {
+            continue;
+          }
+          const dist = Math.hypot(
+            proj.position.x - hazard.position.x,
+            proj.position.y - hazard.position.y
+          );
+          if (dist < (hazard.radius || SPIKE_WALL_RADIUS) + proj.radius * 0.7) {
+            this.spawnParticles(proj.position, "#7A7A7A", 5, "pixel");
+            return false;
+          }
         }
-        return false;
+        return true;
+      });
+    }
+
+    // Resolve destruction and tactical effects.
+    const hazardsToRemove = new Set<string>();
+    const hazardsToAdd: Hazard[] = [];
+    const explosiveQueue: Hazard[] = [];
+    const detonatedExplosives = new Set<string>();
+
+    state.hazards.forEach((hazard) => {
+      if (
+        hazard.type === "spike-trap" &&
+        hazard.zoneUntil !== undefined &&
+        now >= hazard.zoneUntil
+      ) {
+        hazardsToRemove.add(hazard.id);
+        return;
       }
-      return true;
+
+      if (
+        hazard.type === "freeze-barrel" &&
+        hazard.variant === "zone" &&
+        hazard.zoneUntil !== undefined &&
+        now >= hazard.zoneUntil
+      ) {
+        hazardsToRemove.add(hazard.id);
+        return;
+      }
+
+      if (hazard.health > 0) return;
+
+      if (hazard.type === "explosive-barrel") {
+        explosiveQueue.push(hazard);
+        return;
+      }
+
+      if (hazard.type === "freeze-barrel") {
+        hazardsToRemove.add(hazard.id);
+        state.enemies.forEach((enemy) => {
+          const dist = Math.hypot(
+            enemy.position.x - hazard.position.x,
+            enemy.position.y - hazard.position.y
+          );
+          if (dist < ICE_BURST_RADIUS) {
+            applyEnemyEffect(enemy, "frozen", 0.12, 4500);
+            applyEnemyEffect(enemy, "slowed", 0.4, 6600);
+          }
+        });
+        hazardsToAdd.push({
+          id: uuidv4(),
+          position: { ...hazard.position },
+          type: "freeze-barrel",
+          variant: "zone",
+          health: 9999,
+          maxHealth: 9999,
+          isActive: true,
+          radius: ICE_ZONE_RADIUS,
+          activationRadius: 0,
+          activationThreshold: 0,
+          activationCharge: 0,
+          zoneUntil: now + ICE_ZONE_DURATION,
+          lastToggle: now,
+        });
+        this.spawnParticles(hazard.position, "#00E6FF", 45, "nebula", 12);
+        return;
+      }
+
+      hazardsToRemove.add(hazard.id);
     });
+
+    while (explosiveQueue.length > 0) {
+      const explosive = explosiveQueue.shift()!;
+      if (detonatedExplosives.has(explosive.id)) continue;
+      detonatedExplosives.add(explosive.id);
+      hazardsToRemove.add(explosive.id);
+
+      if (!state.explosions) state.explosions = [];
+      state.explosions.push({
+        id: uuidv4(),
+        position: { ...explosive.position },
+        radius: TNT_EXPLOSION_RADIUS,
+        timestamp: now,
+        damage: 110,
+        ownerId: "hazard",
+      });
+
+      state.enemies.forEach((enemy) => {
+        const dx = enemy.position.x - explosive.position.x;
+        const dy = enemy.position.y - explosive.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist >= TNT_KNOCKBACK_RADIUS) return;
+        const pushScale = 1 - dist / TNT_KNOCKBACK_RADIUS;
+        enemy.position.x += (dx / dist) * TNT_KNOCKBACK_FORCE * pushScale;
+        enemy.position.y += (dy / dist) * TNT_KNOCKBACK_FORCE * pushScale;
+      });
+
+      if (!state.fireTrails) state.fireTrails = [];
+      const firePatchOffsets = [
+        { x: 0, y: 0 },
+        { x: 58, y: 0 },
+        { x: -58, y: 0 },
+        { x: 0, y: 58 },
+        { x: 0, y: -58 },
+        { x: 42, y: 42 },
+        { x: -42, y: 42 },
+        { x: 42, y: -42 },
+        { x: -42, y: -42 },
+      ];
+      firePatchOffsets.forEach((offset) => {
+        state.fireTrails!.push({
+          id: uuidv4(),
+          position: {
+            x: explosive.position.x + offset.x,
+            y: explosive.position.y + offset.y,
+          },
+          timestamp: now,
+          radius: 42,
+          damage: 56,
+          ownerId: "hazard",
+        });
+      });
+
+      state.hazards.forEach((candidate) => {
+        if (candidate.type !== "explosive-barrel") return;
+        if (detonatedExplosives.has(candidate.id)) return;
+        const dist = Math.hypot(
+          candidate.position.x - explosive.position.x,
+          candidate.position.y - explosive.position.y
+        );
+        if (dist < TNT_CHAIN_RADIUS) {
+          explosiveQueue.push(candidate);
+        }
+      });
+
+      this.triggerScreenShake(15, 400);
+      this.spawnParticles(explosive.position, "#FF5500", 30, "glitch", 15);
+    }
+
+    if (hazardsToAdd.length > 0) {
+      state.hazards.push(...hazardsToAdd);
+    }
+    state.hazards = state.hazards.filter((hazard) => !hazardsToRemove.has(hazard.id));
   }
 
   private spawnParticles(
@@ -4178,6 +4754,8 @@ export class LocalGameEngine {
     if (player.health <= 0) {
       player.health = 0;
       player.status = "dead";
+      player.attachedBug = undefined;
+      player.wasShakePressed = false;
     }
   }
 

@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
 import type { UpgradeOption, UpgradeRarity } from "@shared/types";
+import { useGamepad } from "@/hooks/useGamepad";
+import { AnimatePresence, motion } from "framer-motion";
 
 const RARITY_STYLES: Record<
   UpgradeRarity,
@@ -40,13 +42,32 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
     useShallow((state) => ({
       isUpgradeModalOpen: state.isUpgradeModalOpen,
       upgradeOptions: state.upgradeOptions,
-    }))
+    })),
   );
 
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+  const [isGamepadActive, setIsGamepadActive] = useState(false);
+  const [selectedUpgradeId, setSelectedUpgradeId] = useState<string | null>(
+    null,
+  );
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const { getGamepadInput } = useGamepad();
+  const lastGamepadInput = useRef<{
+    left: boolean;
+    right: boolean;
+    up: boolean;
+    down: boolean;
+    confirm: boolean;
+  }>({
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    confirm: false,
+  });
 
   // Reset state when modal opens
   useEffect(() => {
@@ -54,6 +75,8 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
       setIsAnimatingIn(false);
       setHoveredIndex(null);
       setIsSelecting(false);
+      setSelectedUpgradeId(null);
+      setIsGamepadActive(false);
 
       // Clear any pending selection
       if (selectionTimeoutRef.current) {
@@ -81,85 +104,260 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
     (upgradeId: string) => {
       if (isSelecting) return;
 
+      setSelectedUpgradeId(upgradeId);
       setIsSelecting(true);
 
-      // Brief delay for visual feedback
+      // Longer delay so lock-in effects are visible and satisfying
       selectionTimeoutRef.current = setTimeout(() => {
         onSelectUpgrade(upgradeId);
-      }, 300);
+      }, 480);
     },
-    [isSelecting, onSelectUpgrade]
+    [isSelecting, onSelectUpgrade],
   );
+
+  // Gamepad polling for menu navigation
+  useEffect(() => {
+    if (!isUpgradeModalOpen) return;
+
+    const pollInterval = setInterval(() => {
+      const input = getGamepadInput();
+      if (!input) return;
+      setIsGamepadActive(true);
+
+      // Handle navigation
+      const current = hoveredIndex ?? 0;
+      if (
+        (input.left && !lastGamepadInput.current.left) ||
+        (input.up && !lastGamepadInput.current.up)
+      ) {
+        setHoveredIndex(Math.max(0, current - 1));
+      }
+      if (
+        (input.right && !lastGamepadInput.current.right) ||
+        (input.down && !lastGamepadInput.current.down)
+      ) {
+        setHoveredIndex(Math.min(upgradeOptions.length - 1, current + 1));
+      }
+
+      // Handle Selection
+      if (input.blink && !lastGamepadInput.current.confirm) {
+        const option = upgradeOptions[hoveredIndex ?? 0];
+        if (option) {
+          handleSelect(option.id);
+        }
+      }
+
+      lastGamepadInput.current = {
+        left: !!input.left,
+        right: !!input.right,
+        up: !!input.up,
+        down: !!input.down,
+        confirm: !!input.blink,
+      };
+    }, 100);
+
+    const handleMouseMove = () => {
+      if (isGamepadActive) {
+        setIsGamepadActive(false);
+        setHoveredIndex(null);
+      }
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [
+    getGamepadInput,
+    isUpgradeModalOpen,
+    hoveredIndex,
+    upgradeOptions,
+    handleSelect,
+    isGamepadActive,
+  ]);
 
   if (!isUpgradeModalOpen || upgradeOptions.length === 0) {
     return null;
   }
 
+  const isSelectionFxActive = isSelecting && selectedUpgradeId !== null;
+  const fanCenter = (upgradeOptions.length - 1) / 2;
+
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+    <motion.div
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50"
+      animate={
+        isSelectionFxActive
+          ? {
+              x: [0, -8, 7, -5, 3, 0],
+              y: [0, 2, -2, 1, 0],
+            }
+          : { x: 0, y: 0 }
+      }
+      transition={{ duration: 0.32, ease: "easeInOut" }}
+    >
+      <AnimatePresence>
+        {isSelectionFxActive && (
+          <>
+            <motion.div
+              className="absolute inset-0 pointer-events-none mix-blend-screen"
+              style={{
+                background:
+                  "radial-gradient(circle at 50% 45%, rgba(255,255,255,0.95) 0%, rgba(0,0,0,0) 55%)",
+              }}
+              initial={{ opacity: 0.85, scale: 0.85 }}
+              animate={{ opacity: 0, scale: 1.45 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35, ease: "easeOut" }}
+            />
+            <motion.div
+              className="absolute inset-0 pointer-events-none mix-blend-screen"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgba(255,0,110,0.35), transparent 45%, rgba(0,255,255,0.35))",
+              }}
+              initial={{ opacity: 0.7, x: -20 }}
+              animate={{ opacity: 0, x: 20 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
+            />
+          </>
+        )}
+      </AnimatePresence>
+
       {/* Title */}
-      <div
+      <motion.div
         className="mb-8"
-        style={{
-          opacity: isAnimatingIn ? 1 : 0,
-          transform: isAnimatingIn ? "translateY(0)" : "translateY(-20px)",
-          transitionProperty: "opacity, transform",
-          transitionDuration: "0.5s",
-          transitionTimingFunction: "ease-out",
-        }}
+        initial={{ opacity: 0, y: -26, scale: 0.9 }}
+        animate={{ opacity: isAnimatingIn ? 1 : 0, y: 0, scale: 1 }}
+        transition={{ duration: 0.6, type: "spring", stiffness: 180 }}
       >
-        <h2
+        <motion.h2
           className="font-press-start text-4xl md:text-5xl text-neon-yellow text-center"
-          style={{
-            textShadow: "0 0 20px #FFFF00, 0 0 40px #FFFF00",
+          animate={{
+            textShadow: [
+              "0 0 16px #FFFF00, 0 0 30px #FFFF00",
+              "0 0 32px #FFFF00, 0 0 70px #FFFF00",
+              "0 0 16px #FFFF00, 0 0 30px #FFFF00",
+            ],
+            scale: [1, 1.03, 1],
           }}
+          transition={{ duration: 1.3, repeat: Infinity, repeatDelay: 0.4 }}
         >
           LEVEL UP!
-        </h2>
-      </div>
+        </motion.h2>
+      </motion.div>
 
       {/* Cards */}
       <div className="flex flex-col md:flex-row gap-6 px-4">
         {upgradeOptions.map((option, index) => {
           const styles = RARITY_STYLES[option.rarity || "common"];
           const isHovered = hoveredIndex === index;
+          const isLockedIn = selectedUpgradeId === option.id;
+          const isDimmed = isSelecting && !isLockedIn;
+          const isOtherCardFocused = hoveredIndex !== null && !isHovered;
+          const isIdleFloating = !isHovered && !isSelecting;
+          const fanOffset = (index - fanCenter) * 42;
+          const fanRotate = (index - fanCenter) * -5;
 
           return (
-            <div
+            <motion.div
               key={`${option.id}-${index}`}
               className="relative"
-              style={{
-                opacity: isAnimatingIn ? 1 : 0,
-                transform: isAnimatingIn
-                  ? "translateY(0) scale(1)"
-                  : "translateY(40px) scale(0.8)",
-                transitionProperty: "opacity, transform",
-                transitionDuration: "0.6s",
-                transitionDelay: `${index * 0.1}s`,
-                transitionTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+              style={{ transformPerspective: "1200px" }}
+              initial={{ opacity: 0, y: 65, scale: 0.82, rotateX: 16 }}
+              animate={{
+                opacity: isAnimatingIn ? (isDimmed ? 0.45 : 1) : 0,
+                y: isAnimatingIn ? 0 : 65,
+                scale: isLockedIn ? 1.05 : 1,
+                x: hoveredIndex === null ? fanOffset : isHovered ? fanOffset : fanOffset * 0.9,
+                rotateZ: hoveredIndex === null ? fanRotate : isHovered ? fanRotate * 0.45 : fanRotate * 1.15,
+                rotateX: 0,
+              }}
+              transition={{
+                duration: 0.65,
+                delay: index * 0.12,
+                type: "spring",
+                stiffness: 120,
+                damping: 16,
               }}
             >
-              <button
+              <motion.button
                 onClick={() => handleSelect(option.id)}
-                onMouseEnter={() => setHoveredIndex(index)}
+                onMouseEnter={() => {
+                  setIsGamepadActive(false);
+                  setHoveredIndex(index);
+                }}
                 onMouseLeave={() => setHoveredIndex(null)}
                 disabled={isSelecting}
                 className="w-72 h-96 p-6 flex flex-col justify-between bg-black/80 border-2 rounded-lg cursor-pointer disabled:cursor-not-allowed group overflow-hidden relative"
+                animate={
+                  isLockedIn
+                    ? { y: -30, scale: 1.16, rotateZ: [0, -1.5, 1, 0] }
+                    : isHovered
+                      ? { y: -30, scale: 1.16, rotateZ: 0 }
+                      : { y: [0, -6, 0, 4, 0], scale: isOtherCardFocused ? 0.94 : 1, rotateZ: 0 }
+                }
+                transition={
+                  isLockedIn
+                    ? {
+                        y: { type: "spring", stiffness: 250, damping: 14 },
+                        scale: { type: "spring", stiffness: 270, damping: 13 },
+                        rotateZ: { duration: 0.35, ease: "easeOut" },
+                      }
+                    : isHovered
+                      ? {
+                          y: { type: "spring", stiffness: 280, damping: 14 },
+                          scale: {
+                            type: "spring",
+                            stiffness: 300,
+                            damping: 13,
+                          },
+                        }
+                      : {
+                          duration: 2.8,
+                          repeat: Infinity,
+                          ease: "easeInOut",
+                          delay: index * 0.2,
+                        }
+                }
                 style={{
                   borderColor: styles.borderColor,
-                  boxShadow: isHovered
-                    ? `0 0 30px ${styles.glowColor}, 0 0 60px ${styles.glowColor}20`
-                    : `0 0 15px ${styles.glowColor}40`,
-                  transform: isHovered
-                    ? "translateY(-12px) scale(1.05)"
-                    : `translateY(${
-                        Math.sin(Date.now() / 1000 + index) * 5
-                      }px)`, // Subtle float
-                  transitionProperty: "transform, box-shadow",
-                  transitionDuration: "0.3s",
-                  transitionTimingFunction: "ease-out",
+                  boxShadow: isLockedIn
+                    ? `0 0 45px ${styles.glowColor}, 0 0 140px ${styles.glowColor}40`
+                    : isHovered
+                      ? `0 0 40px ${styles.glowColor}, 0 0 90px ${styles.glowColor}25`
+                      : `0 0 15px ${styles.glowColor}40`,
+                  filter: isIdleFloating ? "saturate(1.05)" : "saturate(1.15)",
+                  zIndex: isLockedIn ? 40 : isHovered ? 30 : isOtherCardFocused ? 5 : 10,
                 }}
               >
+                <AnimatePresence>
+                  {isLockedIn && (
+                    <>
+                      <motion.div
+                        className="absolute inset-0 pointer-events-none rounded-lg border-2"
+                        style={{ borderColor: styles.glowColor }}
+                        initial={{ scale: 1, opacity: 0.9 }}
+                        animate={{ scale: 1.24, opacity: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.45, ease: "easeOut" }}
+                      />
+                      <motion.div
+                        className="absolute -inset-6 pointer-events-none rounded-2xl"
+                        style={{
+                          background: `radial-gradient(circle, ${styles.glowColor}50 0%, transparent 65%)`,
+                        }}
+                        initial={{ opacity: 0.7, scale: 0.85 }}
+                        animate={{ opacity: 0, scale: 1.3 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                      />
+                    </>
+                  )}
+                </AnimatePresence>
+
                 {/* Visual Shine Effect for Rare Upgrades */}
                 {(option.rarity === "legendary" ||
                   option.rarity === "boss" ||
@@ -214,22 +412,26 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
                     style={{
                       borderColor: styles.borderColor,
                       color: styles.textColor,
-                      backgroundColor: isHovered
+                      backgroundColor: isLockedIn
+                        ? `${styles.glowColor}45`
+                        : isHovered
                         ? `${styles.glowColor}30`
                         : "transparent",
-                      boxShadow: isHovered
-                        ? `0 0 15px ${styles.glowColor}`
+                      boxShadow: isLockedIn
+                        ? `0 0 25px ${styles.glowColor}`
+                        : isHovered
+                          ? `0 0 15px ${styles.glowColor}`
                         : "none",
                     }}
                   >
-                    SELECT
+                    {isLockedIn ? "LOCKED IN!" : "SELECT"}
                   </div>
                 </div>
-              </button>
-            </div>
+              </motion.button>
+            </motion.div>
           );
         })}
       </div>
-    </div>
+    </motion.div>
   );
 }

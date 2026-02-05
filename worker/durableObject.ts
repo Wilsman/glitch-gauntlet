@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion, ChainLightning, Pet } from '@shared/types';
+import type { GameState, Player, InputState, UpgradeOption, Enemy, Projectile, XpOrb, Teleporter, DamageNumber, CollectedUpgrade, StatusEffect, Explosion, ChainLightning, Pet, Turret } from '@shared/types';
 import { getRandomUpgrades } from '@shared/upgrades';
 import { applyUpgradeEffect } from '@shared/upgradeEffects';
 import { createEnemy, selectRandomEnemyType } from '@shared/enemyConfig';
@@ -60,6 +60,7 @@ export class GlobalDurableObject extends DurableObject {
             enemies: [],
             projectiles: [],
             xpOrbs: [],
+            turrets: [],
             wave: 1,
             teleporter: null,
         };
@@ -127,6 +128,11 @@ export class GlobalDurableObject extends DurableObject {
             gameState.pets.push(newPet);
         }
 
+        // Spawn toaster turret if turret upgrade selected
+        if (choice.type === 'turret' && gameState) {
+            this.spawnTurretForPlayer(gameState, player, 'toaster');
+        }
+
         // Track collected upgrade
         if (!player.collectedUpgrades) player.collectedUpgrades = [];
         const existing = player.collectedUpgrades.find(u => u.type === choice.type);
@@ -143,6 +149,35 @@ export class GlobalDurableObject extends DurableObject {
         }
         if (gameState) gameState.levelingUpPlayerId = null;
         this.upgradeChoices.delete(playerId);
+    }
+    private spawnTurretForPlayer(state: GameState, player: Player, style: Turret['style'] = 'standard') {
+        if (!state.turrets) state.turrets = [];
+        const playerTurrets = state.turrets.filter((t) =>
+            style === 'toaster'
+                ? t.ownerId === player.id && t.style === 'toaster'
+                : t.ownerId === player.id && t.style !== 'toaster'
+        );
+        if (playerTurrets.length >= 3) return;
+
+        const now = Date.now();
+        const turretAttackSpeed =
+            style === 'toaster'
+                ? Math.max(280, player.attackSpeed * 1.25)
+                : Math.max(300, player.attackSpeed * 1.5);
+        const newTurret: Turret = {
+            id: uuidv4(),
+            ownerId: player.id,
+            position: { ...player.position },
+            health: style === 'toaster' ? 70 : 50,
+            maxHealth: style === 'toaster' ? 70 : 50,
+            damage: (style === 'toaster' ? 10 : 8) + player.level * 2,
+            attackSpeed: turretAttackSpeed,
+            attackCooldown: 0,
+            range: style === 'toaster' ? 340 : 300,
+            expiresAt: now + 20000,
+            style,
+        };
+        state.turrets.push(newTurret);
     }
     async getUpgradeOptions(gameId: string): Promise<UpgradeOption[] | null> {
         const gameState = this.gameStates.get(gameId);
@@ -170,6 +205,7 @@ export class GlobalDurableObject extends DurableObject {
             this.updatePlayerEffects(state, delta);
             this.updateRevives(state, delta);
             this.updatePets(state, now, delta, timeFactor);
+            this.updateTurrets(state, now, delta);
             this.updateEnemyAI(state, now, delta, timeFactor);
             this.updatePlayerAttacks(state, delta);
             this.updateProjectiles(state, now, delta, timeFactor);
@@ -283,6 +319,69 @@ export class GlobalDurableObject extends DurableObject {
             }
 
             return pet.health > 0;
+        });
+    }
+    updateTurrets(state: GameState, now: number, delta: number) {
+        if (!state.turrets) state.turrets = [];
+
+        state.turrets = state.turrets.filter((turret) => {
+            if (now >= turret.expiresAt) return false;
+            if (turret.health <= 0) return false;
+            return true;
+        });
+
+        state.turrets.forEach((turret) => {
+            turret.attackCooldown -= delta;
+            const hasTargets = state.enemies.length > 0;
+            if (turret.attackCooldown <= 0 && hasTargets) {
+                const owner = state.players.find((p) => p.id === turret.ownerId);
+                if (!owner) return;
+
+                turret.attackCooldown = turret.attackSpeed;
+                const targetsInRange = state.enemies.filter((target) => {
+                    const dist = Math.hypot(
+                        target.position.x - turret.position.x,
+                        target.position.y - turret.position.y
+                    );
+                    return dist <= turret.range;
+                });
+
+                if (targetsInRange.length > 0) {
+                    const target = targetsInRange[0];
+                    const baseAngle = Math.atan2(
+                        target.position.y - turret.position.y,
+                        target.position.x - turret.position.x
+                    );
+
+                    const shots = Math.max(1, owner.projectilesPerShot || 1);
+                    const spread = (10 * Math.PI) / 180;
+
+                    for (let i = 0; i < shots; i++) {
+                        const offset = (i - (shots - 1) / 2) * spread;
+                        const angle = baseAngle + offset;
+                        const isCrit = Math.random() < (owner.critChance || 0);
+                        const baseDamage = turret.damage + (owner.projectileDamage - 10);
+                        const finalDamage = Math.round(
+                            baseDamage * (isCrit ? owner.critMultiplier || 2 : 1)
+                        );
+
+                        const projectile: Projectile = {
+                            id: uuidv4(),
+                            ownerId: turret.ownerId,
+                            position: { ...turret.position },
+                            velocity: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
+                            damage: finalDamage,
+                            isCrit,
+                            kind: turret.style === 'toaster' ? 'toast' : 'bullet',
+                            radius: 5,
+                            hitEnemies: [],
+                            pierceRemaining: owner.pierceCount || 0,
+                            ricochetRemaining: owner.ricochetCount || 0,
+                        };
+                        state.projectiles.push(projectile);
+                    }
+                }
+            }
         });
     }
     updateEnemyAI(state: GameState, now: number, delta: number, timeFactor: number) {
@@ -541,7 +640,7 @@ export class GlobalDurableObject extends DurableObject {
             }
 
             // Homing behavior for bullets
-            if (proj.kind === 'bullet' && owner && owner.homingStrength && owner.homingStrength > 0) {
+            if (proj.kind !== 'bananarang' && owner && owner.homingStrength && owner.homingStrength > 0) {
                 const nearestEnemy = state.enemies.reduce((closest, enemy) => {
                     const dist = Math.hypot(enemy.position.x - proj.position.x, enemy.position.y - proj.position.y);
                     return dist < closest.dist ? { enemy, dist } : closest;

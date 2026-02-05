@@ -29,6 +29,9 @@ import {
 } from "@/lib/progressionStorage";
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 
+import { useGamepad } from "@/hooks/useGamepad";
+import { useRef } from "react";
+
 export function HomePage() {
   const navigate = useNavigate();
   const [isHosting, setIsHosting] = useState(false);
@@ -38,12 +41,93 @@ export function HomePage() {
   const [showNameDialog, setShowNameDialog] = useState(false);
   const [selectedCharacter, setSelectedCharacter] =
     useState<CharacterType | null>(null);
-  const [unlockedCharacter, setUnlockedCharacter] =
-    useState<CharacterType | null>(null);
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
+  const [unlockedCharacter, setUnlockedCharacter] =
+    useState<CharacterType | null>(null);
+  const [focusedButtonIndex, setFocusedButtonIndex] = useState(0);
+  const { getGamepadInput } = useGamepad();
+  const lastGamepadInput = useRef<{
+    up: boolean;
+    down: boolean;
+    confirm: boolean;
+  }>({
+    up: false,
+    down: false,
+    confirm: false,
+  });
 
   useSyncAudioSettings();
+
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      const input = getGamepadInput();
+      if (input) {
+        // Handle vertical navigation
+        if (input.up && !lastGamepadInput.current.up) {
+          setFocusedButtonIndex((prev) => Math.max(0, prev - 1));
+        }
+        if (input.down && !lastGamepadInput.current.down) {
+          setFocusedButtonIndex((prev) => Math.min(2, prev + 1));
+        }
+
+        // Handle Confirm (A button)
+        if (input.blink && !lastGamepadInput.current.confirm) {
+          if (!showCharacterSelect && !showNameDialog) {
+            if (focusedButtonIndex === 0) {
+              handleLocalGame();
+            } else {
+              toast.info("Feature coming soon!", {
+                description:
+                  "Multiplayer hosting and joining will be available in a future update.",
+              });
+            }
+          }
+          lastGamepadInput.current.confirm = true;
+        } else if (!input.blink) {
+          lastGamepadInput.current.confirm = false;
+        }
+
+        lastGamepadInput.current.up = !!input.up;
+        lastGamepadInput.current.down = !!input.down;
+      }
+    }, 100);
+
+    const handleMouseMove = () => setFocusedButtonIndex(-1); // Clear focus on mouse move
+    window.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [
+    getGamepadInput,
+    showCharacterSelect,
+    showNameDialog,
+    focusedButtonIndex,
+  ]);
+
+  useEffect(() => {
+    const handleConnected = (e: GamepadEvent) => {
+      toast.info(`Controller Detected: ${e.gamepad.id}`, {
+        description:
+          "You can now use your controller to play and navigate menus.",
+      });
+    };
+    window.addEventListener("gamepadconnected", handleConnected);
+
+    // Check if one is already connected
+    const pads = navigator.getGamepads();
+    if (Array.from(pads).some((p) => p !== null)) {
+      const p = Array.from(pads).find((p) => p !== null);
+      if (p) {
+        toast.info(`Controller Connected: ${p.id}`);
+      }
+    }
+
+    return () =>
+      window.removeEventListener("gamepadconnected", handleConnected);
+  }, []);
 
   useEffect(() => {
     resetGameState();
@@ -284,7 +368,11 @@ export function HomePage() {
             <Button
               onClick={handleLocalGame}
               disabled={isHosting || isJoining}
-              className="w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-neon-yellow text-neon-yellow h-16 hover:bg-neon-yellow hover:text-black hover:shadow-[0_0_30px_rgba(255,255,0,0.5)] transition-all duration-300"
+              className={`w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-neon-yellow text-neon-yellow h-16 transition-all duration-300 ${
+                focusedButtonIndex === 0
+                  ? "bg-neon-yellow text-black shadow-[0_0_30px_rgba(255,255,0,0.5)] scale-105"
+                  : "hover:bg-neon-yellow hover:text-black hover:shadow-[0_0_30px_rgba(255,255,0,0.5)]"
+              }`}
             >
               Play Local
             </Button>
@@ -296,7 +384,11 @@ export function HomePage() {
                 <motion.div>
                   <Button
                     disabled
-                    className="w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-gray-600 text-gray-500 h-16 cursor-not-allowed opacity-50 transition-all duration-300"
+                    className={`w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 h-16 transition-all duration-300 ${
+                      focusedButtonIndex === 1
+                        ? "border-neon-yellow bg-neon-yellow/20 text-neon-yellow shadow-[0_0_20px_rgba(255,255,0,0.3)] scale-105"
+                        : "border-gray-600 text-gray-500 cursor-not-allowed opacity-50"
+                    }`}
                   >
                     Host Game
                   </Button>
@@ -312,7 +404,11 @@ export function HomePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.4 }}
-            className="flex items-center space-x-4"
+            className={`flex items-center space-x-4 p-2 rounded-lg transition-all duration-300 ${
+              focusedButtonIndex === 2
+                ? "bg-white/5 border border-neon-cyan shadow-[0_0_15px_rgba(0,255,255,0.2)] scale-105"
+                : ""
+            }`}
           >
             <TooltipProvider>
               <Tooltip>

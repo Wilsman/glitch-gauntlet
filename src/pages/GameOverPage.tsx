@@ -1,21 +1,55 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
-import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
-import { AudioManager } from '@/lib/audio/AudioManager';
-import { Button } from '@/components/ui/button';
-import { SettingsPanel } from '@/components/SettingsPanel';
-import { Loader2 } from 'lucide-react';
-import type { ApiResponse, GameState } from '@shared/types';
-import { motion } from 'framer-motion';
+import React, { useEffect, useState } from "react";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
+import { AudioManager } from "@/lib/audio/AudioManager";
+import { Button } from "@/components/ui/button";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { Loader2 } from "lucide-react";
+import type { ApiResponse, GameState } from "@shared/types";
+import { motion } from "framer-motion";
+import { useGamepad } from "@/hooks/useGamepad";
+import { useRef } from "react";
+
 export default function GameOverPage() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCoinAnimation, setShowCoinAnimation] = useState(false);
-  const [coins, setCoins] = useState<Array<{ id: number; x: number; y: number }>>([]);
+  const [coins, setCoins] = useState<
+    Array<{ id: number; x: number; y: number }>
+  >([]);
+
+  const [isGamepadFocused, setIsGamepadFocused] = useState(false);
+  const { getGamepadInput } = useGamepad();
+  const lastGamepadConfirm = useRef(false);
 
   useSyncAudioSettings();
+
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      const input = getGamepadInput();
+      if (input) {
+        setIsGamepadFocused(true);
+        if (input.blink) {
+          if (!lastGamepadConfirm.current && !showCoinAnimation) {
+            handleInsertCoin();
+          }
+          lastGamepadConfirm.current = true;
+        } else {
+          lastGamepadConfirm.current = false;
+        }
+      }
+    }, 100);
+
+    const handleMouseMove = () => setIsGamepadFocused(false);
+    window.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [getGamepadInput, showCoinAnimation]);
   useEffect(() => {
     const audio = AudioManager.getInstance();
     void audio.resume();
@@ -39,7 +73,7 @@ export default function GameOverPage() {
           setGameState(result.data);
         }
       } catch (error) {
-        console.error('Failed to fetch game state:', error);
+        console.error("Failed to fetch game state:", error);
       } finally {
         setLoading(false);
       }
@@ -49,18 +83,18 @@ export default function GameOverPage() {
 
   function handleInsertCoin() {
     setShowCoinAnimation(true);
-    
+
     // Generate multiple coins
     const newCoins = Array.from({ length: 8 }, (_, i) => ({
       id: Date.now() + i,
       x: Math.random() * 100 - 50,
-      y: Math.random() * 100 - 50
+      y: Math.random() * 100 - 50,
     }));
     setCoins(newCoins);
-    
+
     // Navigate after animation
     setTimeout(() => {
-      navigate('/');
+      navigate("/");
     }, 1200);
   }
   return (
@@ -71,9 +105,9 @@ export default function GameOverPage() {
         <motion.h1
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.5, type: 'spring' }}
+          transition={{ duration: 0.5, type: "spring" }}
           className="font-press-start text-6xl md:text-8xl text-red-500 animate-glitch"
-          style={{ textShadow: '0 0 10px #ff0000, 0 0 20px #ff0000' }}
+          style={{ textShadow: "0 0 10px #ff0000, 0 0 20px #ff0000" }}
         >
           GAME OVER
         </motion.h1>
@@ -88,11 +122,15 @@ export default function GameOverPage() {
               className="font-vt323 text-3xl text-white space-y-4"
             >
               <p>
-                YOU SURVIVED UNTIL WAVE:{' '}
-                <span className="font-press-start text-4xl text-neon-yellow">{gameState.wave}</span>
+                YOU SURVIVED UNTIL WAVE:{" "}
+                <span className="font-press-start text-4xl text-neon-yellow">
+                  {gameState.wave}
+                </span>
               </p>
               <div className="pt-8 space-y-8">
-                <h2 className="font-press-start text-2xl text-neon-pink mb-4">FINAL STATS</h2>
+                <h2 className="font-press-start text-2xl text-neon-pink mb-4">
+                  FINAL STATS
+                </h2>
                 {gameState.players.map((player, index) => (
                   <motion.div
                     key={player.id}
@@ -102,103 +140,247 @@ export default function GameOverPage() {
                     className="bg-black/60 border-2 p-6 rounded-lg"
                     style={{ borderColor: player.color }}
                   >
-                    <h3 className="font-press-start text-2xl mb-4" style={{ color: player.color }}>
+                    <h3
+                      className="font-press-start text-2xl mb-4"
+                      style={{ color: player.color }}
+                    >
                       PLAYER {player.id.substring(0, 2).toUpperCase()}
                     </h3>
                     <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-left text-xl">
-                      <div><span className="text-neon-cyan">Level:</span> <span className="text-white">{player.level}</span></div>
-                      <div><span className="text-neon-cyan">XP:</span> <span className="text-white">{player.xp}</span></div>
-                      <div><span className="text-neon-cyan">Health:</span> <span className="text-white">{player.health}/{player.maxHealth}</span></div>
-                      <div><span className="text-neon-cyan">Speed:</span> <span className="text-white">{player.speed.toFixed(1)}</span></div>
-                      <div><span className="text-neon-cyan">Damage:</span> <span className="text-white">{player.projectileDamage}</span></div>
-                      <div><span className="text-neon-cyan">Attack Speed:</span> <span className="text-white">{(1000 / player.attackSpeed).toFixed(1)}/s</span></div>
-                      <div><span className="text-neon-cyan">Multishot:</span> <span className="text-white">x{player.projectilesPerShot}</span></div>
-                      <div><span className="text-neon-cyan">Crit Chance:</span> <span className="text-white">{(player.critChance * 100).toFixed(0)}%</span></div>
-                      <div><span className="text-neon-cyan">Crit Damage:</span> <span className="text-white">{player.critMultiplier.toFixed(1)}x</span></div>
-                      <div><span className="text-neon-cyan">Life Steal:</span> <span className="text-white">{(player.lifeSteal * 100).toFixed(0)}%</span></div>
-                      <div><span className="text-neon-cyan">Pickup Radius:</span> <span className="text-white">{player.pickupRadius}</span></div>
+                      <div>
+                        <span className="text-neon-cyan">Level:</span>{" "}
+                        <span className="text-white">{player.level}</span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">XP:</span>{" "}
+                        <span className="text-white">{player.xp}</span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Health:</span>{" "}
+                        <span className="text-white">
+                          {player.health}/{player.maxHealth}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Speed:</span>{" "}
+                        <span className="text-white">
+                          {player.speed.toFixed(1)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Damage:</span>{" "}
+                        <span className="text-white">
+                          {player.projectileDamage}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Attack Speed:</span>{" "}
+                        <span className="text-white">
+                          {(1000 / player.attackSpeed).toFixed(1)}/s
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Multishot:</span>{" "}
+                        <span className="text-white">
+                          x{player.projectilesPerShot}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Crit Chance:</span>{" "}
+                        <span className="text-white">
+                          {(player.critChance * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Crit Damage:</span>{" "}
+                        <span className="text-white">
+                          {player.critMultiplier.toFixed(1)}x
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Life Steal:</span>{" "}
+                        <span className="text-white">
+                          {(player.lifeSteal * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-neon-cyan">Pickup Radius:</span>{" "}
+                        <span className="text-white">
+                          {player.pickupRadius}
+                        </span>
+                      </div>
                       {player.armor && player.armor > 0 && (
-                        <div><span className="text-neon-cyan">Armor:</span> <span className="text-white">{(player.armor * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Armor:</span>{" "}
+                          <span className="text-white">
+                            {(player.armor * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.dodge && player.dodge > 0 && (
-                        <div><span className="text-neon-cyan">Dodge:</span> <span className="text-white">{(player.dodge * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Dodge:</span>{" "}
+                          <span className="text-white">
+                            {(player.dodge * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.regeneration && player.regeneration > 0 && (
-                        <div><span className="text-neon-cyan">Regen:</span> <span className="text-white">{player.regeneration.toFixed(1)}/s</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Regen:</span>{" "}
+                          <span className="text-white">
+                            {player.regeneration.toFixed(1)}/s
+                          </span>
+                        </div>
                       )}
                       {player.thorns && player.thorns > 0 && (
-                        <div><span className="text-neon-cyan">Thorns:</span> <span className="text-white">{(player.thorns * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Thorns:</span>{" "}
+                          <span className="text-white">
+                            {(player.thorns * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.shield && player.shield > 0 && (
-                        <div><span className="text-neon-cyan">Shield:</span> <span className="text-white">{player.shield}/{player.maxShield}</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Shield:</span>{" "}
+                          <span className="text-white">
+                            {player.shield}/{player.maxShield}
+                          </span>
+                        </div>
                       )}
                       {player.fireDamage && player.fireDamage > 0 && (
-                        <div><span className="text-neon-cyan">Fire DoT:</span> <span className="text-white">{(player.fireDamage * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Fire DoT:</span>{" "}
+                          <span className="text-white">
+                            {(player.fireDamage * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.poisonDamage && player.poisonDamage > 0 && (
-                        <div><span className="text-neon-cyan">Poison DoT:</span> <span className="text-white">{(player.poisonDamage * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Poison DoT:</span>{" "}
+                          <span className="text-white">
+                            {(player.poisonDamage * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.iceSlow && player.iceSlow > 0 && (
-                        <div><span className="text-neon-cyan">Ice Slow:</span> <span className="text-white">{(player.iceSlow * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Ice Slow:</span>{" "}
+                          <span className="text-white">
+                            {(player.iceSlow * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.explosionDamage && player.explosionDamage > 0 && (
-                        <div><span className="text-neon-cyan">Explosion:</span> <span className="text-white">{player.explosionDamage.toFixed(1)}x</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Explosion:</span>{" "}
+                          <span className="text-white">
+                            {player.explosionDamage.toFixed(1)}x
+                          </span>
+                        </div>
                       )}
                       {player.pierceCount && player.pierceCount > 0 && (
-                        <div><span className="text-neon-cyan">Pierce:</span> <span className="text-white">{player.pierceCount}</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Pierce:</span>{" "}
+                          <span className="text-white">
+                            {player.pierceCount}
+                          </span>
+                        </div>
                       )}
                       {player.chainCount && player.chainCount > 0 && (
-                        <div><span className="text-neon-cyan">Chain:</span> <span className="text-white">{player.chainCount}</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Chain:</span>{" "}
+                          <span className="text-white">
+                            {player.chainCount}
+                          </span>
+                        </div>
                       )}
                       {player.ricochetCount && player.ricochetCount > 0 && (
-                        <div><span className="text-neon-cyan">Ricochet:</span> <span className="text-white">{player.ricochetCount}</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Ricochet:</span>{" "}
+                          <span className="text-white">
+                            {player.ricochetCount}
+                          </span>
+                        </div>
                       )}
                       {player.homingStrength && player.homingStrength > 0 && (
-                        <div><span className="text-neon-cyan">Homing:</span> <span className="text-white">{(player.homingStrength * 100).toFixed(0)}%</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Homing:</span>{" "}
+                          <span className="text-white">
+                            {(player.homingStrength * 100).toFixed(0)}%
+                          </span>
+                        </div>
                       )}
                       {player.knockbackForce && player.knockbackForce > 0 && (
-                        <div><span className="text-neon-cyan">Knockback:</span> <span className="text-white">{player.knockbackForce.toFixed(0)}</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Knockback:</span>{" "}
+                          <span className="text-white">
+                            {player.knockbackForce.toFixed(0)}
+                          </span>
+                        </div>
                       )}
                       {player.hasBananarang && (
-                        <div><span className="text-neon-cyan">Bananarangs:</span> <span className="text-white">x{player.bananarangsPerShot || 1}</span></div>
+                        <div>
+                          <span className="text-neon-cyan">Bananarangs:</span>{" "}
+                          <span className="text-white">
+                            x{player.bananarangsPerShot || 1}
+                          </span>
+                        </div>
                       )}
                       {player.hasPet && (
-                        <div className="col-span-2"><span className="text-neon-cyan">Pet:</span> <span className="text-white">Active 🐾</span></div>
+                        <div className="col-span-2">
+                          <span className="text-neon-cyan">Pet:</span>{" "}
+                          <span className="text-white">Active 🐾</span>
+                        </div>
                       )}
                     </div>
-                    {player.collectedUpgrades && player.collectedUpgrades.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-700">
-                        <h4 className="font-press-start text-lg text-neon-yellow mb-2">
-                          UPGRADES ({player.collectedUpgrades.length})
-                        </h4>
-                        <div className="flex flex-wrap gap-2">
-                          {player.collectedUpgrades.map((upgrade, idx) => (
-                            <div
-                              key={idx}
-                              className="px-3 py-1 rounded border text-sm"
-                              style={{
-                                borderColor: 
-                                  upgrade.rarity === 'legendary' ? '#FFD700' :
-                                  upgrade.rarity === 'boss' ? '#FF00FF' :
-                                  upgrade.rarity === 'lunar' ? '#00FFFF' :
-                                  upgrade.rarity === 'void' ? '#9333EA' :
-                                  upgrade.rarity === 'uncommon' ? '#10B981' :
-                                  '#6B7280',
-                                color:
-                                  upgrade.rarity === 'legendary' ? '#FFD700' :
-                                  upgrade.rarity === 'boss' ? '#FF00FF' :
-                                  upgrade.rarity === 'lunar' ? '#00FFFF' :
-                                  upgrade.rarity === 'void' ? '#9333EA' :
-                                  upgrade.rarity === 'uncommon' ? '#10B981' :
-                                  '#9CA3AF'
-                              }}
-                            >
-                              {upgrade.emoji} {upgrade.title} {upgrade.count > 1 && `x${upgrade.count}`}
-                            </div>
-                          ))}
+                    {player.collectedUpgrades &&
+                      player.collectedUpgrades.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-700">
+                          <h4 className="font-press-start text-lg text-neon-yellow mb-2">
+                            UPGRADES ({player.collectedUpgrades.length})
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {player.collectedUpgrades.map((upgrade, idx) => (
+                              <div
+                                key={idx}
+                                className="px-3 py-1 rounded border text-sm"
+                                style={{
+                                  borderColor:
+                                    upgrade.rarity === "legendary"
+                                      ? "#FFD700"
+                                      : upgrade.rarity === "boss"
+                                        ? "#FF00FF"
+                                        : upgrade.rarity === "lunar"
+                                          ? "#00FFFF"
+                                          : upgrade.rarity === "void"
+                                            ? "#9333EA"
+                                            : upgrade.rarity === "uncommon"
+                                              ? "#10B981"
+                                              : "#6B7280",
+                                  color:
+                                    upgrade.rarity === "legendary"
+                                      ? "#FFD700"
+                                      : upgrade.rarity === "boss"
+                                        ? "#FF00FF"
+                                        : upgrade.rarity === "lunar"
+                                          ? "#00FFFF"
+                                          : upgrade.rarity === "void"
+                                            ? "#9333EA"
+                                            : upgrade.rarity === "uncommon"
+                                              ? "#10B981"
+                                              : "#9CA3AF",
+                                }}
+                              >
+                                {upgrade.emoji} {upgrade.title}{" "}
+                                {upgrade.count > 1 && `x${upgrade.count}`}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
                   </motion.div>
                 ))}
               </div>
@@ -211,40 +393,44 @@ export default function GameOverPage() {
           transition={{ delay: 0.8, duration: 0.5 }}
           className="relative"
         >
-          <Button 
+          <Button
             onClick={handleInsertCoin}
             disabled={showCoinAnimation}
-            className="w-64 font-press-start text-lg bg-transparent border-2 border-neon-yellow text-neon-yellow h-16 hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow transition-all duration-300 disabled:opacity-50"
+            className={`w-64 font-press-start text-lg bg-transparent border-2 border-neon-yellow text-neon-yellow h-16 transition-all duration-300 disabled:opacity-50 ${
+              isGamepadFocused
+                ? "bg-neon-yellow text-black shadow-glow-yellow scale-105"
+                : "hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow"
+            }`}
           >
-            {showCoinAnimation ? 'INSERTING...' : '🪙 INSERT COIN'}
+            {showCoinAnimation ? "INSERTING..." : "🪙 INSERT COIN"}
           </Button>
-          
+
           {showCoinAnimation && (
             <div className="absolute inset-0 pointer-events-none overflow-visible">
               {coins.map((coin) => (
                 <motion.div
                   key={coin.id}
-                  initial={{ 
-                    x: coin.x, 
-                    y: coin.y, 
+                  initial={{
+                    x: coin.x,
+                    y: coin.y,
                     scale: 0,
                     rotate: 0,
-                    opacity: 1
+                    opacity: 1,
                   }}
-                  animate={{ 
-                    x: 0, 
-                    y: -200, 
+                  animate={{
+                    x: 0,
+                    y: -200,
                     scale: [0, 1.5, 1],
                     rotate: 720,
-                    opacity: [1, 1, 0]
+                    opacity: [1, 1, 0],
                   }}
-                  transition={{ 
+                  transition={{
                     duration: 1,
-                    ease: 'easeOut'
+                    ease: "easeOut",
                   }}
                   className="absolute left-1/2 top-1/2 text-4xl"
                   style={{
-                    textShadow: '0 0 20px #FFD700, 0 0 40px #FFD700'
+                    textShadow: "0 0 20px #FFD700, 0 0 40px #FFD700",
                   }}
                 >
                   🪙
@@ -261,4 +447,3 @@ export default function GameOverPage() {
     </main>
   );
 }
-

@@ -30,6 +30,63 @@ const WAVE_DURATION = 20000;
 const VAMPIRE_DRAIN_STOPS = [0, "#FF000055", 0.7, "#FF000022", 1, "#FF000000"];
 const LOW_HEALTH_VIGNETTE_STOPS = [0, "transparent", 1, "rgba(255, 0, 0, 0.2)"];
 
+const spriteImageCache = new Map<string, HTMLImageElement | null>();
+const spriteImagePromiseCache = new Map<string, Promise<HTMLImageElement | null>>();
+const animatedSpriteCache = new Map<string, HTMLImageElement[]>();
+const animatedSpritePromiseCache = new Map<string, Promise<HTMLImageElement[]>>();
+
+function loadSpriteImage(url: string): Promise<HTMLImageElement | null> {
+  const cached = spriteImageCache.get(url);
+  if (cached !== undefined) return Promise.resolve(cached);
+
+  const existingPromise = spriteImagePromiseCache.get(url);
+  if (existingPromise) return existingPromise;
+
+  const loadPromise = new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new window.Image();
+    img.src = url;
+    img.onload = () => {
+      spriteImageCache.set(url, img);
+      spriteImagePromiseCache.delete(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      spriteImageCache.set(url, null);
+      spriteImagePromiseCache.delete(url);
+      resolve(null);
+    };
+  });
+
+  spriteImagePromiseCache.set(url, loadPromise);
+  return loadPromise;
+}
+
+function loadAnimatedSpriteImages(
+  framePath: string,
+  frames: number,
+): Promise<HTMLImageElement[]> {
+  const cacheKey = `${framePath}|${frames}`;
+  const cached = animatedSpriteCache.get(cacheKey);
+  if (cached) return Promise.resolve(cached);
+
+  const existingPromise = animatedSpritePromiseCache.get(cacheKey);
+  if (existingPromise) return existingPromise;
+
+  const loadPromise = Promise.all(
+    Array.from({ length: frames }, (_, i) =>
+      loadSpriteImage(framePath.replace("{i}", i.toString())),
+    ),
+  ).then((images) => {
+    const resolved = images.filter((img): img is HTMLImageElement => !!img);
+    animatedSpriteCache.set(cacheKey, resolved);
+    animatedSpritePromiseCache.delete(cacheKey);
+    return resolved;
+  });
+
+  animatedSpritePromiseCache.set(cacheKey, loadPromise);
+  return loadPromise;
+}
+
 const useSprite = (url?: string) => {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
 
@@ -38,10 +95,15 @@ const useSprite = (url?: string) => {
       setImage(null);
       return;
     }
-    const img = new window.Image();
-    img.src = url;
-    img.onload = () => setImage(img);
-    img.onerror = () => setImage(null);
+    let cancelled = false;
+    void loadSpriteImage(url).then((loadedImage) => {
+      if (!cancelled) {
+        setImage(loadedImage);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [url]);
 
   return image;
@@ -55,28 +117,15 @@ const useAnimatedSprite = (framePath?: string, frames?: number) => {
       setImages([]);
       return;
     }
-
-    const loadedImages: HTMLImageElement[] = [];
-    let loadedCount = 0;
-
-    for (let i = 0; i < frames; i++) {
-      const img = new window.Image();
-      img.src = framePath.replace("{i}", i.toString());
-      img.onload = () => {
-        loadedCount++;
-        if (loadedCount === frames) {
-          setImages(loadedImages);
-        }
-      };
-      img.onerror = (e) => {
-        console.error(`Failed to load frame ${i}`, e);
-        loadedCount++;
-        if (loadedCount === frames) {
-          setImages(loadedImages);
-        }
-      };
-      loadedImages[i] = img;
-    }
+    let cancelled = false;
+    void loadAnimatedSpriteImages(framePath, frames).then((loadedImages) => {
+      if (!cancelled) {
+        setImages(loadedImages);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [framePath, frames]);
 
   return images;
@@ -101,104 +150,232 @@ const RenderParticles = memo(({ particles }: { particles: Particle[] }) => {
   );
 });
 
-const RenderHazards = memo(({ hazards }: { hazards: Hazard[] }) => {
+const RenderHazards = memo(({ hazards, now }: { hazards: Hazard[]; now: number }) => {
   return (
     <Group listening={false}>
-      {hazards.map((h) => (
+      {hazards.map((h) => {
+        const chargeProgress =
+          h.activationThreshold && h.activationThreshold > 0
+            ? Math.max(0, Math.min(1, (h.activationCharge || 0) / h.activationThreshold))
+            : 0;
+        const activationRadius =
+          h.activationRadius ||
+          (h.type === "spike-trap" ? 130 : h.type === "freeze-barrel" ? 122 : 112);
+
+        return (
         <Group key={h.id} x={h.position.x} y={h.position.y}>
-          {h.type === "spike-trap" ? (
+          {h.type === "explosive-barrel" && (
             <Group>
+              <Circle
+                radius={activationRadius}
+                fill="#FF6A00"
+                opacity={0.05 + Math.sin(now / 200) * 0.02}
+                stroke="#FFB066"
+                strokeWidth={2}
+              />
+              {chargeProgress > 0 && (
+                <Ring
+                  innerRadius={activationRadius * (0.72 - 0.28 * chargeProgress)}
+                  outerRadius={activationRadius * 0.78}
+                  fill="#FFC470"
+                  opacity={0.12 + chargeProgress * 0.25}
+                />
+              )}
+              <Ring
+                innerRadius={19}
+                outerRadius={23}
+                fill="#FF6A00"
+                opacity={0.18 + Math.sin(now / 120) * 0.06}
+              />
+              <Rect
+                x={-17}
+                y={-17}
+                width={34}
+                height={34}
+                fill="#631005"
+                stroke="#FF9F43"
+                strokeWidth={2}
+                cornerRadius={5}
+                shadowBlur={14}
+                shadowColor="#FF3D00"
+              />
+              <Rect x={-12} y={-10} width={24} height={4} fill="#F9CE4E" rotation={22} />
+              <Rect x={-12} y={0} width={24} height={4} fill="#F9CE4E" rotation={22} />
+              <Rect x={-15} y={-26} width={30} height={10} fill="#2A0B06" cornerRadius={3} />
+              <Text text="TNT" x={-12} y={-23} fontSize={8} fill="#FFEEE0" fontFamily='"Press Start 2P"' />
+              <Text text="LINK" x={-12} y={22} fontSize={7} fill="#FFC470" fontFamily='"Press Start 2P"' />
+            </Group>
+          )}
+
+          {h.type === "freeze-barrel" && h.variant === "zone" && (
+            <Group>
+              <Circle
+                radius={h.radius || 225}
+                fill="#5EEFFF"
+                opacity={0.1 + Math.sin(now / 160) * 0.04}
+                stroke="#A5F8FF"
+                strokeWidth={2}
+              />
+              <Ring
+                innerRadius={(h.radius || 225) * 0.62}
+                outerRadius={(h.radius || 225) * 0.78}
+                fill="#9EF9FF"
+                opacity={0.15 + Math.sin(now / 140) * 0.05}
+              />
+              <Ring
+                innerRadius={(h.radius || 225) * 0.34}
+                outerRadius={(h.radius || 225) * 0.42}
+                fill="#B8FCFF"
+                opacity={0.16 + Math.sin(now / 110) * 0.08}
+              />
+              <Text
+                text="ICE FIELD"
+                x={-32}
+                y={-8}
+                fontSize={8}
+                fill="#D9FCFF"
+                fontFamily='"Press Start 2P"'
+                shadowColor="#2EE8FF"
+                shadowBlur={8}
+              />
+            </Group>
+          )}
+
+          {h.type === "freeze-barrel" && h.variant !== "zone" && (
+            <Group>
+              <Circle
+                radius={activationRadius}
+                fill="#63F3FF"
+                opacity={0.05 + Math.sin(now / 190) * 0.02}
+                stroke="#ABFBFF"
+                strokeWidth={2}
+              />
+              {chargeProgress > 0 && (
+                <Ring
+                  innerRadius={activationRadius * (0.72 - 0.28 * chargeProgress)}
+                  outerRadius={activationRadius * 0.78}
+                  fill="#B9FCFF"
+                  opacity={0.12 + chargeProgress * 0.25}
+                />
+              )}
+              <Ring
+                innerRadius={19}
+                outerRadius={23}
+                fill="#63F3FF"
+                opacity={0.2 + Math.sin(now / 130) * 0.07}
+              />
+              <Rect
+                x={-17}
+                y={-17}
+                width={34}
+                height={34}
+                fill="#053744"
+                stroke="#8DF7FF"
+                strokeWidth={2}
+                cornerRadius={6}
+                shadowBlur={12}
+                shadowColor="#2EE8FF"
+              />
+              <Line points={[-9, 0, 9, 0]} stroke="#CCFBFF" strokeWidth={2} />
+              <Line points={[0, -9, 0, 9]} stroke="#CCFBFF" strokeWidth={2} />
+              <Line points={[-6, -6, 6, 6]} stroke="#CCFBFF" strokeWidth={2} />
+              <Line points={[-6, 6, 6, -6]} stroke="#CCFBFF" strokeWidth={2} />
+              <Rect x={-15} y={-26} width={30} height={10} fill="#03212A" cornerRadius={3} />
+              <Text text="ICE" x={-10} y={-23} fontSize={8} fill="#CCFBFF" fontFamily='"Press Start 2P"' />
+              <Text text="LINK" x={-12} y={22} fontSize={7} fill="#C9FCFF" fontFamily='"Press Start 2P"' />
+            </Group>
+          )}
+
+          {h.type === "spike-trap" && (
+            <Group>
+              <Circle
+                radius={activationRadius}
+                fill="#FF6A57"
+                opacity={0.04 + Math.sin(now / 180) * 0.02}
+                stroke="#FF9D8F"
+                strokeWidth={2}
+              />
+              {chargeProgress > 0 && !h.isActive && (
+                <Ring
+                  innerRadius={activationRadius * (0.72 - 0.3 * chargeProgress)}
+                  outerRadius={activationRadius * 0.8}
+                  fill="#FFB3A8"
+                  opacity={0.1 + chargeProgress * 0.22}
+                />
+              )}
               <Rect
                 x={-20}
                 y={-20}
                 width={40}
                 height={40}
-                fill="#222222"
-                stroke="#444444"
+                fill={h.isActive ? "#3A1212" : "#2A2A2A"}
+                stroke={h.isActive ? "#FF6A57" : "#767676"}
                 strokeWidth={2}
-                cornerRadius={2}
+                cornerRadius={3}
+                shadowBlur={h.isActive ? 10 : 5}
+                shadowColor={h.isActive ? "#FF3E2E" : "#AFAFAF"}
               />
+              <Line points={[-20, -8, 20, -8]} stroke="#555555" strokeWidth={2} />
+              <Line points={[-20, 4, 20, 4]} stroke="#555555" strokeWidth={2} />
+              <Line points={[-8, -20, -8, 20]} stroke="#4B4B4B" strokeWidth={2} />
+              <Line points={[6, -20, 6, 20]} stroke="#4B4B4B" strokeWidth={2} />
+
               {h.isActive ? (
                 <Group>
-                  <Rect
-                    key={`hazard-active-${h.id}`}
-                    x={-15}
-                    y={-15}
-                    width={30}
-                    height={30}
-                    fill="#FF0000"
-                    opacity={0.3 + Math.sin(Date.now() / 100) * 0.2}
+                  <Ring
+                    innerRadius={21}
+                    outerRadius={27}
+                    fill="#FF4B35"
+                    opacity={0.16 + Math.sin(now / 100) * 0.07}
                   />
-                  <Text
-                    key={`hazard-text-${h.id}`}
-                    text="🔺"
-                    x={-12}
-                    y={-12}
-                    fontSize={24}
-                    shadowColor="#FF0000"
-                    shadowBlur={10}
+                  <Line
+                    points={[-16, -20, -10, -30, -4, -20, 2, -30, 8, -20, 14, -30, 20, -20]}
+                    stroke="#FF6A57"
+                    strokeWidth={2}
+                    closed
+                    fill="#FF3E2E"
+                    opacity={0.9}
                   />
                 </Group>
               ) : (
-                <Group>
-                  {/* Priming telegraph: Glows yellow if about to toggle (approximate based on time) */}
-                  {h.lastToggle && (Date.now() - h.lastToggle) % 5000 > 4000 ? (
-                    <Rect
-                      key={`hazard-prime-${h.id}`}
-                      x={-18}
-                      y={-18}
-                      width={36}
-                      height={36}
-                      fill="#FFFF00"
-                      opacity={0.2 + Math.sin(Date.now() / 150) * 0.1}
-                      shadowColor="#FFFF00"
-                      shadowBlur={15}
-                    />
-                  ) : null}
-                  <Text
-                    key={`hazard-idle-${h.id}`}
-                    text="◾"
-                    x={-10}
-                    y={-10}
-                    fontSize={20}
-                    fill="#444"
+                chargeProgress > 0.08 && (
+                  <Rect
+                    x={-22}
+                    y={-22}
+                    width={44}
+                    height={44}
+                    stroke="#FFD95C"
+                    strokeWidth={2}
+                    opacity={0.2 + chargeProgress * 0.4 + Math.sin(now / 150) * 0.08}
+                    cornerRadius={4}
                   />
-                </Group>
+                )
               )}
-            </Group>
-          ) : (
-            <Group>
-              <Rect
-                x={-15}
-                y={-15}
-                width={30}
-                height={30}
-                fill={h.type === "explosive-barrel" ? "#CC4400" : "#00FFFF"}
-                stroke="#FFFFFF"
-                strokeWidth={2}
-                cornerRadius={4}
-                shadowBlur={h.type === "explosive-barrel" ? 10 : 5}
-                shadowColor={
-                  h.type === "explosive-barrel" ? "#FF0000" : "#00FFFF"
-                }
+              <Rect x={-18} y={-30} width={36} height={10} fill="#171717" cornerRadius={3} />
+              <Text
+                text={h.isActive ? "SLAM" : "WALL"}
+                x={-14}
+                y={-27}
+                fontSize={7}
+                fill={h.isActive ? "#FFB3A8" : "#F3F3F3"}
+                fontFamily='"Press Start 2P"'
               />
               <Text
-                text={h.type === "explosive-barrel" ? "TNT" : "❄️"}
-                x={h.type === "explosive-barrel" ? -14 : -10}
-                y={-8}
-                fontSize={h.type === "explosive-barrel" ? 10 : 14}
-                fill="#FFFFFF"
+                text={h.isActive ? "UP" : "LINK"}
+                x={-10}
+                y={22}
+                fontSize={7}
+                fill={h.isActive ? "#FFB3A8" : "#FFD0C8"}
                 fontFamily='"Press Start 2P"'
               />
             </Group>
           )}
         </Group>
-      ))}
+      )})}
     </Group>
   );
 });
-
-const RenderBinaryDrops = memo(({ drops }: { drops: any[] }) => {
+const RenderBinaryDrops = memo(({ drops, now }: { drops: any[]; now: number }) => {
   return (
     <Group>
       {drops.map((d) => (
@@ -206,7 +383,7 @@ const RenderBinaryDrops = memo(({ drops }: { drops: any[] }) => {
           <Circle
             radius={10}
             fill={d.type === "1" ? "#00FF00" : "#00FFFF"}
-            opacity={0.6 + Math.sin(Date.now() / 100) * 0.2}
+            opacity={0.6 + Math.sin(now / 100) * 0.2}
             shadowColor={d.type === "1" ? "#00FF00" : "#00FFFF"}
             shadowBlur={15}
           />
@@ -224,7 +401,7 @@ const RenderBinaryDrops = memo(({ drops }: { drops: any[] }) => {
   );
 });
 
-const RenderTrailSegments = memo(({ segments }: { segments: any[] }) => {
+const RenderTrailSegments = memo(({ segments, now }: { segments: any[]; now: number }) => {
   return (
     <Group>
       {segments.map((s) => (
@@ -234,7 +411,7 @@ const RenderTrailSegments = memo(({ segments }: { segments: any[] }) => {
           y={s.position.y}
           radius={15}
           fill="#00FFFF"
-          opacity={Math.max(0, 0.4 * (1 - (Date.now() - s.timestamp) / 2000))}
+          opacity={Math.max(0, 0.4 * (1 - (now - s.timestamp) / 2000))}
           listening={false}
         />
       ))}
@@ -449,6 +626,38 @@ const PlayerVisuals = memo(
               offsetY={9}
               opacity={isDead ? 0.3 : 0.9}
             />
+          )}
+
+          {player.attachedBug && !isDead && (
+            <Group y={-8}>
+              <Circle
+                radius={12}
+                fill="#1A0014"
+                stroke="#FF66CC"
+                strokeWidth={2}
+                shadowColor="#FF66CC"
+                shadowBlur={12}
+                opacity={0.9}
+              />
+              {[0, 60, 120, 180, 240, 300].map((deg) => {
+                const rad = (deg * Math.PI) / 180;
+                return (
+                  <Line
+                    key={`hugger-leg-${player.id}-${deg}`}
+                    points={[
+                      Math.cos(rad) * 10,
+                      Math.sin(rad) * 7,
+                      Math.cos(rad) * 16,
+                      Math.sin(rad) * 12,
+                    ]}
+                    stroke="#FF99DD"
+                    strokeWidth={2}
+                    lineCap="round"
+                    opacity={0.9}
+                  />
+                );
+              })}
+            </Group>
           )}
 
           {/* Status Indicators */}
@@ -965,6 +1174,22 @@ export default function GameCanvas() {
 
   const now = Date.now();
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
+  const playersById = useMemo(
+    () => new Map(players.map((player) => [player.id, player])),
+    [players],
+  );
+  const enemyOwnerIds = useMemo(
+    () => new Set(enemies.map((enemy) => enemy.id)),
+    [enemies],
+  );
+  const hasTimeWarp = useMemo(
+    () => players.some((player) => player.hasTimeWarp),
+    [players],
+  );
+  const localPlayer = useMemo(
+    () => (localPlayerId ? playersById.get(localPlayerId) : undefined),
+    [playersById, localPlayerId],
+  );
 
   useEffect(() => {
     const handleResize = () => setDisplaySize(getDisplaySize());
@@ -1014,7 +1239,7 @@ export default function GameCanvas() {
     >
       <Layer>
         {/* Render Trail Segments (behind everything) */}
-        <RenderTrailSegments segments={trailSegments} />
+        <RenderTrailSegments segments={trailSegments} now={now} />
         {/* Background Grid */}
         <BackgroundGrid isSandbox={gameState?.isSandboxMode} />
         {/* Hellhound Round Dim Overlay */}
@@ -1028,10 +1253,10 @@ export default function GameCanvas() {
             opacity={0.4}
           />
         )}
-        <RenderBinaryDrops drops={binaryDrops} />
+        <RenderBinaryDrops drops={binaryDrops} now={now} />
         <Group x={shakeOffset.x} y={shakeOffset.y}>
           {/* Hazards */}
-          <RenderHazards hazards={hazards} />
+          <RenderHazards hazards={hazards} now={now} />
           {/* Particles */}
           <RenderParticles particles={particles} />
           {/* Teleporter */}
@@ -1287,10 +1512,9 @@ export default function GameCanvas() {
           {/* Render Clones */}
           {clones &&
             clones.length > 0 &&
-            clones
-              .filter((clone) => players.some((p) => p.id === clone.ownerId))
-              .map((clone) => {
-                const owner = players.find((p) => p.id === clone.ownerId)!;
+            clones.map((clone) => {
+              const owner = playersById.get(clone.ownerId);
+              if (!owner) return null;
 
                 // Character-specific emoji for clone
                 const characterEmoji =
@@ -1310,8 +1534,8 @@ export default function GameCanvas() {
                                 ? "⚡"
                                 : "🔫";
 
-                return (
-                  <Group key={clone.id}>
+              return (
+                <Group key={clone.id}>
                     {/* Clone ghostly aura */}
                     <Circle
                       x={clone.position.x}
@@ -1354,9 +1578,9 @@ export default function GameCanvas() {
                       offsetY={6}
                       opacity={clone.opacity * 0.8}
                     />
-                  </Group>
-                );
-              })}
+                </Group>
+              );
+            })}
           {/* Render Players */}
           {players?.map((player) => (
             <PlayerVisuals
@@ -1368,17 +1592,14 @@ export default function GameCanvas() {
             />
           ))}
           {/* Render Enemies */}
-          {enemies?.map((enemy) => {
-            const hasTimeWarp = players.some((p) => p.hasTimeWarp);
-            return (
-              <EnemyVisuals
-                key={enemy.id}
-                enemy={enemy}
-                now={now}
-                hasTimeWarp={hasTimeWarp}
-              />
-            );
-          })}
+          {enemies?.map((enemy) => (
+            <EnemyVisuals
+              key={enemy.id}
+              enemy={enemy}
+              now={now}
+              hasTimeWarp={hasTimeWarp}
+            />
+          ))}
 
           {/* Render Boss */}
           {boss && (
@@ -1956,8 +2177,8 @@ export default function GameCanvas() {
           {projectiles &&
             projectiles.length > 0 &&
             projectiles.map((p) => {
-              const owner = players.find((pl) => pl.id === p.ownerId);
-              const isEnemyProjectile = enemies.some((e) => e.id === p.ownerId);
+              const owner = playersById.get(p.ownerId);
+              const isEnemyProjectile = enemyOwnerIds.has(p.ownerId);
               const hasHoming =
                 owner?.homingStrength && owner.homingStrength > 0;
               const hasRicochet =
@@ -1976,8 +2197,45 @@ export default function GameCanvas() {
                     opacity={0.9}
                     shadowColor={color}
                     shadowBlur={14}
-                    rotation={(Date.now() / 10) % 360}
+                    rotation={(now / 10) % 360}
                   />
+                );
+              }
+
+              if (p.kind === "toast") {
+                const angleDeg =
+                  (Math.atan2(p.velocity.y, p.velocity.x) * 180) / Math.PI;
+                const toastFill = p.isCrit ? "#F59E0B" : "#EAB308";
+                const crustFill = p.isCrit ? "#C2410C" : "#B45309";
+                return (
+                  <Group
+                    key={p.id}
+                    x={p.position.x}
+                    y={p.position.y}
+                    rotation={angleDeg}
+                  >
+                    <Rect
+                      x={-7}
+                      y={-5}
+                      width={14}
+                      height={10}
+                      cornerRadius={3}
+                      fill={toastFill}
+                      stroke={crustFill}
+                      strokeWidth={2}
+                      shadowColor={toastFill}
+                      shadowBlur={14}
+                    />
+                    <Rect
+                      x={-5}
+                      y={-2}
+                      width={10}
+                      height={5}
+                      cornerRadius={2}
+                      fill="#FDE68A"
+                      opacity={0.75}
+                    />
+                  </Group>
                 );
               }
 
@@ -2157,7 +2415,7 @@ export default function GameCanvas() {
           {orbitalSkulls &&
             orbitalSkulls.length > 0 &&
             orbitalSkulls.map((skull) => {
-              const owner = players.find((p) => p.id === skull.ownerId);
+              const owner = playersById.get(skull.ownerId);
               if (!owner) return null;
 
               // Calculate skull position
@@ -2302,10 +2560,7 @@ export default function GameCanvas() {
       {/* Post-processing Layer for UI Overlays */}
       <Layer>
         {/* Low Health Vignette */}
-        {(function () {
-          const lp = players.find((p) => p.id === localPlayerId);
-          if (!lp || lp.health / lp.maxHealth >= 0.3) return null;
-          return (
+        {localPlayer && localPlayer.health / localPlayer.maxHealth < 0.3 && (
             <Group key="low-health-vignette-group">
               <Rect
                 x={0}
@@ -2327,9 +2582,9 @@ export default function GameCanvas() {
                 listening={false}
               />
             </Group>
-          );
-        })()}
+        )}
       </Layer>
     </Stage>
   );
 }
+

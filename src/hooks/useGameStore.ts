@@ -8,7 +8,7 @@ type GameStore = {
   localPlayerId: string | null;
   isUpgradeModalOpen: boolean;
   upgradeOptions: UpgradeOption[];
-  setGameState: (newState: GameState) => void;
+  setGameState: (newState: GameState, skipCompare?: boolean) => void;
   setLocalPlayerId: (playerId: string) => void;
   resetGameState: () => void;
   openUpgradeModal: (options: UpgradeOption[]) => void;
@@ -21,8 +21,8 @@ export const useGameStore = create<GameStore>()(
     localPlayerId: null,
     isUpgradeModalOpen: false,
     upgradeOptions: [],
-    setGameState: (newState) => {
-      if (!deepEqual(get().gameState, newState)) {
+    setGameState: (newState, skipCompare = false) => {
+      if (skipCompare || !deepEqual(get().gameState, newState)) {
         set((state) => {
           state.gameState = newState;
         });

@@ -47,6 +47,7 @@ export default function UnifiedHUD({
     100,
     ((waveTimer || 0) / WAVE_DURATION) * 100
   );
+  const attachedBug = localPlayer.attachedBug;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 flex flex-col justify-between p-4 font-press-start">
@@ -101,6 +102,19 @@ export default function UnifiedHUD({
           </div>
         </div>
       </div>
+
+      {attachedBug && (
+        <div className="w-full flex justify-center">
+          <div className="px-6 py-3 rounded-xl border-2 border-pink-400/90 bg-black/85 shadow-[0_0_24px_rgba(255,0,140,0.35)] text-center">
+            <div className="text-[12px] text-pink-300 tracking-wide animate-pulse">
+              MASH LMB/SPACE OR B/Y TO SHAKE OFF
+            </div>
+            <div className="mt-1 text-[11px] text-white">
+              {attachedBug.shakes} / {attachedBug.requiredShakes}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="w-full flex justify-center">
         <div className="relative w-full max-w-4xl p-4 bg-black/80 backdrop-blur-xl border-2 border-neon-cyan/50 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,255,255,0.15)]">

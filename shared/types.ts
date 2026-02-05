@@ -4,6 +4,7 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
 }
+
 // Game-specific types
 export interface Vector2D {
   x: number;
@@ -14,6 +15,11 @@ export type InputState = {
   down: boolean;
   left: boolean;
   right: boolean;
+  analogX?: number; // -1 to 1
+  analogY?: number; // -1 to 1
+  blink?: boolean;
+  ability?: boolean;
+  shake?: boolean;
 };
 export type PlayerStatus = 'alive' | 'dead';
 
@@ -199,6 +205,12 @@ export interface Player {
   // Visual history
   history?: Vector2D[];
   statusEffects?: StatusEffect[];
+  // Facehugger-style spider latch mechanic
+  attachedBug?: {
+    shakes: number;
+    requiredShakes: number;
+  };
+  wasShakePressed?: boolean;
 }
 export interface DamageNumber {
   id: string;
@@ -250,7 +262,7 @@ export interface Projectile {
   // UI cues
   isCrit?: boolean;
   // Projectile flavor
-  kind?: 'bananarang' | 'bullet';
+  kind?: 'bananarang' | 'bullet' | 'toast';
   // Bananarang-specific fields
   spawnPosition?: Vector2D;
   maxRange?: number; // distance before returning
@@ -423,6 +435,7 @@ export interface Turret {
   attackCooldown: number;
   range: number;
   expiresAt: number; // timestamp when turret expires
+  style?: 'standard' | 'toaster';
 }
 
 export interface Clone {
@@ -445,6 +458,15 @@ export interface Hazard {
   type: HazardType;
   health: number;
   maxHealth: number;
+  variant?: 'barrel' | 'zone' | 'wall';
+  radius?: number;
+  damage?: number;
+  activationRadius?: number;
+  activationCharge?: number;
+  activationThreshold?: number;
+  zoneUntil?: number;
+  activeUntil?: number;
+  lastSlamAt?: number;
   isActive?: boolean;
   lastToggle?: number;
 }

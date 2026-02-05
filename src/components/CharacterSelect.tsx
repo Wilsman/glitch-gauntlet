@@ -16,6 +16,7 @@ import {
   useSpring,
   useTransform,
 } from "framer-motion";
+import { useGamepad } from "@/hooks/useGamepad";
 
 interface CharacterSelectProps {
   onSelect: (characterType: CharacterType) => void;
@@ -29,6 +30,7 @@ function CharacterCard({
   isSelected,
   onSelect,
   isLocked,
+  isGamepadFocused,
   onMouseMove,
   onMouseLeave,
 }: {
@@ -36,6 +38,7 @@ function CharacterCard({
   isSelected: boolean;
   onSelect: () => void;
   isLocked: boolean;
+  isGamepadFocused: boolean;
   onMouseMove: (e: React.MouseEvent) => void;
   onMouseLeave: () => void;
 }) {
@@ -90,8 +93,8 @@ function CharacterCard({
         rotateY,
         transformStyle: "preserve-3d",
       }}
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 20, scale: 1 }}
+      animate={{ opacity: 1, y: 0, scale: isGamepadFocused ? 1.05 : 1 }}
       whileHover={{ scale: isLocked ? 1 : 1.05 }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
@@ -103,7 +106,9 @@ function CharacterCard({
             ? "border-gray-800 bg-black/40 opacity-60 cursor-not-allowed grayscale"
             : isSelected
               ? "border-neon-yellow bg-neon-yellow/10 shadow-[0_0_30px_rgba(255,255,0,0.3)] cursor-pointer"
-              : "border-neon-pink bg-black/60 hover:border-neon-cyan hover:shadow-[0_0_30px_rgba(0,255,255,0.2)] cursor-pointer"
+              : isGamepadFocused
+                ? "border-neon-cyan bg-black/60 shadow-[0_0_30px_rgba(0,255,255,0.4)] cursor-pointer"
+                : "border-neon-pink bg-black/60 hover:border-neon-cyan hover:shadow-[0_0_30px_rgba(0,255,255,0.2)] cursor-pointer"
         }
       `}
     >
@@ -259,6 +264,29 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
     description: "",
   });
 
+  const [focusArea, setFocusArea] = useState<"carousel" | "actions">(
+    "carousel",
+  );
+  const [focusedActionIndex, setFocusedActionIndex] = useState(1); // Default to "Start Game" focus
+  const [isGamepadFocused, setIsGamepadFocused] = useState(false);
+
+  const { getGamepadInput } = useGamepad();
+  const lastGamepadInput = useRef<{
+    left: boolean;
+    right: boolean;
+    up: boolean;
+    down: boolean;
+    confirm: boolean;
+    cancel: boolean;
+  }>({
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+    confirm: false,
+    cancel: false,
+  });
+
   // Check for unlocks when component mounts
   useEffect(() => {
     checkUnlocks();
@@ -277,6 +305,93 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
   const handleNext = () => {
     setCurrentIndex((prev) => Math.min(characters.length - 1, prev + 1));
   };
+
+  // Gamepad polling for menu navigation
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      const input = getGamepadInput();
+      if (input) {
+        setIsGamepadFocused(true);
+
+        const gamepad = navigator.getGamepads()[0];
+        const isBButtonPressed = gamepad?.buttons[1]?.pressed;
+
+        if (focusArea === "carousel") {
+          // Handle Left/Right navigation
+          if (input.left && !lastGamepadInput.current.left) {
+            handlePrevious();
+          }
+          if (input.right && !lastGamepadInput.current.right) {
+            handleNext();
+          }
+          // Handle Down moves to actions
+          if (input.down && !lastGamepadInput.current.down) {
+            setFocusArea("actions");
+          }
+          // Handle Selection
+          if (input.blink && !lastGamepadInput.current.confirm) {
+            const char = characters[currentIndex];
+            if (char && isCharacterUnlocked(char.type)) {
+              setSelected(char.type);
+              setFocusArea("actions"); // Focus buttons after picking
+            }
+          }
+        } else {
+          // focusArea === "actions"
+          if (input.up && !lastGamepadInput.current.up) {
+            setFocusArea("carousel");
+          }
+          if (input.left && !lastGamepadInput.current.left) {
+            setFocusedActionIndex(0);
+          }
+          if (input.right && !lastGamepadInput.current.right) {
+            setFocusedActionIndex(1);
+          }
+
+          // Handle Confirm (A button)
+          if (input.blink && !lastGamepadInput.current.confirm) {
+            if (focusedActionIndex === 0) {
+              onCancel();
+            } else {
+              handleConfirm();
+            }
+          }
+        }
+
+        // Handle B Button / Cancel always if button is available
+        if (isBButtonPressed && !lastGamepadInput.current.cancel) {
+          onCancel();
+        }
+
+        lastGamepadInput.current = {
+          left: !!input.left,
+          right: !!input.right,
+          up: !!input.up,
+          down: !!input.down,
+          confirm: !!input.blink,
+          cancel: !!isBButtonPressed,
+        };
+      }
+    }, 100);
+
+    const handleMouseMove = () => setIsGamepadFocused(false);
+    window.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [
+    getGamepadInput,
+    currentIndex,
+    selected,
+    characters,
+    onCancel,
+    onSelect,
+    handleConfirm,
+    focusArea,
+    focusedActionIndex,
+  ]);
 
   const handleMouseMove = (
     e: React.MouseEvent,
@@ -311,7 +426,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-[radial-gradient(circle_at_center,_rgba(20,20,30,0.95)_0%,_rgba(0,0,0,1)_100%)] p-4 perspective-1000"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-[radial-gradient(circle_at_center,_rgba(20,20,30,0.95)_0%,_rgba(0,0,0,1)_100%)] p-4 perspective-1000 overflow-y-auto [@media(max-height:900px)]:items-start"
       >
         <div className="relative w-full max-w-7xl">
           {/* Header Section */}
@@ -386,6 +501,11 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
                       setCurrentIndex(index);
                     }}
                     isLocked={char.locked && !isCharacterUnlocked(char.type)}
+                    isGamepadFocused={
+                      focusArea === "carousel" &&
+                      isGamepadFocused &&
+                      characters[currentIndex]?.type === char.type
+                    }
                     onMouseMove={(e) => handleMouseMove(e, char)}
                     onMouseLeave={handleMouseLeave}
                   />
@@ -414,11 +534,17 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
             initial={{ y: 20, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="flex justify-center gap-6"
+            className="flex justify-center gap-6 mt-8 [@media(max-height:900px)]:sticky [@media(max-height:900px)]:bottom-4"
           >
             <Button
               onClick={onCancel}
-              className="font-press-start text-lg bg-transparent border-2 border-neon-pink text-neon-pink px-10 py-7 hover:bg-neon-pink hover:text-black hover:shadow-glow-pink transition-all duration-300 transform hover:-translate-y-1"
+              className={`font-press-start text-lg bg-transparent border-2 border-neon-pink text-neon-pink px-10 py-7 transition-all duration-300 transform ${
+                focusArea === "actions" &&
+                focusedActionIndex === 0 &&
+                isGamepadFocused
+                  ? "bg-neon-pink text-black scale-105 shadow-glow-pink"
+                  : "hover:bg-neon-pink hover:text-black hover:shadow-glow-pink hover:-translate-y-1"
+              }`}
             >
               Cancel
             </Button>
@@ -426,13 +552,17 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
               onClick={handleConfirm}
               disabled={!selected}
               className={`
-                font-press-start text-lg bg-transparent border-2 px-10 py-7 transition-all duration-300 transform
-                ${
-                  selected
-                    ? "border-neon-yellow text-neon-yellow hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow hover:-translate-y-1"
-                    : "border-gray-700 text-gray-700 opacity-50 cursor-not-allowed"
-                }
-              `}
+              font-press-start text-lg bg-transparent border-2 px-10 py-7 transition-all duration-300 transform
+              ${
+                selected
+                  ? focusArea === "actions" &&
+                    focusedActionIndex === 1 &&
+                    isGamepadFocused
+                    ? "border-neon-yellow bg-neon-yellow text-black scale-105 shadow-glow-yellow"
+                    : "border-neon-yellow text-neon-yellow hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow hover:-translate-y-1"
+                  : "border-gray-700 text-gray-700 opacity-50 cursor-not-allowed"
+              }
+            `}
             >
               Start Game
             </Button>

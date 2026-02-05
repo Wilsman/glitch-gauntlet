@@ -185,7 +185,7 @@ export default function GamePage() {
       });
 
       engine.start();
-      setGameState(engine.getGameState());
+      setGameState(engine.getGameState(), true);
       setIsLoading(false);
 
       return () => {
@@ -284,10 +284,10 @@ export default function GamePage() {
       if (isLocalMode) {
         // Local mode - apply upgrade directly
         const engine = localEngineRef.current;
-        if (engine) {
-          engine.selectUpgrade(upgradeId);
-          setGameState(engine.getGameState());
-        }
+          if (engine) {
+            engine.selectUpgrade(upgradeId);
+            setGameState(engine.getGameState(), true);
+          }
       } else {
         // Host mode - send to server
         const response = await fetch(`/api/game/${gameId}/upgrade`, {
@@ -322,7 +322,7 @@ export default function GamePage() {
     if (isLocalMode && localEngineRef.current) {
       const engine = localEngineRef.current;
       engine.extract();
-      setGameState(engine.getGameState());
+      setGameState(engine.getGameState(), true);
     }
   };
 
@@ -330,7 +330,7 @@ export default function GamePage() {
     // Player chose to continue fighting
     if (isLocalMode && localEngineRef.current) {
       localEngineRef.current.continueAfterBoss();
-      setGameState(localEngineRef.current.getGameState());
+      setGameState(localEngineRef.current.getGameState(), true);
     }
   };
 

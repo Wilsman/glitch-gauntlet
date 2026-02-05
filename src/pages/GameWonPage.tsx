@@ -1,21 +1,55 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
-import { useSyncAudioSettings } from '@/hooks/useSyncAudioSettings';
-import { AudioManager } from '@/lib/audio/AudioManager';
-import { Button } from '@/components/ui/button';
-import { SettingsPanel } from '@/components/SettingsPanel';
-import { Loader2 } from 'lucide-react';
-import type { ApiResponse, GameState } from '@shared/types';
-import { motion } from 'framer-motion';
+import React, { useEffect, useState } from "react";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
+import { AudioManager } from "@/lib/audio/AudioManager";
+import { Button } from "@/components/ui/button";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { Loader2 } from "lucide-react";
+import type { ApiResponse, GameState } from "@shared/types";
+import { motion } from "framer-motion";
+import { useGamepad } from "@/hooks/useGamepad";
+import { useRef } from "react";
+
 export default function GameWonPage() {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCoinAnimation, setShowCoinAnimation] = useState(false);
-  const [coins, setCoins] = useState<Array<{ id: number; x: number; y: number }>>([]);
+  const [coins, setCoins] = useState<
+    Array<{ id: number; x: number; y: number }>
+  >([]);
+
+  const [isGamepadFocused, setIsGamepadFocused] = useState(false);
+  const { getGamepadInput } = useGamepad();
+  const lastGamepadConfirm = useRef(false);
 
   useSyncAudioSettings();
+
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      const input = getGamepadInput();
+      if (input) {
+        setIsGamepadFocused(true);
+        if (input.blink) {
+          if (!lastGamepadConfirm.current && !showCoinAnimation) {
+            handleInsertCoin();
+          }
+          lastGamepadConfirm.current = true;
+        } else {
+          lastGamepadConfirm.current = false;
+        }
+      }
+    }, 100);
+
+    const handleMouseMove = () => setIsGamepadFocused(false);
+    window.addEventListener("mousemove", handleMouseMove);
+
+    return () => {
+      clearInterval(pollInterval);
+      window.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [getGamepadInput, showCoinAnimation]);
   useEffect(() => {
     const audio = AudioManager.getInstance();
     void audio.resume();
@@ -39,7 +73,7 @@ export default function GameWonPage() {
           setGameState(result.data);
         }
       } catch (error) {
-        console.error('Failed to fetch game state:', error);
+        console.error("Failed to fetch game state:", error);
       } finally {
         setLoading(false);
       }
@@ -49,18 +83,18 @@ export default function GameWonPage() {
 
   function handleInsertCoin() {
     setShowCoinAnimation(true);
-    
+
     // Generate multiple coins
     const newCoins = Array.from({ length: 8 }, (_, i) => ({
       id: Date.now() + i,
       x: Math.random() * 100 - 50,
-      y: Math.random() * 100 - 50
+      y: Math.random() * 100 - 50,
     }));
     setCoins(newCoins);
-    
+
     // Navigate after animation
     setTimeout(() => {
-      navigate('/');
+      navigate("/");
     }, 1200);
   }
   return (
@@ -71,9 +105,9 @@ export default function GameWonPage() {
         <motion.h1
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.5, type: 'spring' }}
+          transition={{ duration: 0.5, type: "spring" }}
           className="font-press-start text-6xl md:text-8xl text-neon-yellow"
-          style={{ textShadow: '0 0 10px #ffff00, 0 0 20px #ffff00' }}
+          style={{ textShadow: "0 0 10px #ffff00, 0 0 20px #ffff00" }}
         >
           VICTORY!
         </motion.h1>
@@ -88,21 +122,27 @@ export default function GameWonPage() {
               className="font-vt323 text-3xl text-white space-y-4"
             >
               <p>
-                YOU ESCAPED AFTER WAVE:{' '}
-                <span className="font-press-start text-4xl text-neon-yellow">{gameState.wave}</span>
+                YOU ESCAPED AFTER WAVE:{" "}
+                <span className="font-press-start text-4xl text-neon-yellow">
+                  {gameState.wave}
+                </span>
               </p>
               <div className="pt-4">
-                <h2 className="font-press-start text-2xl text-neon-pink mb-2">FINAL STATS</h2>
+                <h2 className="font-press-start text-2xl text-neon-pink mb-2">
+                  FINAL STATS
+                </h2>
                 <ul className="text-2xl">
                   {gameState.players.map((player, index) => (
-                     <motion.li
-                        key={player.id}
-                        initial={{ x: -20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: 0.5 + index * 0.1 }}
-                     >
-                      <span style={{ color: player.color }}>P{player.id.substring(0, 2).toUpperCase()}</span> - LVL{' '}
-                      {player.level}
+                    <motion.li
+                      key={player.id}
+                      initial={{ x: -20, opacity: 0 }}
+                      animate={{ x: 0, opacity: 1 }}
+                      transition={{ delay: 0.5 + index * 0.1 }}
+                    >
+                      <span style={{ color: player.color }}>
+                        P{player.id.substring(0, 2).toUpperCase()}
+                      </span>{" "}
+                      - LVL {player.level}
                     </motion.li>
                   ))}
                 </ul>
@@ -116,40 +156,44 @@ export default function GameWonPage() {
           transition={{ delay: 0.8, duration: 0.5 }}
           className="relative"
         >
-          <Button 
+          <Button
             onClick={handleInsertCoin}
             disabled={showCoinAnimation}
-            className="w-64 font-press-start text-lg bg-transparent border-2 border-neon-yellow text-neon-yellow h-16 hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow transition-all duration-300 disabled:opacity-50"
+            className={`w-64 font-press-start text-lg bg-transparent border-2 border-neon-yellow text-neon-yellow h-16 transition-all duration-300 disabled:opacity-50 ${
+              isGamepadFocused
+                ? "bg-neon-yellow text-black shadow-glow-yellow scale-105"
+                : "hover:bg-neon-yellow hover:text-black hover:shadow-glow-yellow"
+            }`}
           >
-            {showCoinAnimation ? 'INSERTING...' : '🪙 INSERT COIN'}
+            {showCoinAnimation ? "INSERTING..." : "🪙 INSERT COIN"}
           </Button>
-          
+
           {showCoinAnimation && (
             <div className="absolute inset-0 pointer-events-none overflow-visible">
               {coins.map((coin) => (
                 <motion.div
                   key={coin.id}
-                  initial={{ 
-                    x: coin.x, 
-                    y: coin.y, 
+                  initial={{
+                    x: coin.x,
+                    y: coin.y,
                     scale: 0,
                     rotate: 0,
-                    opacity: 1
+                    opacity: 1,
                   }}
-                  animate={{ 
-                    x: 0, 
-                    y: -200, 
+                  animate={{
+                    x: 0,
+                    y: -200,
                     scale: [0, 1.5, 1],
                     rotate: 720,
-                    opacity: [1, 1, 0]
+                    opacity: [1, 1, 0],
                   }}
-                  transition={{ 
+                  transition={{
                     duration: 1,
-                    ease: 'easeOut'
+                    ease: "easeOut",
                   }}
                   className="absolute left-1/2 top-1/2 text-4xl"
                   style={{
-                    textShadow: '0 0 20px #FFD700, 0 0 40px #FFD700'
+                    textShadow: "0 0 20px #FFD700, 0 0 40px #FFD700",
                   }}
                 >
                   🪙
@@ -166,4 +210,3 @@ export default function GameWonPage() {
     </main>
   );
 }
-
