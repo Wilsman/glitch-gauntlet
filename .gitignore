@@ -30,3 +30,9 @@ dist-ssr
 
 data/
 .eslintcache
+
+# Local AI tooling folders
+.agent/
+.agents/
+.claude/
+.windsurf/
