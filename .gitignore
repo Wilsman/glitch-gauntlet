@@ -36,3 +36,8 @@ data/
 .agents/
 .claude/
 .windsurf/
+
+# Local scratch content
+/input-prompts/
+/progress.md
+/COLLECTED_PANEL_TODO.md
