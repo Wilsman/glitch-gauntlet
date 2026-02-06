@@ -211,7 +211,12 @@ export default function TestingArenaPanel({
                   <button
                     key={`${upgrade.type}-${idx}`}
                     onClick={() =>
-                      engine.debugGiveUpgrade(upgrade.type as UpgradeType)
+                      engine.debugGiveUpgrade({
+                        type: upgrade.type as UpgradeType,
+                        title: upgrade.title,
+                        rarity: upgrade.rarity,
+                        emoji: upgrade.emoji,
+                      })
                     }
                     className={`
                       flex items-center gap-4 p-3 bg-gray-800/40 border border-white/5 hover:border-white/20 rounded-lg group transition-all

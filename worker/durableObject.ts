@@ -138,6 +138,9 @@ export class GlobalDurableObject extends DurableObject {
         const existing = player.collectedUpgrades.find(u => u.type === choice.type);
         if (existing) {
             existing.count++;
+            existing.title = choice.title;
+            existing.rarity = choice.rarity;
+            existing.emoji = choice.emoji;
         } else {
             player.collectedUpgrades.push({
                 type: choice.type,

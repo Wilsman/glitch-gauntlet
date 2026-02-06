@@ -11,6 +11,7 @@ import {
   Image as KonvaImage,
 } from "react-konva";
 import { SPRITE_MAP } from "@/lib/spriteMap";
+import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
 import type { Particle, Hazard } from "@shared/types";
@@ -34,6 +35,17 @@ const spriteImageCache = new Map<string, HTMLImageElement | null>();
 const spriteImagePromiseCache = new Map<string, Promise<HTMLImageElement | null>>();
 const animatedSpriteCache = new Map<string, HTMLImageElement[]>();
 const animatedSpritePromiseCache = new Map<string, Promise<HTMLImageElement[]>>();
+
+function hasConnectedGamepad(): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.getGamepads !== "function") {
+    return false;
+  }
+  const gamepads = navigator.getGamepads();
+  for (let i = 0; i < gamepads.length; i++) {
+    if (gamepads[i]) return true;
+  }
+  return false;
+}
 
 function loadSpriteImage(url: string): Promise<HTMLImageElement | null> {
   const cached = spriteImageCache.get(url);
@@ -465,6 +477,18 @@ const PlayerVisuals = memo(
       spriteConfig?.framePath,
       spriteConfig?.frames,
     );
+    const shakeMouseLeftIcon = useSprite(INPUT_PROMPT_ICONS.keyboardMouse.mouseLeft);
+    const shakeSpaceIcon = useSprite(INPUT_PROMPT_ICONS.keyboardMouse.space);
+    const shakeXboxBIcon = useSprite(INPUT_PROMPT_ICONS.xboxSeries.buttonB);
+    const shakeXboxYIcon = useSprite(INPUT_PROMPT_ICONS.xboxSeries.buttonY);
+    const showGamepadShakePrompt = hasConnectedGamepad();
+    const primaryShakeIcon = showGamepadShakePrompt ? shakeXboxBIcon : shakeMouseLeftIcon;
+    const secondaryShakeIcon = showGamepadShakePrompt ? shakeXboxYIcon : shakeSpaceIcon;
+    const facehuggerAlertPulse = 1 + Math.sin(now / 90) * 0.045;
+    const facehuggerGlow = 20 + (Math.sin(now / 85) + 1) * 7;
+    const iconBob = Math.sin(now / 110) * 1.8;
+    const iconPulseA = 1 + Math.sin(now / 70) * 0.1;
+    const iconPulseB = 1 + Math.sin(now / 70 + 1.8) * 0.1;
 
     // Calculate current frame if it's an animation
     const currentFrameIndex = spriteConfig?.frames
@@ -657,6 +681,58 @@ const PlayerVisuals = memo(
                   />
                 );
               })}
+            </Group>
+          )}
+
+          {isLocal && player.attachedBug && !isDead && (
+            <Group y={-68} scaleX={facehuggerAlertPulse} scaleY={facehuggerAlertPulse}>
+              <Rect
+                x={-78}
+                y={-52}
+                width={156}
+                height={72}
+                cornerRadius={10}
+                fill="#120018"
+                opacity={0.94}
+                stroke="#FF47C5"
+                strokeWidth={3}
+                shadowColor="#FF47C5"
+                shadowBlur={facehuggerGlow}
+              />
+              <Text
+                text="SHAKE OFF!"
+                x={-73}
+                y={-42}
+                width={146}
+                align="center"
+                fontSize={12}
+                fill="#FFFFFF"
+                fontFamily='"Press Start 2P"'
+                shadowColor="#FF47C5"
+                shadowBlur={8}
+              />
+              <Text
+                text={`${player.attachedBug.shakes}/${player.attachedBug.requiredShakes}`}
+                x={-26}
+                y={-24}
+                width={52}
+                align="center"
+                fontSize={10}
+                fill="#FFD4F2"
+                fontFamily='"Press Start 2P"'
+              />
+              <Circle x={-18} y={10} radius={16} fill="#FF47C5" opacity={0.14 + Math.sin(now / 75) * 0.04} />
+              <Circle x={20} y={10} radius={16} fill="#FF47C5" opacity={0.14 + Math.sin(now / 75 + 1.3) * 0.04} />
+              {primaryShakeIcon && (
+                <Group x={-18} y={10 + iconBob} scaleX={iconPulseA} scaleY={iconPulseA}>
+                  <KonvaImage image={primaryShakeIcon} x={-14} y={-14} width={28} height={28} />
+                </Group>
+              )}
+              {secondaryShakeIcon && (
+                <Group x={20} y={10 - iconBob} scaleX={iconPulseB} scaleY={iconPulseB}>
+                  <KonvaImage image={secondaryShakeIcon} x={-14} y={-14} width={28} height={28} />
+                </Group>
+              )}
             </Group>
           )}
 

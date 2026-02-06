@@ -28,7 +28,7 @@ import type {
   BossType,
   UpgradeType,
 } from "@shared/types";
-import { getRandomUpgrades } from "@shared/upgrades";
+import { ALL_UPGRADES, getRandomUpgrades } from "@shared/upgrades";
 import { applyUpgradeEffect } from "@shared/upgradeEffects";
 import { createEnemy, selectRandomEnemyType } from "@shared/enemyConfig";
 import { getCharacter } from "@shared/characterConfig";
@@ -673,6 +673,9 @@ export class LocalGameEngine {
     );
     if (existing) {
       existing.count++;
+      existing.title = choice.title;
+      existing.rarity = choice.rarity;
+      existing.emoji = choice.emoji;
     } else {
       player.collectedUpgrades.push({
         type: choice.type,
@@ -744,28 +747,46 @@ export class LocalGameEngine {
     this.markStateDirty();
   }
 
-  debugGiveUpgrade(type: UpgradeType) {
+  debugGiveUpgrade(
+    upgrade:
+      | UpgradeType
+      | Pick<UpgradeOption, "type" | "title" | "rarity" | "emoji">
+  ) {
     const player = this.gameState.players[0];
     if (!player) return;
+    const type = typeof upgrade === "string" ? upgrade : upgrade.type;
 
-    // Find the upgrade config from ALL_UPGRADES (we'll need to import it)
-    // For now, we can just apply the effect since applyUpgradeEffect works on type
     applyUpgradeEffect(player, type);
 
     // Track collected upgrade visually
     if (!player.collectedUpgrades) player.collectedUpgrades = [];
+    const matchingUpgrades = ALL_UPGRADES.filter((u) => u.type === type);
+    const chosenVisual = typeof upgrade === "string"
+      ? (
+      matchingUpgrades.length > 0
+        ? matchingUpgrades[Math.floor(Math.random() * matchingUpgrades.length)]
+        : null
+      )
+      : upgrade;
     const existing = player.collectedUpgrades.find((u) => u.type === type);
     if (existing) {
       existing.count++;
+      if (chosenVisual) {
+        existing.title = chosenVisual.title;
+        existing.rarity = chosenVisual.rarity;
+        existing.emoji = chosenVisual.emoji;
+      }
     } else {
-      // We don't have the title/emoji here easily without importing ALL_UPGRADES
-      // But applyUpgradeEffect handles the core stats.
-      // To show it in the UI, we might need more info.
       player.collectedUpgrades.push({
         type: type,
-        title: type.charAt(0).toUpperCase() + type.slice(1),
-        rarity: "legendary",
-        emoji: "🧪",
+        title:
+          chosenVisual?.title ||
+          type
+            .replace(/([a-z])([A-Z])/g, "$1 $2")
+            .replace(/[-_]/g, " ")
+            .replace(/\b\w/g, (ch) => ch.toUpperCase()),
+        rarity: chosenVisual?.rarity || "legendary",
+        emoji: chosenVisual?.emoji || "🧪",
         count: 1,
       });
     }
@@ -4796,3 +4817,4 @@ export class LocalGameEngine {
     });
   }
 }
+
