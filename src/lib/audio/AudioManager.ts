@@ -68,6 +68,7 @@ export class AudioManager {
 
   private currentTrack: MusicTrack = null;
   private requestedTrack: MusicTrack = null;
+  private pendingGameTracks: string[] | undefined = undefined;
   private resumeBlockedLogged = false;
   private resumeListenersAttached = false;
   private readonly resumeHandler = async () => {
@@ -235,30 +236,36 @@ export class AudioManager {
     // Ensure requested track is playing after context resumes
     const want = this.requestedTrack ?? this.currentTrack;
     if (want === 'menu') {
+      if (!this.menuPlayer) {
+        this.currentTrack = null;
+        this.playMenuMusic();
+        return;
+      }
       const p = this.menuPlayer;
-      if (p) {
-        try {
-          if ((p as any).loaded || (p as any).buffer?.loaded) {
-            p.restart();
-          } else {
-            p.autostart = true;
-          }
-        } catch (e) {
-          console.debug('Menu player start deferred:', e);
+      try {
+        if ((p as any).loaded || (p as any).buffer?.loaded) {
+          p.restart();
+        } else {
+          p.autostart = true;
         }
+      } catch (e) {
+        console.debug('Menu player start deferred:', e);
       }
     } else if (want === 'game') {
+      if (!this.gamePlayer) {
+        this.currentTrack = null;
+        this.playGameMusic(this.pendingGameTracks);
+        return;
+      }
       const p = this.gamePlayer;
-      if (p) {
-        try {
-          if ((p as any).loaded || (p as any).buffer?.loaded) {
-            p.restart();
-          } else {
-            p.autostart = true;
-          }
-        } catch (e) {
-          console.debug('Game player start deferred:', e);
+      try {
+        if ((p as any).loaded || (p as any).buffer?.loaded) {
+          p.restart();
+        } else {
+          p.autostart = true;
         }
+      } catch (e) {
+        console.debug('Game player start deferred:', e);
       }
     }
   }
@@ -343,7 +350,18 @@ export class AudioManager {
 
   public playGameMusic(enabledTracks?: string[]) {
     if (!this.isBrowser) return;
+    this.pendingGameTracks = enabledTracks;
     this.ensureInitialized();
+
+    // Tone nodes are unavailable until the AudioContext is unlocked by user gesture.
+    // In that state, just mark intent and defer actual player wiring.
+    if (!this.musicGain || !this.isContextRunning()) {
+      this.requestedTrack = 'game';
+      this.currentTrack = 'game';
+      this.addResumeEventListeners();
+      return;
+    }
+
     if (this.currentTrack === 'game') return;
 
     this.stopMenuMusic();
@@ -437,6 +455,11 @@ export class AudioManager {
   public playPreviewTrack(name: string) {
     if (!this.isBrowser) return;
     this.ensureInitialized();
+
+    if (!this.musicGain || !this.isContextRunning()) {
+      this.addResumeEventListeners();
+      return;
+    }
 
     this.stopMenuMusic();
     this.stopGameMusic();

@@ -14,7 +14,7 @@ import { SPRITE_MAP } from "@/lib/spriteMap";
 import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
-import type { Particle, Hazard } from "@shared/types";
+import type { Particle, Hazard, ShopOffer, UpgradeRarity } from "@shared/types";
 
 // Fixed server-side arena dimensions
 const SERVER_ARENA_WIDTH = 1280;
@@ -23,13 +23,58 @@ const SERVER_ARENA_HEIGHT = 720;
 const HIT_FLASH_DURATION = 100;
 const CRIT_FLASH_DURATION = 160;
 const HEAL_FLASH_DURATION = 180;
+const PLAYER_HIT_INVULNERABILITY_MS = 5000;
 const REVIVE_DURATION = 3000;
 const EXTRACTION_DURATION = 5000;
 const DAMAGE_NUMBER_DURATION = 800;
 const WAVE_DURATION = 20000;
+const SHOP_INTERACT_RADIUS = 90;
 
 const VAMPIRE_DRAIN_STOPS = [0, "#FF000055", 0.7, "#FF000022", 1, "#FF000000"];
 const LOW_HEALTH_VIGNETTE_STOPS = [0, "transparent", 1, "rgba(255, 0, 0, 0.2)"];
+const SHOP_RARITY_COLORS: Record<UpgradeRarity, string> = {
+  common: "#22d3ee",
+  uncommon: "#34d399",
+  legendary: "#f472b6",
+  boss: "#facc15",
+  lunar: "#60a5fa",
+  void: "#c084fc",
+};
+
+function getShopOfferColor(offer: ShopOffer, isSoldOut: boolean): string {
+  if (isSoldOut) return "#6b7280";
+  if (offer.type === "leave") return "#60a5fa";
+  if (offer.type === "heal") return "#2dd4bf";
+  if (offer.type === "temporary") return "#fb7185";
+  if (offer.rarity) return SHOP_RARITY_COLORS[offer.rarity] || "#22d3ee";
+  return "#22d3ee";
+}
+
+function getShopOfferTag(offer: ShopOffer): string {
+  if (offer.type === "leave") return "EXIT";
+  if (offer.type === "heal") return "HEAL";
+  if (offer.type === "temporary") return "TEMP BUFF";
+  if (offer.rarity) return `${offer.rarity.toUpperCase()} UPGRADE`;
+  return "UPGRADE";
+}
+
+function getShopOfferFooter(offer: ShopOffer): string {
+  if (offer.type === "heal" && offer.healAmount) {
+    return `RESTORE ${Math.floor(offer.healAmount)} HP`;
+  }
+  if (offer.type === "temporary") {
+    const bonus = Math.max(
+      0,
+      Math.round(((offer.tempDamageMultiplier || 1) - 1) * 100),
+    );
+    const waves = offer.tempDurationWaves || 0;
+    return `+${bonus}% DAMAGE FOR ${waves} WAVES`;
+  }
+  if (offer.type === "leave") {
+    return "RETURN TO COMBAT FLOW";
+  }
+  return "PERMANENT RUN UPGRADE";
+}
 
 const spriteImageCache = new Map<string, HTMLImageElement | null>();
 const spriteImagePromiseCache = new Map<string, Promise<HTMLImageElement | null>>();
@@ -449,6 +494,17 @@ const PlayerVisuals = memo(
     const isHealed =
       player.lastHealedTimestamp &&
       now - player.lastHealedTimestamp < HEAL_FLASH_DURATION;
+    const isInvulnerableActive =
+      player.isInvulnerable &&
+      player.invulnerableUntil &&
+      now < player.invulnerableUntil;
+    const isHitInvulnerabilityActive =
+      isInvulnerableActive &&
+      player.lastHitTimestamp &&
+      now - player.lastHitTimestamp < PLAYER_HIT_INVULNERABILITY_MS;
+    const invulnerabilityFlashVisible =
+      !isHitInvulnerabilityActive || Math.floor(now / 90) % 2 === 0;
+    const playerVisualOpacity = invulnerabilityFlashVisible ? 1 : 0.22;
     const isBerserker = player.health < player.maxHealth * 0.3;
     const hasShield = (player.shield ?? 0) > 0;
     const isLocal = player.id === localPlayerId;
@@ -565,13 +621,13 @@ const PlayerVisuals = memo(
                 1,
                 `${glowColor}00`,
               ]}
-              opacity={0.5 + Math.sin(now / 150) * 0.2}
+              opacity={(0.5 + Math.sin(now / 150) * 0.2) * playerVisualOpacity}
             />
           )}
 
           {/* 2. Character-Specific Geometry */}
           {player.characterType === "spray-n-pray" && !isDead && (
-            <Group rotation={now / 5}>
+            <Group rotation={now / 5} opacity={playerVisualOpacity}>
               <Rect
                 x={12}
                 y={-4}
@@ -596,7 +652,7 @@ const PlayerVisuals = memo(
               innerRadius={16}
               outerRadius={20}
               fill={glowColor}
-              opacity={0.6 + Math.sin(now / 100) * 0.3}
+              opacity={(0.6 + Math.sin(now / 100) * 0.3) * playerVisualOpacity}
             />
           )}
 
@@ -605,7 +661,7 @@ const PlayerVisuals = memo(
               points={[0, -22, 10, 5, -10, 5]}
               closed
               fill={color}
-              opacity={0.4}
+              opacity={0.4 * playerVisualOpacity}
               rotation={now / 10}
             />
           )}
@@ -619,7 +675,7 @@ const PlayerVisuals = memo(
               strokeWidth={isLocal && !isDead ? 3 : 2}
               shadowColor={glowColor}
               shadowBlur={isBerserker ? 30 : 15}
-              opacity={isDead ? 0.3 : 1}
+              opacity={isDead ? 0.3 : playerVisualOpacity}
             />
           )}
 
@@ -628,7 +684,7 @@ const PlayerVisuals = memo(
             <Circle
               radius={8}
               fill="#FFFFFF"
-              opacity={0.2 + Math.sin(now / 100) * 0.1}
+              opacity={(0.2 + Math.sin(now / 100) * 0.1) * playerVisualOpacity}
             />
           )}
 
@@ -640,7 +696,7 @@ const PlayerVisuals = memo(
               height={40}
               offsetX={20}
               offsetY={20}
-              opacity={isDead ? 0.3 : 1}
+              opacity={isDead ? 0.3 : playerVisualOpacity}
             />
           ) : (
             <Text
@@ -648,12 +704,12 @@ const PlayerVisuals = memo(
               fontSize={18}
               offsetX={9}
               offsetY={9}
-              opacity={isDead ? 0.3 : 0.9}
+              opacity={isDead ? 0.3 : 0.9 * playerVisualOpacity}
             />
           )}
 
           {player.attachedBug && !isDead && (
-            <Group y={-8}>
+            <Group y={-8} opacity={playerVisualOpacity}>
               <Circle
                 radius={12}
                 fill="#1A0014"
@@ -1241,6 +1297,9 @@ export default function GameCanvas() {
     shockwaveRings = [],
     bossProjectiles = [],
     status = "playing",
+    isShopRound = false,
+    shopStands = [],
+    shopPrompt = null,
     particles = [],
     screenShake = null,
     hazards = [],
@@ -1266,6 +1325,23 @@ export default function GameCanvas() {
     () => (localPlayerId ? playersById.get(localPlayerId) : undefined),
     [playersById, localPlayerId],
   );
+  const nearestShopStand = useMemo(() => {
+    if (!isShopRound || !localPlayer || !shopStands.length) return null;
+    return shopStands.reduce(
+      (closest, stand) => {
+        const distance = Math.hypot(
+          stand.position.x - localPlayer.position.x,
+          stand.position.y - localPlayer.position.y,
+        );
+        if (distance < closest.distance) {
+          return { stand, distance };
+        }
+        return closest;
+      },
+      { stand: null as (typeof shopStands)[number] | null, distance: Infinity },
+    );
+  }, [isShopRound, localPlayer, shopStands]);
+  const playerCoins = Math.floor(localPlayer?.coins || 0);
 
   useEffect(() => {
     const handleResize = () => setDisplaySize(getDisplaySize());
@@ -1327,6 +1403,16 @@ export default function GameCanvas() {
             height={SERVER_ARENA_HEIGHT}
             fill="#000000"
             opacity={0.4}
+          />
+        )}
+        {isShopRound && (
+          <Rect
+            x={0}
+            y={0}
+            width={SERVER_ARENA_WIDTH}
+            height={SERVER_ARENA_HEIGHT}
+            fill="#050612"
+            opacity={0.52}
           />
         )}
         <RenderBinaryDrops drops={binaryDrops} now={now} />
@@ -1423,9 +1509,11 @@ export default function GameCanvas() {
           {xpOrbs &&
             xpOrbs.length > 0 &&
             xpOrbs.map((orb) => {
+              const kind = orb.kind || "xp";
+              const isCoin = kind === "coin";
               const isDoubled = orb.isDoubled;
               const pulseScale = isDoubled ? 1 + Math.sin(now / 100) * 0.2 : 1;
-              const glowIntensity = isDoubled ? 20 : 10;
+              const glowIntensity = isDoubled ? 20 : isCoin ? 16 : 10;
 
               return (
                 <Group key={orb.id}>
@@ -1444,23 +1532,332 @@ export default function GameCanvas() {
                   <Circle
                     x={orb.position.x}
                     y={orb.position.y}
-                    radius={5 * pulseScale}
-                    fill={isDoubled ? "#FFD700" : "#a855f7"}
-                    shadowColor={isDoubled ? "#FFD700" : "#a855f7"}
+                    radius={(isCoin ? 7 : 5) * pulseScale}
+                    fill={isCoin ? "#FFD700" : isDoubled ? "#FFD700" : "#22d3ee"}
+                    stroke={isCoin ? "#fef08a" : "#67e8f9"}
+                    strokeWidth={isCoin ? 2 : 1}
+                    shadowColor={isCoin ? "#FFD700" : isDoubled ? "#FFD700" : "#22d3ee"}
                     shadowBlur={glowIntensity}
                   />
-                  {/* Lucky clover emoji for doubled orbs */}
+                  {isCoin && (
+                    <Text
+                      text="$"
+                      x={orb.position.x}
+                      y={orb.position.y}
+                      fontSize={10}
+                      offsetX={3}
+                      offsetY={4}
+                      fill="#5b3b00"
+                      fontStyle="bold"
+                    />
+                  )}
+                  {!isCoin && (
+                    <Text
+                      text="XP"
+                      x={orb.position.x}
+                      y={orb.position.y - 11}
+                      fontSize={8}
+                      offsetX={8}
+                      fill="#99f6e4"
+                    />
+                  )}
+                  {/* Lucky marker for doubled drops */}
                   {isDoubled && (
                     <Text
-                      text="🍀"
+                      text="x2"
                       x={orb.position.x}
                       y={orb.position.y - 12}
                       fontSize={10}
-                      offsetX={5}
+                      offsetX={6}
                       offsetY={5}
-                      opacity={0.8}
+                      fill="#FFF7B2"
+                      opacity={0.95}
                     />
                   )}
+                </Group>
+              );
+            })}
+          {isShopRound &&
+            shopStands.map((stand) => {
+              const offer = stand.offer;
+              const isLeave = offer.type === "leave";
+              const isSoldOut = !!offer.purchased && !isLeave;
+              const isAffordable = (localPlayer?.coins || 0) >= (offer.cost || 0);
+              const isNearest = nearestShopStand?.stand?.id === stand.id;
+              const isInRange =
+                isNearest &&
+                (nearestShopStand?.distance ?? Infinity) <= SHOP_INTERACT_RADIUS;
+              const ringColor = getShopOfferColor(offer, isSoldOut);
+              const floatOffset =
+                Math.sin(
+                  now / 220 +
+                    stand.id
+                      .slice(0, 4)
+                      .split("")
+                      .reduce((sum, ch) => sum + ch.charCodeAt(0), 0) *
+                      0.02,
+                ) * 4;
+              const sparkleOpacity = 0.25 + Math.sin(now / 130) * 0.08;
+              const pedestalOpacity = isSoldOut ? 0.55 : 0.92;
+              const hologramOpacity = isSoldOut ? 0.35 : 0.82;
+              const priceText = isSoldOut
+                ? "SOLD"
+                : isLeave
+                  ? "FREE"
+                  : `$${offer.cost}`;
+              const promptText = isLeave ? "PRESS E TO LEAVE" : "PRESS E TO BUY";
+
+              return (
+                <Group key={`shop-stand-${stand.id}`}>
+                  <Circle
+                    x={stand.position.x}
+                    y={stand.position.y + 22}
+                    radius={60}
+                    fill={ringColor}
+                    opacity={0.08}
+                  />
+                  <Ring
+                    x={stand.position.x}
+                    y={stand.position.y + 22}
+                    innerRadius={44}
+                    outerRadius={52}
+                    fill={ringColor}
+                    opacity={isNearest ? 0.35 : 0.2}
+                  />
+                  <Rect
+                    x={stand.position.x - 30}
+                    y={stand.position.y + 6}
+                    width={60}
+                    height={36}
+                    cornerRadius={5}
+                    fill="#050b18"
+                    stroke={ringColor}
+                    strokeWidth={2}
+                    opacity={pedestalOpacity}
+                    shadowColor={ringColor}
+                    shadowBlur={14}
+                  />
+                  <Rect
+                    x={stand.position.x - 23}
+                    y={stand.position.y - 6}
+                    width={46}
+                    height={18}
+                    cornerRadius={4}
+                    fill={isSoldOut ? "#111827" : "#0a1628"}
+                    stroke={ringColor}
+                    strokeWidth={1}
+                    opacity={pedestalOpacity}
+                  />
+                  <Rect
+                    x={stand.position.x - 19}
+                    y={stand.position.y + 20}
+                    width={8}
+                    height={8}
+                    cornerRadius={2}
+                    fill={ringColor}
+                    opacity={0.9}
+                  />
+                  <Rect
+                    x={stand.position.x - 4}
+                    y={stand.position.y + 20}
+                    width={8}
+                    height={8}
+                    cornerRadius={2}
+                    fill={ringColor}
+                    opacity={0.45}
+                  />
+                  <Rect
+                    x={stand.position.x + 11}
+                    y={stand.position.y + 20}
+                    width={8}
+                    height={8}
+                    cornerRadius={2}
+                    fill={ringColor}
+                    opacity={0.9}
+                  />
+                  <Circle
+                    x={stand.position.x}
+                    y={stand.position.y - 34 + floatOffset}
+                    radius={27}
+                    fill={ringColor}
+                    opacity={0.18}
+                    shadowColor={ringColor}
+                    shadowBlur={20}
+                  />
+                  <Circle
+                    x={stand.position.x}
+                    y={stand.position.y - 34 + floatOffset}
+                    radius={18}
+                    fill="#020817"
+                    stroke={ringColor}
+                    strokeWidth={2}
+                    opacity={hologramOpacity}
+                    shadowColor={ringColor}
+                    shadowBlur={isNearest ? 18 : 12}
+                  />
+                  <Text
+                    text={offer.emoji || "?"}
+                    x={stand.position.x}
+                    y={stand.position.y - 36 + floatOffset}
+                    fontSize={10}
+                    width={50}
+                    align="center"
+                    offsetX={25}
+                    offsetY={7}
+                    fill={isSoldOut ? "#9ca3af" : "#f8fafc"}
+                    fontFamily='"Press Start 2P"'
+                  />
+                  <Text
+                    text={getShopOfferTag(offer)}
+                    x={stand.position.x}
+                    y={stand.position.y - 78}
+                    fontSize={8}
+                    width={120}
+                    align="center"
+                    offsetX={60}
+                    fill={isSoldOut ? "#9ca3af" : ringColor}
+                    fontFamily='"Press Start 2P"'
+                  />
+                  <Text
+                    text={priceText}
+                    x={stand.position.x}
+                    y={stand.position.y + 50}
+                    fontSize={8}
+                    width={80}
+                    align="center"
+                    offsetX={40}
+                    fill={isSoldOut ? "#9ca3af" : isAffordable ? "#fef08a" : "#fca5a5"}
+                    fontFamily='"Press Start 2P"'
+                  />
+                  <Rect
+                    x={stand.position.x - 40}
+                    y={stand.position.y + 38}
+                    width={80}
+                    height={10}
+                    cornerRadius={3}
+                    fill="#020617"
+                    stroke={ringColor}
+                    strokeWidth={1}
+                    opacity={0.85}
+                  />
+                  <Rect
+                    x={stand.position.x - 24}
+                    y={stand.position.y - 14 + floatOffset}
+                    width={48}
+                    height={4}
+                    cornerRadius={2}
+                    fill={ringColor}
+                    opacity={sparkleOpacity}
+                  />
+                  {isNearest && (
+                    <Ring
+                      x={stand.position.x}
+                      y={stand.position.y + 22}
+                      innerRadius={56}
+                      outerRadius={59}
+                      fill={ringColor}
+                      opacity={0.45}
+                    />
+                  )}
+                  {isNearest && (
+                    <Group>
+                      <Rect
+                        x={stand.position.x - 200}
+                        y={stand.position.y - 228}
+                        width={400}
+                        height={100}
+                        cornerRadius={8}
+                        fill="#000000"
+                        opacity={0.92}
+                        stroke={ringColor}
+                        strokeWidth={2}
+                        shadowColor={ringColor}
+                        shadowBlur={14}
+                      />
+                      <Text
+                        text={`${getShopOfferTag(offer)} ${
+                          isSoldOut ? "SOLD" : isLeave ? "FREE" : `-$${offer.cost}`
+                        }`}
+                        x={stand.position.x - 186}
+                        y={stand.position.y - 214}
+                        fontSize={9}
+                        fill={isSoldOut ? "#9ca3af" : ringColor}
+                        fontFamily='"Press Start 2P"'
+                      />
+                      <Text
+                        text={offer.title.toUpperCase()}
+                        x={stand.position.x - 186}
+                        y={stand.position.y - 193}
+                        width={372}
+                        fontSize={14}
+                        fill={isSoldOut ? "#9ca3af" : "#f8fafc"}
+                        fontFamily='"Press Start 2P"'
+                      />
+                      <Text
+                        text={offer.description.toUpperCase()}
+                        x={stand.position.x - 186}
+                        y={stand.position.y - 168}
+                        width={372}
+                        fontSize={9}
+                        fill="#e2e8f0"
+                        fontFamily='"Press Start 2P"'
+                      />
+                      <Text
+                        text={
+                          !isLeave && !isSoldOut && !isAffordable
+                            ? `NEED $${offer.cost} (YOU HAVE $${Math.floor(localPlayer?.coins || 0)})`
+                            : getShopOfferFooter(offer)
+                        }
+                        x={stand.position.x - 186}
+                        y={stand.position.y - 145}
+                        width={372}
+                        fontSize={9}
+                        fill={
+                          !isLeave && !isSoldOut && !isAffordable
+                            ? "#f87171"
+                            : ringColor
+                        }
+                        fontFamily='"Press Start 2P"'
+                      />
+                    </Group>
+                  )}
+                  {isInRange && (
+                    <Group>
+                      <Rect
+                        x={stand.position.x - 72}
+                        y={stand.position.y - 118}
+                        width={144}
+                        height={24}
+                        cornerRadius={4}
+                        fill="#030712"
+                        stroke="#f8fafc"
+                        strokeWidth={1}
+                        opacity={0.95}
+                      />
+                      <Text
+                        text={promptText}
+                        x={stand.position.x}
+                        y={stand.position.y - 112}
+                        fontSize={8}
+                        width={136}
+                        align="center"
+                        offsetX={68}
+                        fill="#f8fafc"
+                        fontFamily='"Press Start 2P"'
+                      />
+                    </Group>
+                  )}
+                  <Text
+                    text={offer.title.toUpperCase()}
+                    x={stand.position.x}
+                    fontSize={8}
+                    width={140}
+                    align="center"
+                    offsetX={70}
+                    y={stand.position.y + 62}
+                    fill={isSoldOut ? "#9ca3af" : "#e2e8f0"}
+                    fontFamily='"Press Start 2P"'
+                  />
                 </Group>
               );
             })}
@@ -1714,8 +2111,16 @@ export default function GameCanvas() {
                 <Group>
                   {/* Slam telegraph - expanding circle */}
                   <Circle
-                    x={boss.position.x}
-                    y={boss.position.y}
+                    x={
+                      boss.type === "glitch-golem" && boss.currentAttack.targetPosition
+                        ? boss.currentAttack.targetPosition.x
+                        : boss.position.x
+                    }
+                    y={
+                      boss.type === "glitch-golem" && boss.currentAttack.targetPosition
+                        ? boss.currentAttack.targetPosition.y
+                        : boss.position.y
+                    }
                     radius={60}
                     stroke="#FF6600"
                     strokeWidth={4}
@@ -1723,8 +2128,16 @@ export default function GameCanvas() {
                     dash={[8, 4]}
                   />
                   <Circle
-                    x={boss.position.x}
-                    y={boss.position.y}
+                    x={
+                      boss.type === "glitch-golem" && boss.currentAttack.targetPosition
+                        ? boss.currentAttack.targetPosition.x
+                        : boss.position.x
+                    }
+                    y={
+                      boss.type === "glitch-golem" && boss.currentAttack.targetPosition
+                        ? boss.currentAttack.targetPosition.y
+                        : boss.position.y
+                    }
                     radius={120}
                     stroke="#FF6600"
                     strokeWidth={3}
@@ -1732,8 +2145,16 @@ export default function GameCanvas() {
                     dash={[8, 4]}
                   />
                   <Circle
-                    x={boss.position.x}
-                    y={boss.position.y}
+                    x={
+                      boss.type === "glitch-golem" && boss.currentAttack.targetPosition
+                        ? boss.currentAttack.targetPosition.x
+                        : boss.position.x
+                    }
+                    y={
+                      boss.type === "glitch-golem" && boss.currentAttack.targetPosition
+                        ? boss.currentAttack.targetPosition.y
+                        : boss.position.y
+                    }
                     radius={180}
                     stroke="#FF6600"
                     strokeWidth={2}
@@ -1742,6 +2163,135 @@ export default function GameCanvas() {
                   />
                 </Group>
               )}
+              {boss.currentAttack &&
+                boss.currentAttack.type === "builder-drop" &&
+                boss.currentAttack.targetPosition && (
+                  <Group>
+                    <Circle
+                      x={boss.currentAttack.targetPosition.x}
+                      y={boss.currentAttack.targetPosition.y}
+                      radius={120 + Math.sin(now / 90) * 6}
+                      stroke="#FF9F43"
+                      strokeWidth={3}
+                      opacity={0.45}
+                      dash={[10, 8]}
+                    />
+                    <Circle
+                      x={boss.currentAttack.targetPosition.x}
+                      y={boss.currentAttack.targetPosition.y}
+                      radius={56 + Math.sin(now / 120) * 4}
+                      stroke="#FFD166"
+                      strokeWidth={2}
+                      opacity={0.35}
+                      dash={[6, 6]}
+                    />
+                    <Line
+                      points={[
+                        boss.currentAttack.targetPosition.x,
+                        boss.currentAttack.targetPosition.y - 260,
+                        boss.currentAttack.targetPosition.x,
+                        boss.currentAttack.targetPosition.y - 32,
+                      ]}
+                      stroke="#FFC56B"
+                      strokeWidth={2}
+                      opacity={0.32}
+                      dash={[8, 8]}
+                    />
+                    <Circle
+                      x={
+                        boss.currentAttack.targetPosition.x +
+                        Math.sin(now / 120) * 10
+                      }
+                      y={
+                        boss.currentAttack.targetPosition.y -
+                        250 +
+                        ((now % 900) / 900) * 210
+                      }
+                      radius={16}
+                      fill="#FFD166"
+                      opacity={0.75}
+                      shadowColor="#FF8C42"
+                      shadowBlur={18}
+                    />
+                  </Group>
+                )}
+              {boss.currentAttack &&
+                boss.currentAttack.type === "glitch-zone" && (
+                  <Group>
+                    <Circle
+                      x={boss.position.x}
+                      y={boss.position.y}
+                      radius={320}
+                      stroke="#FF2AE6"
+                      strokeWidth={3}
+                      opacity={0.35}
+                      dash={[10, 8]}
+                    />
+                    {[0, 1, 2, 3, 4, 5].map((i) => {
+                      const angle = now / 320 + (Math.PI * 2 * i) / 6;
+                      return (
+                        <Line
+                          key={`golem-zone-${i}`}
+                          points={[
+                            boss.position.x,
+                            boss.position.y,
+                            boss.position.x + Math.cos(angle) * 320,
+                            boss.position.y + Math.sin(angle) * 320,
+                          ]}
+                          stroke="#FF5CF0"
+                          strokeWidth={2}
+                          opacity={0.25}
+                        />
+                      );
+                    })}
+                  </Group>
+                )}
+              {boss.currentAttack &&
+                boss.currentAttack.type === "system-collapse" &&
+                boss.currentAttack.targetPosition && (
+                  <Group>
+                    <Circle
+                      x={boss.currentAttack.targetPosition.x}
+                      y={boss.currentAttack.targetPosition.y}
+                      radius={90 + Math.sin(now / 110) * 8}
+                      stroke="#FF2244"
+                      strokeWidth={4}
+                      opacity={0.4}
+                      dash={[8, 6]}
+                    />
+                    <Circle
+                      x={boss.currentAttack.targetPosition.x}
+                      y={boss.currentAttack.targetPosition.y}
+                      radius={160 + Math.sin(now / 140) * 10}
+                      stroke="#FF5577"
+                      strokeWidth={2}
+                      opacity={0.28}
+                      dash={[12, 8]}
+                    />
+                    <Line
+                      points={[
+                        boss.currentAttack.targetPosition.x - 190,
+                        boss.currentAttack.targetPosition.y,
+                        boss.currentAttack.targetPosition.x + 190,
+                        boss.currentAttack.targetPosition.y,
+                      ]}
+                      stroke="#FF3355"
+                      strokeWidth={3}
+                      opacity={0.32}
+                    />
+                    <Line
+                      points={[
+                        boss.currentAttack.targetPosition.x,
+                        boss.currentAttack.targetPosition.y - 190,
+                        boss.currentAttack.targetPosition.x,
+                        boss.currentAttack.targetPosition.y + 190,
+                      ]}
+                      stroke="#FF3355"
+                      strokeWidth={3}
+                      opacity={0.32}
+                    />
+                  </Group>
+                )}
 
               {/* Summoner teleport telegraph */}
               {boss.currentAttack &&
@@ -2631,6 +3181,36 @@ export default function GameCanvas() {
             fontSize={14}
             fill="#FF00FF"
           />
+          {isShopRound && (
+            <Group>
+              <Text
+                text={`SHOP ROUND  |  COINS ${playerCoins}`}
+                x={SERVER_ARENA_WIDTH / 2}
+                y={20}
+                fontSize={10}
+                width={320}
+                align="center"
+                offsetX={160}
+                fill="#22d3ee"
+                fontFamily='"Press Start 2P"'
+                shadowColor="#22d3ee"
+                shadowBlur={8}
+              />
+              {shopPrompt && (
+                <Text
+                  text={shopPrompt.toUpperCase()}
+                  x={SERVER_ARENA_WIDTH / 2}
+                  y={SERVER_ARENA_HEIGHT - 62}
+                  fontSize={10}
+                  offsetX={(shopPrompt.length * 6) / 2}
+                  fill="#f8fafc"
+                  fontFamily='"Press Start 2P"'
+                  shadowColor="#f472b6"
+                  shadowBlur={10}
+                />
+              )}
+            </Group>
+          )}
         </Group>
       </Layer>
       {/* Post-processing Layer for UI Overlays */}
@@ -2663,4 +3243,5 @@ export default function GameCanvas() {
     </Stage>
   );
 }
+
 

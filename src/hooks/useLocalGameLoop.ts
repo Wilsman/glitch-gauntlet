@@ -25,16 +25,18 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
   useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
   useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
   useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
+  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
+  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
 
   // Character abilities
   useHotkeys('shift', (e) => {
     e?.preventDefault();
-    if (engine) engine.useBlink();
+    if (engine && !lastSnapshotRef.current?.isShopRound) engine.useBlink();
   }, { enabled: !isPaused, preventDefault: true });
 
   useHotkeys('q', (e) => {
     e?.preventDefault();
-    if (engine) engine.useAbility();
+    if (engine && !lastSnapshotRef.current?.isShopRound) engine.useAbility();
   }, { enabled: !isPaused, preventDefault: true });
 
   useEffect(() => {
@@ -71,6 +73,7 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
       let activeInput = { ...inputRef.current };
 
       if (gamepadInput && !isPaused) {
+        const isShopRound = !!lastSnapshotRef.current?.isShopRound;
         // Merge gamepad input with keyboard
         activeInput = {
           up: activeInput.up || !!gamepadInput.up,
@@ -80,13 +83,14 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
           analogX: gamepadInput.analogX,
           analogY: gamepadInput.analogY,
           shake: activeInput.shake || !!gamepadInput.shake,
+          interact: activeInput.interact || !!gamepadInput.blink || !!gamepadInput.ability,
         };
 
         // Handle one-shot triggers
-        if (gamepadInput.blink && !lastGamepadButtons.current.blink) {
+        if (!isShopRound && gamepadInput.blink && !lastGamepadButtons.current.blink) {
           engine.useBlink();
         }
-        if (gamepadInput.ability && !lastGamepadButtons.current.ability) {
+        if (!isShopRound && gamepadInput.ability && !lastGamepadButtons.current.ability) {
           engine.useAbility();
         }
         lastGamepadButtons.current = {

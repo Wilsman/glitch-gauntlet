@@ -24,6 +24,8 @@ export function useGameLoop(gameId?: string, isPaused: boolean = false) {
   useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
   useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
   useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
+  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
+  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
 
   // Character abilities
   useHotkeys('shift', (e) => { e?.preventDefault(); inputRef.current.blink = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
@@ -101,6 +103,7 @@ export function useGameLoop(gameId?: string, isPaused: boolean = false) {
           right: activeInput.right || !!gamepadInput.right,
           analogX: gamepadInput.analogX,
           analogY: gamepadInput.analogY,
+          interact: activeInput.interact || !!gamepadInput.blink || !!gamepadInput.ability,
           blink: activeInput.blink || !!gamepadInput.blink,
           ability: activeInput.ability || !!gamepadInput.ability,
           shake: activeInput.shake || !!gamepadInput.shake,

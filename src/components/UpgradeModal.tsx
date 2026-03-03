@@ -44,6 +44,8 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
       upgradeOptions: state.upgradeOptions,
     })),
   );
+  const gameState = useGameStore((state) => state.gameState);
+  const localPlayerId = useGameStore((state) => state.localPlayerId);
 
   const [isAnimatingIn, setIsAnimatingIn] = useState(false);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -53,6 +55,13 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
     null,
   );
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const promptType = gameState?.upgradePromptType ?? "levelUp";
+  const localPlayer =
+    gameState?.players.find((player) => player.id === localPlayerId) ?? null;
+  const playerCoins = Math.floor(localPlayer?.coins || 0);
+  const isShopPrompt =
+    promptType === "shop" ||
+    upgradeOptions.some((option) => option.source === "shop");
 
   const { getGamepadInput } = useGamepad();
   const lastGamepadInput = useRef<{
@@ -142,7 +151,9 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
       // Handle Selection
       if (input.blink && !lastGamepadInput.current.confirm) {
         const option = upgradeOptions[hoveredIndex ?? 0];
-        if (option) {
+        const canAfford =
+          !isShopPrompt || option?.isSkipOption || (option?.cost || 0) <= playerCoins;
+        if (option && canAfford) {
           handleSelect(option.id);
         }
       }
@@ -175,6 +186,8 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
     upgradeOptions,
     handleSelect,
     isGamepadActive,
+    isShopPrompt,
+    playerCoins,
   ]);
 
   if (!isUpgradeModalOpen || upgradeOptions.length === 0) {
@@ -228,7 +241,7 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
 
       {/* Title */}
       <motion.div
-        className="mb-8"
+        className="mb-8 text-center"
         initial={{ opacity: 0, y: -26, scale: 0.9 }}
         animate={{ opacity: isAnimatingIn ? 1 : 0, y: 0, scale: 1 }}
         transition={{ duration: 0.6, type: "spring", stiffness: 180 }}
@@ -245,8 +258,13 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
           }}
           transition={{ duration: 1.3, repeat: Infinity, repeatDelay: 0.4 }}
         >
-          LEVEL UP!
+          {isShopPrompt ? "SHOP ROUND" : "LEVEL UP!"}
         </motion.h2>
+        <p className="mt-3 font-vt323 text-xl text-white/85">
+          {isShopPrompt
+            ? `Spend coins on one upgrade or leave. Coins: ${playerCoins}`
+            : "XP bar filled. Choose your next upgrade."}
+        </p>
       </motion.div>
 
       {/* Cards */}
@@ -258,6 +276,9 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
           const isDimmed = isSelecting && !isLockedIn;
           const isOtherCardFocused = hoveredIndex !== null && !isHovered;
           const isIdleFloating = !isHovered && !isSelecting;
+          const isSkipOption = !!option.isSkipOption;
+          const cost = option.cost || 0;
+          const isUnaffordable = isShopPrompt && !isSkipOption && cost > playerCoins;
           const fanOffset = (index - fanCenter) * 42;
           const fanRotate = (index - fanCenter) * -5;
 
@@ -284,13 +305,17 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
               }}
             >
               <motion.button
-                onClick={() => handleSelect(option.id)}
+                onClick={() => {
+                  if (!isUnaffordable) {
+                    handleSelect(option.id);
+                  }
+                }}
                 onMouseEnter={() => {
                   setIsGamepadActive(false);
                   setHoveredIndex(index);
                 }}
                 onMouseLeave={() => setHoveredIndex(null)}
-                disabled={isSelecting}
+                disabled={isSelecting || isUnaffordable}
                 className="w-72 h-96 p-6 flex flex-col justify-between bg-black/80 border-2 rounded-lg cursor-pointer disabled:cursor-not-allowed group overflow-hidden relative"
                 animate={
                   isLockedIn
@@ -329,7 +354,12 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
                     : isHovered
                       ? `0 0 40px ${styles.glowColor}, 0 0 90px ${styles.glowColor}25`
                       : `0 0 15px ${styles.glowColor}40`,
-                  filter: isIdleFloating ? "saturate(1.05)" : "saturate(1.15)",
+                  filter: isUnaffordable
+                    ? "grayscale(0.5) saturate(0.6)"
+                    : isIdleFloating
+                    ? "saturate(1.05)"
+                    : "saturate(1.15)",
+                  opacity: isUnaffordable ? 0.55 : 1,
                   zIndex: isLockedIn ? 40 : isHovered ? 30 : isOtherCardFocused ? 5 : 10,
                 }}
               >
@@ -375,6 +405,17 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
 
                 {/* Content */}
                 <div className="flex-1 flex flex-col items-center justify-start text-center z-10">
+                  {isShopPrompt && (
+                    <div
+                      className="mb-3 rounded border px-3 py-1 font-press-start text-[10px]"
+                      style={{
+                        borderColor: isUnaffordable ? "#ef4444" : "#facc15",
+                        color: isUnaffordable ? "#fca5a5" : "#fde047",
+                      }}
+                    >
+                      {isSkipOption ? "NO COST" : `${cost} COINS`}
+                    </div>
+                  )}
                   {/* Emoji */}
                   <div className="text-6xl mb-4 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
                     {option.emoji || "🎁"}
@@ -403,6 +444,11 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
                   <p className="font-vt323 text-lg text-white/90 leading-snug">
                     {option.description}
                   </p>
+                  {isUnaffordable && (
+                    <p className="mt-2 font-vt323 text-xl text-red-300">
+                      Not enough coins
+                    </p>
+                  )}
                 </div>
 
                 {/* Select Button */}
@@ -424,7 +470,13 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
                         : "none",
                     }}
                   >
-                    {isLockedIn ? "LOCKED IN!" : "SELECT"}
+                    {isLockedIn
+                      ? "LOCKED IN!"
+                      : isUnaffordable
+                      ? "NEED MORE COINS"
+                      : isSkipOption
+                      ? "LEAVE SHOP"
+                      : "SELECT"}
                   </div>
                 </div>
               </motion.button>

@@ -4,6 +4,7 @@ import {
   Trash2,
   Zap,
   Skull,
+  Coins,
   Shield,
   Maximize2,
   Play,
@@ -130,6 +131,14 @@ export default function TestingArenaPanel({
           >
             <Skull className="w-4 h-4" />
             FORCE BOSS ROUND
+          </Button>
+
+          <Button
+            onClick={() => engine.debugTriggerShopRound()}
+            className="flex items-center gap-2 bg-yellow-500 hover:bg-yellow-400 font-press-start text-[10px] py-4 h-auto text-black shadow-[0_0_15px_rgba(250,204,21,0.4)]"
+          >
+            <Coins className="w-4 h-4" />
+            FORCE SHOP ROUND
           </Button>
         </div>
 

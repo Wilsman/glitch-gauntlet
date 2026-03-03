@@ -27,6 +27,8 @@ import type {
   EnemyType,
   BossType,
   UpgradeType,
+  ShopOffer,
+  ShopStand,
 } from "@shared/types";
 import { ALL_UPGRADES, getRandomUpgrades } from "@shared/upgrades";
 import { applyUpgradeEffect } from "@shared/upgradeEffects";
@@ -56,7 +58,6 @@ import {
   BERSERKER_SLAM_RING_SPACING,
   BERSERKER_SLAM_RING_SPEED,
   BERSERKER_SLAM_DAMAGE,
-  GOLEM_SLAM_TELEGRAPH,
   GOLEM_GLITCH_ZONE_DURATION,
   GOLEM_ENRAGED_SHOCKWAVE_COUNT,
   SWARM_DASH_TELEGRAPH,
@@ -112,13 +113,32 @@ const ARENA_HEIGHT = 720;
 const PLAYER_COLORS = ["#00FFFF", "#FF00FF", "#FFFF00", "#00FF00"];
 const TICK_RATE = 50; // ms
 const WAVE_DURATION = 20000; // 20 seconds per wave
+const ENEMY_SPAWN_BASE_CHANCE = 0.05;
+const ENEMY_SPAWN_WAVE_SCALAR = 0.01;
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
 const EXTRACTION_DURATION = 5000; // 5 seconds to extract
-const HELLHOUND_ROUND_INTERVAL = 5; // Every 5 rounds
+const HELLHOUND_ROUND_INTERVAL = 10; // Waves 5, 15, 25...
 const HELLHOUND_ROUND_START = 5; // First hellhound round at wave 5
+const SHOP_INTERACT_RADIUS = 90;
+const SHOP_HEAL_AMOUNT = 35;
+const SHOP_BASELINE_MULTIPLIER = 1.3;
+const SHOP_COST_ROUNDING = 5;
+const SHOP_MIN_BASELINE_COST = 45;
+const COIN_DROP_PER_KILL = 1;
+const LUCKY_COIN_MULTIPLIER = 2;
 const FACEHUGGER_SLOW_MULTIPLIER = 0.72;
 const FACEHUGGER_REQUIRED_SHAKES = 5;
+const PLAYER_HEART_SLOTS = 5;
+const PLAYER_HIT_INVULNERABILITY_MS = 5000;
+const GOLEM_GLITCH_ZONE_RADIUS = 320;
+const GOLEM_GLITCH_ZONE_PULL_FORCE = 1.9;
+const GOLEM_GLITCH_ZONE_PROJECTILE_INTERVAL = 140;
+const GOLEM_COLLAPSE_PULSE_INTERVAL = 320;
+const GOLEM_COLLAPSE_TELEGRAPH = 1400;
+const GOLEM_BUILDER_DROP_TELEGRAPH = 1380;
+const GOLEM_BUILDER_DROP_CHAIN_DELAY = 840;
+const GOLEM_BUILDER_DROP_RADIUS = 135;
 
 // Performance optimization constants
 const DAMAGE_NUMBER_THROTTLE_MS = 100; // Merge hits within this window
@@ -210,6 +230,7 @@ export class LocalGameEngine {
       level: 1,
       xp: 0,
       xpToNextLevel: 10,
+      coins: 0,
       color: PLAYER_COLORS[0],
       attackCooldown: 0,
       attackSpeed: character.baseAttackSpeed,
@@ -236,6 +257,11 @@ export class LocalGameEngine {
       enemies: [],
       projectiles: [],
       xpOrbs: [],
+      upgradePromptType: null,
+      isShopRound: false,
+      shopStands: [],
+      shopPrompt: null,
+      shopPendingBossType: null,
       wave: 1,
       teleporter: null,
       pets: [],
@@ -602,29 +628,39 @@ export class LocalGameEngine {
 
   selectUpgrade(upgradeId: string) {
     const player = this.gameState.players[0];
+    if (!player) return;
+
     const choices = this.upgradeChoices.get(player.id);
     const choice = choices?.find((c) => c.id === upgradeId);
-    if (!player || !choice) return;
+    if (!choice) return;
 
+    this.applyUpgradeChoice(player, choice);
+    this.clearUpgradePrompt(player.id);
+    this.markStateDirty();
+  }
+
+  private applyUpgradeChoice(player: Player, choice: UpgradeOption) {
     applyUpgradeEffect(player, choice.type);
 
     // Spawn pet if pet upgrade selected
     if (choice.type === "pet") {
       if (!this.gameState.pets) this.gameState.pets = [];
       const petEmojis = [
-        "🐶",
-        "🐱",
-        "🐰",
-        "🦊",
-        "🐻",
-        "🐼",
-        "🐨",
-        "🐯",
-        "🦁",
-        "🐸",
+        "\uD83D\uDC36",
+        "\uD83D\uDC31",
+        "\uD83D\uDC30",
+        "\uD83E\uDD8A",
+        "\uD83D\uDC3B",
+        "\uD83D\uDC3C",
+        "\uD83D\uDC28",
+        "\uD83D\uDC2F",
+        "\uD83E\uDD81",
+        "\uD83D\uDC38",
       ];
-      const randomEmoji = choice.title.includes("Dachshund") ? "🐕" :
-        petEmojis[Math.floor(Math.random() * petEmojis.length)];
+      const randomEmoji =
+        choice.title.includes("Dachshund")
+          ? "\uD83D\uDC15"
+          : petEmojis[Math.floor(Math.random() * petEmojis.length)];
       const newPet: Pet = {
         id: uuidv4(),
         ownerId: player.id,
@@ -650,9 +686,9 @@ export class LocalGameEngine {
       const newSkull: OrbitalSkull = {
         id: uuidv4(),
         ownerId: player.id,
-        angle: angleOffset * (orbitalCount - 1), // Evenly space skulls
+        angle: angleOffset * (orbitalCount - 1),
         radius: 60,
-        damage: 10 + player.level * 2, // Scales with level
+        damage: 10 + player.level * 2,
       };
       this.gameState.orbitalSkulls.push(newSkull);
     }
@@ -668,9 +704,7 @@ export class LocalGameEngine {
 
     // Track collected upgrade
     if (!player.collectedUpgrades) player.collectedUpgrades = [];
-    const existing = player.collectedUpgrades.find(
-      (u) => u.type === choice.type
-    );
+    const existing = player.collectedUpgrades.find((u) => u.type === choice.type);
     if (existing) {
       existing.count++;
       existing.title = choice.title;
@@ -685,10 +719,250 @@ export class LocalGameEngine {
         count: 1,
       });
     }
+  }
 
+  private roundShopCost(value: number): number {
+    return Math.max(
+      SHOP_COST_ROUNDING,
+      Math.round(value / SHOP_COST_ROUNDING) * SHOP_COST_ROUNDING
+    );
+  }
+
+  private getExpectedEnemySpawnsPerWave(wave: number): number {
+    const ticksPerWave = Math.floor(WAVE_DURATION / TICK_RATE);
+    const spawnChance = Math.min(
+      0.95,
+      ENEMY_SPAWN_BASE_CHANCE + wave * ENEMY_SPAWN_WAVE_SCALAR
+    );
+    return ticksPerWave * spawnChance;
+  }
+
+  private getShopCostBaseline(wave: number): number {
+    return Math.max(
+      SHOP_MIN_BASELINE_COST,
+      this.getExpectedEnemySpawnsPerWave(wave) * SHOP_BASELINE_MULTIPLIER
+    );
+  }
+
+  private getShopUpgradeCost(option: UpgradeOption, wave: number): number {
+    const baselineCost = this.getShopCostBaseline(wave);
+    switch (option.rarity) {
+      case "common":
+        return this.roundShopCost(baselineCost * 0.95);
+      case "uncommon":
+        return this.roundShopCost(baselineCost * 1.2);
+      case "legendary":
+        return this.roundShopCost(baselineCost * 1.75);
+      case "boss":
+        return this.roundShopCost(baselineCost * 2.1);
+      case "lunar":
+      case "void":
+        return this.roundShopCost(baselineCost * 1.5);
+      default:
+        return this.roundShopCost(baselineCost * 1.05);
+    }
+  }
+
+  private createShopStands(wave: number): ShopStand[] {
+    const centerX = ARENA_WIDTH / 2;
+    const centerY = ARENA_HEIGHT / 2;
+    const basePositions: { x: number; y: number }[] = [
+      { x: centerX - 250, y: centerY + 40 },
+      { x: centerX - 90, y: centerY - 60 },
+      { x: centerX + 90, y: centerY - 60 },
+      { x: centerX + 250, y: centerY + 40 },
+      { x: centerX, y: centerY + 175 },
+    ];
+
+    const rolled = getRandomUpgrades(2);
+    const offers: ShopOffer[] = [
+      ...rolled.map((option) => ({
+        id: uuidv4(),
+        type: "upgrade",
+        title: option.title,
+        description: option.description,
+        emoji: option.emoji,
+        rarity: option.rarity,
+        cost: this.getShopUpgradeCost(option as UpgradeOption, wave),
+        upgradeType: option.type,
+        purchased: false,
+      })),
+      {
+        id: uuidv4(),
+        type: "heal",
+        title: "Patch Kit",
+        description: `Restore ${SHOP_HEAL_AMOUNT} HP.`,
+        emoji: "HP",
+        cost: this.roundShopCost(this.getShopCostBaseline(wave)),
+        healAmount: SHOP_HEAL_AMOUNT,
+        purchased: false,
+      },
+      {
+        id: uuidv4(),
+        type: "temporary",
+        title: "Battle Surge",
+        description: "+25% damage for the next 2 waves.",
+        emoji: "DMG",
+        cost: this.roundShopCost(this.getShopCostBaseline(wave) * 1.35),
+        tempDamageMultiplier: 1.25,
+        tempDurationWaves: 2,
+        purchased: false,
+      },
+      {
+        id: uuidv4(),
+        type: "leave",
+        title: "Leave Shop",
+        description: "Exit and continue the run.",
+        emoji: "OUT",
+        cost: 0,
+      },
+    ];
+
+    return offers.map((offer, idx) => ({
+      id: uuidv4(),
+      position: basePositions[idx] || { x: centerX, y: centerY },
+      offer,
+    }));
+  }
+
+  private openUpgradePrompt(playerId: string, choices: UpgradeOption[]) {
+    this.gameState.levelingUpPlayerId = playerId;
+    this.gameState.upgradePromptType = "levelUp";
+    this.upgradeChoices.set(playerId, choices);
+  }
+
+  private clearUpgradePrompt(playerId: string) {
     this.gameState.levelingUpPlayerId = null;
-    this.upgradeChoices.delete(player.id);
-    this.markStateDirty();
+    this.gameState.upgradePromptType = null;
+    this.upgradeChoices.delete(playerId);
+  }
+
+  private startShopRound(state: GameState, pendingBossType: BossType | null = null) {
+    state.status = "playing";
+    state.isShopRound = true;
+    state.shopPendingBossType = pendingBossType;
+    state.shopStands = this.createShopStands(state.wave);
+    state.shopPrompt = "SHOP ROUND: move to a stand and press E to interact.";
+    state.players.forEach((player) => {
+      player.lastInteractTriggered = false;
+    });
+
+    // Safe room behavior for MVP.
+    state.enemies = [];
+    state.projectiles = [];
+    state.hazards = [];
+    state.bossProjectiles = [];
+    state.explosions = [];
+    state.chainLightning = [];
+  }
+
+  private endShopRound(state: GameState) {
+    const pendingBossType = state.shopPendingBossType || null;
+    state.isShopRound = false;
+    state.shopStands = [];
+    state.shopPrompt = null;
+    state.shopPendingBossType = null;
+
+    if (pendingBossType) {
+      state.wave++;
+      this.waveTimer = 0;
+      state.waveTimer = 0;
+      state.enemies = [];
+      state.boss = createBoss(
+        uuidv4(),
+        { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+        pendingBossType,
+        state.wave
+      );
+      state.status = "bossFight";
+    }
+  }
+
+  private tryPurchaseShopStand(state: GameState, player: Player, stand: ShopStand) {
+    const offer = stand.offer;
+    if (!offer) return;
+
+    if (offer.type === "leave") {
+      state.shopPrompt = "Leaving shop...";
+      this.endShopRound(state);
+      return;
+    }
+
+    if (offer.purchased) {
+      state.shopPrompt = "That stand is sold out.";
+      return;
+    }
+
+    const coins = player.coins || 0;
+    if (coins < offer.cost) {
+      state.shopPrompt = `Need ${offer.cost} coins for ${offer.title}.`;
+      return;
+    }
+
+    player.coins = coins - offer.cost;
+
+    if (offer.type === "upgrade" && offer.upgradeType) {
+      const option: UpgradeOption = {
+        id: offer.id,
+        type: offer.upgradeType,
+        title: offer.title,
+        description: offer.description,
+        rarity: offer.rarity || "common",
+        emoji: offer.emoji,
+      };
+      this.applyUpgradeChoice(player, option);
+    } else if (offer.type === "heal") {
+      player.health = Math.min(
+        player.maxHealth,
+        player.health + (offer.healAmount || SHOP_HEAL_AMOUNT)
+      );
+    } else if (offer.type === "temporary") {
+      const multiplier = offer.tempDamageMultiplier || 1.25;
+      const durationWaves = offer.tempDurationWaves || 2;
+      player.temporaryDamageMultiplier = Math.max(
+        player.temporaryDamageMultiplier || 1,
+        multiplier
+      );
+      player.temporaryDamageExpiresWave = Math.max(
+        player.temporaryDamageExpiresWave || state.wave,
+        state.wave + durationWaves
+      );
+    }
+
+    offer.purchased = true;
+    state.shopPrompt = `Bought ${offer.title}.`;
+  }
+
+  private updateShopRound(state: GameState) {
+    if (!state.isShopRound || !state.shopStands || state.shopStands.length === 0) {
+      return;
+    }
+
+    const player = state.players.find((p) => p.status === "alive");
+    if (!player) return;
+
+    const interactPressed = !!player.lastInput?.interact;
+    if (interactPressed && !player.lastInteractTriggered) {
+      let closestStand: ShopStand | null = null;
+      let minDistance = Infinity;
+      state.shopStands.forEach((stand) => {
+        const dist = Math.hypot(
+          stand.position.x - player.position.x,
+          stand.position.y - player.position.y
+        );
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestStand = stand;
+        }
+      });
+
+      if (closestStand && minDistance <= SHOP_INTERACT_RADIUS) {
+        this.tryPurchaseShopStand(state, player, closestStand);
+      } else {
+        state.shopPrompt = "Move closer to a shop stand.";
+      }
+    }
+    player.lastInteractTriggered = interactPressed;
   }
 
   getUpgradeOptions(): UpgradeOption[] | null {
@@ -842,6 +1116,26 @@ export class LocalGameEngine {
     this.markStateDirty();
   }
 
+  debugTriggerShopRound() {
+    this.gameState.status = "playing";
+    this.waveTimer = 0;
+    this.gameState.waveTimer = 0;
+    this.gameState.boss = null;
+    this.gameState.teleporter = null;
+    this.gameState.waitingForHellhoundRound = false;
+    this.gameState.isHellhoundRound = false;
+    this.gameState.hellhoundRoundPending = false;
+    this.gameState.hellhoundRoundComplete = false;
+    this.gameState.hellhoundSpawnTimer = 0;
+    this.gameState.hellhoundsKilled = 0;
+    this.gameState.totalHellhoundsInRound = 0;
+    this.gameState.levelingUpPlayerId = null;
+    this.gameState.upgradePromptType = null;
+    this.upgradeChoices.clear();
+    this.startShopRound(this.gameState);
+    this.markStateDirty();
+  }
+
   debugClearEnemies() {
     this.gameState.enemies = [];
     this.gameState.projectiles = [];
@@ -850,6 +1144,13 @@ export class LocalGameEngine {
     this.gameState.xpOrbs = [];
     this.gameState.explosions = [];
     this.gameState.status = "playing";
+    this.gameState.levelingUpPlayerId = null;
+    this.gameState.upgradePromptType = null;
+    this.upgradeChoices.clear();
+    this.gameState.isShopRound = false;
+    this.gameState.shopStands = [];
+    this.gameState.shopPrompt = null;
+    this.gameState.shopPendingBossType = null;
     this.markStateDirty();
   }
 
@@ -903,24 +1204,29 @@ export class LocalGameEngine {
       this.updateTurrets(state, now, delta);
       this.updateClones(state, now, delta);
 
-      if (state.status === "bossFight") {
-        this.updateBoss(state, now, delta, timeFactor);
-        this.updateShockwaveRings(state, delta);
-        this.updateBossProjectiles(state, delta);
+      if (state.isShopRound) {
+        this.updateShopRound(state);
       } else {
-        this.updateEnemyAI(state, now, delta, timeFactor);
-        this.updateWaves(state, delta);
+        if (state.status === "bossFight") {
+          this.updateBoss(state, now, delta, timeFactor);
+          this.updateShockwaveRings(state, delta);
+          this.updateBossProjectiles(state, delta);
+        } else {
+          this.updateEnemyAI(state, now, delta, timeFactor);
+          this.updateWaves(state, delta);
+        }
+
+        this.updatePlayerAttacks(state, delta, now);
+        this.updateProjectiles(state, now, delta, timeFactor);
+        this.updateStatusEffects(state, delta);
+        this.updateHazards(state, now, delta);
+        this.updateExplosions(state, now, timeFactor);
+        this.updateChainLightning(state, now);
       }
 
-      this.updatePlayerAttacks(state, delta, now);
-      this.updateProjectiles(state, now, delta, timeFactor);
-      this.updateStatusEffects(state, delta);
       this.updateParticles(state, delta, now);
       this.updateScreenShake(state, now);
-      this.updateHazards(state, now, delta);
       this.updateAbilities(state, delta);
-      this.updateExplosions(state, now, timeFactor);
-      this.updateChainLightning(state, now);
       this.updateXPOrbs(state, timeFactor);
       this.updateTrailSegments(state, delta, now);
       this.updateBinaryDrops(state, delta, now);
@@ -1123,6 +1429,17 @@ export class LocalGameEngine {
         p.shield = Math.min(p.maxShield, p.shield + (10 * delta) / 1000);
       }
 
+      // Expire temporary shop buffs by wave progression.
+      if (
+        p.temporaryDamageMultiplier &&
+        p.temporaryDamageMultiplier > 1 &&
+        p.temporaryDamageExpiresWave !== undefined &&
+        state.wave > p.temporaryDamageExpiresWave
+      ) {
+        p.temporaryDamageMultiplier = 1;
+        p.temporaryDamageExpiresWave = undefined;
+      }
+
       // Static Field
       if (p.staticFieldTimer !== undefined) {
         p.staticFieldTimer += delta;
@@ -1233,6 +1550,10 @@ export class LocalGameEngine {
         // Get owner player to inherit their stats
         const owner = state.players.find((p) => p.id === turret.ownerId);
         if (!owner) return;
+        const ownerDamageMultiplier = this.getDamageMultiplierForPlayer(
+          owner,
+          state
+        );
 
         turret.attackCooldown = turret.attackSpeed;
 
@@ -1270,7 +1591,9 @@ export class LocalGameEngine {
 
             // Inherit player's crit chance and calculate crit
             const isCrit = Math.random() < (owner.critChance || 0);
-            const baseDamage = turret.damage + (owner.projectileDamage - 8); // Add player's bonus damage
+            const baseDamage =
+              (turret.damage + (owner.projectileDamage - 8)) *
+              ownerDamageMultiplier; // Add player's bonus damage
             const finalDamage = Math.round(
               baseDamage * (isCrit ? owner.critMultiplier || 2 : 1)
             );
@@ -1398,7 +1721,13 @@ export class LocalGameEngine {
           );
 
           // Clone fires a single projectile (no multishot)
-          const baseDamage = Math.round(owner.projectileDamage * clone.damage);
+          const ownerDamageMultiplier = this.getDamageMultiplierForPlayer(
+            owner,
+            state
+          );
+          const baseDamage = Math.round(
+            owner.projectileDamage * ownerDamageMultiplier * clone.damage
+          );
 
           const projectile: Projectile = {
             id: uuidv4(),
@@ -1522,6 +1851,8 @@ export class LocalGameEngine {
     delta: number,
     timeFactor: number
   ) {
+    if (state.isShopRound) return;
+
     const isHellhoundRound = state.isHellhoundRound || false;
     const waitingForHellhoundRound = state.waitingForHellhoundRound || false;
 
@@ -1587,7 +1918,10 @@ export class LocalGameEngine {
       }
     } else if (!waitingForHellhoundRound && !state.isSandboxMode) {
       // Only spawn normal enemies if NOT waiting for hellhound round
-      const enemySpawnRate = 0.05 + state.wave * 0.01;
+      const enemySpawnRate = Math.min(
+        0.95,
+        ENEMY_SPAWN_BASE_CHANCE + state.wave * ENEMY_SPAWN_WAVE_SCALAR
+      );
       if (
         state.enemies.length < 10 * state.players.length &&
         Math.random() < enemySpawnRate
@@ -1726,6 +2060,9 @@ export class LocalGameEngine {
     state.players.forEach((p) => {
       if (p.status !== "alive") return;
       p.attackCooldown -= delta;
+      const temporaryDamageMultiplier = this.getDamageMultiplierForPlayer(p, state);
+      const effectiveProjectileDamage =
+        p.projectileDamage * temporaryDamageMultiplier;
 
       // Determine target: boss if in boss fight, otherwise closest enemy
       let targetPosition: { x: number; y: number } | null = null;
@@ -1760,7 +2097,7 @@ export class LocalGameEngine {
           // Boom Bringer: Single grenade with built-in explosion
           const isCrit = Math.random() < (p.critChance || 0);
           const damage = Math.round(
-            p.projectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
+            effectiveProjectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
           );
           const grenade: Projectile = {
             hitEnemies: [],
@@ -1786,7 +2123,7 @@ export class LocalGameEngine {
           if (p.burstShotsFired < 3) {
             const isCrit = Math.random() < (p.critChance || 0);
             const damage = Math.round(
-              p.projectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
+              effectiveProjectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
             );
             const bullet: Projectile = {
               hitEnemies: [],
@@ -1835,7 +2172,7 @@ export class LocalGameEngine {
           // Turret Tina: Slower, larger projectiles
           const isCrit = Math.random() < (p.critChance || 0);
           const damage = Math.round(
-            p.projectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
+            effectiveProjectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
           );
           const heavyShot: Projectile = {
             hitEnemies: [],
@@ -1865,7 +2202,9 @@ export class LocalGameEngine {
             const angle = baseAngle + offset;
             const isCrit = Math.random() < (p.critChance || 0);
             const damage = Math.round(
-              p.projectileDamage * 0.4 * (isCrit ? p.critMultiplier || 2 : 1)
+              effectiveProjectileDamage *
+                0.4 *
+                (isCrit ? p.critMultiplier || 2 : 1)
             ); // Lower damage per pellet
             const pellet: Projectile = {
               hitEnemies: [],
@@ -1900,7 +2239,7 @@ export class LocalGameEngine {
             }
 
             const damage = Math.round(
-              p.projectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
+              effectiveProjectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
             );
             const newBullet: Projectile = {
               hitEnemies: [],
@@ -1929,7 +2268,7 @@ export class LocalGameEngine {
             const angle = baseAngle + offset;
             const isCrit = Math.random() < (p.critChance || 0);
             const damage = Math.round(
-              p.projectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
+              effectiveProjectileDamage * (isCrit ? p.critMultiplier || 2 : 1)
             );
             const speed = 10;
             const maxRange = 220;
@@ -2465,14 +2804,34 @@ export class LocalGameEngine {
       this.spawnParticles(dead.position, '#FFFF00', 20, 'pixel', 10);
       this.spawnParticles(dead.position, '#FF0000', 10, 'blood', 8);
 
-      const xpValue = hasLuckyPlayer ? dead.xpValue * 2 : dead.xpValue;
+      const coinValue = hasLuckyPlayer
+        ? COIN_DROP_PER_KILL * LUCKY_COIN_MULTIPLIER
+        : COIN_DROP_PER_KILL;
 
       state.xpOrbs.push({
         id: uuidv4(),
         position: { ...dead.position },
-        value: xpValue,
+        value: coinValue,
+        kind: "coin",
         isDoubled: hasLuckyPlayer,
       });
+
+      // Kill-based XP: award XP from enemy difficulty (xpValue) to the nearest alive player.
+      const xpRecipient = state.players
+        .filter((p) => p.status === "alive")
+        .reduce(
+          (closest, p) => {
+            const dist = Math.hypot(
+              p.position.x - dead.position.x,
+              p.position.y - dead.position.y
+            );
+            return dist < closest.dist ? { player: p, dist } : closest;
+          },
+          { player: null as Player | null, dist: Infinity }
+        ).player;
+      if (xpRecipient) {
+        xpRecipient.xp += dead.xpValue;
+      }
 
       // Track enemy kills
       this.enemiesKilledCount++;
@@ -2718,6 +3077,20 @@ export class LocalGameEngine {
     );
   }
 
+  private getDamageMultiplierForPlayer(player: Player, state: GameState): number {
+    const multiplier = player.temporaryDamageMultiplier || 1;
+    if (multiplier <= 1) return 1;
+    if (
+      player.temporaryDamageExpiresWave !== undefined &&
+      state.wave > player.temporaryDamageExpiresWave
+    ) {
+      player.temporaryDamageMultiplier = 1;
+      player.temporaryDamageExpiresWave = undefined;
+      return 1;
+    }
+    return multiplier;
+  }
+
   private updateXPOrbs(state: GameState, timeFactor: number) {
     // For each orb, find if any player is close enough to pull it
     state.xpOrbs.forEach((orb) => {
@@ -2770,7 +3143,11 @@ export class LocalGameEngine {
           p.position.y - orb.position.y
         );
         if (distance < 10) {
-          p.xp += orb.value;
+          if (orb.kind === "coin") {
+            p.coins = (p.coins || 0) + orb.value;
+          } else {
+            p.xp += orb.value;
+          }
           return false;
         }
         return true;
@@ -2793,12 +3170,12 @@ export class LocalGameEngine {
 
         p.xp -= p.xpToNextLevel;
         p.xpToNextLevel = Math.floor(p.xpToNextLevel * 1.5);
-        state.levelingUpPlayerId = p.id;
         const choices = getRandomUpgrades(3).map((o) => ({
           ...o,
           id: uuidv4(),
+          source: "levelUp" as const,
         }));
-        this.upgradeChoices.set(p.id, choices);
+        this.openUpgradePrompt(p.id, choices);
       }
     });
   }
@@ -2841,6 +3218,7 @@ export class LocalGameEngine {
 
   private updateWaves(state: GameState, delta: number) {
     if (state.isSandboxMode) return;
+    if (state.isShopRound) return;
 
     // If waiting for enemies to clear before starting hellhound round
     if (state.waitingForHellhoundRound && state.enemies.length === 0) {
@@ -2865,11 +3243,14 @@ export class LocalGameEngine {
       const alivePlayers = state.players.filter((p) => p.status === "alive");
       if (alivePlayers.length > 0 && !state.levelingUpPlayerId) {
         const player = alivePlayers[0];
-        state.levelingUpPlayerId = player.id;
         const legendaryUpgrades = getRandomUpgrades(3, "legendary");
-        this.upgradeChoices.set(
+        this.openUpgradePrompt(
           player.id,
-          legendaryUpgrades.map((o) => ({ ...o, id: uuidv4() }))
+          legendaryUpgrades.map((o) => ({
+            ...o,
+            id: uuidv4(),
+            source: "levelUp" as const,
+          }))
         );
       }
 
@@ -2888,6 +3269,9 @@ export class LocalGameEngine {
         state.hellhoundRoundPending = false;
         state.wave++;
         this.waveTimer = 0;
+        state.waveTimer = 0;
+        // Shop immediately after hellhound rounds.
+        this.startShopRound(state);
       }
       return;
     }
@@ -2909,18 +3293,10 @@ export class LocalGameEngine {
       const bossType = getBossForWave(nextWave);
 
       if (bossType) {
-        // Boss wave - increment immediately and clear enemies
-        state.wave++;
+        // Pre-boss shop: enter shop first, then spawn boss when leaving.
         this.waveTimer = 0;
         state.waveTimer = 0;
-        state.enemies = [];
-        state.boss = createBoss(
-          uuidv4(),
-          { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
-          bossType,
-          state.wave
-        );
-        state.status = "bossFight";
+        this.startShopRound(state, bossType);
         return;
       } else if (isNextWaveHellhound) {
         // Hellhound round - wait for enemies to clear before incrementing
@@ -3352,17 +3728,79 @@ export class LocalGameEngine {
         };
       }
     } else if (boss.type === "glitch-golem") {
-      // Glitch Golem: Glitch Slam
       const target = this.getNearestPlayer(state, boss.position);
       if (!target) return;
 
-      boss.currentAttack = {
-        type: "slam", // Reusing slam type for mechanics consistency
-        telegraphStartTime: now,
-        telegraphDuration: GOLEM_SLAM_TELEGRAPH,
-        executeTime: now + GOLEM_SLAM_TELEGRAPH,
-        targetPosition: { ...target.position },
-      };
+      const rand = Math.random();
+      if (!boss.isEnraged) {
+        if (rand < 0.35) {
+          boss.currentAttack = {
+            type: "slam",
+            telegraphStartTime: now,
+            telegraphDuration: 1500,
+            executeTime: now + 1500,
+            targetPosition: { ...target.position },
+            count: 1,
+          };
+        } else if (rand < 0.7) {
+          boss.currentAttack = {
+            type: "builder-drop",
+            telegraphStartTime: now,
+            telegraphDuration: GOLEM_BUILDER_DROP_TELEGRAPH,
+            executeTime: now + GOLEM_BUILDER_DROP_TELEGRAPH,
+            targetPosition: { ...target.position },
+            count: 1,
+          };
+        } else {
+          const dx = target.position.x - boss.position.x;
+          const dy = target.position.y - boss.position.y;
+          const dist = Math.hypot(dx, dy) || 1;
+          boss.currentAttack = {
+            type: "shotgun-burst",
+            telegraphStartTime: now,
+            telegraphDuration: 900,
+            executeTime: now + 900,
+            targetPosition: { ...target.position },
+            direction: { x: dx / dist, y: dy / dist },
+            count: 1,
+          };
+        }
+      } else if (rand < 0.28) {
+        boss.currentAttack = {
+          type: "glitch-zone",
+          telegraphStartTime: now,
+          telegraphDuration: 1000,
+          executeTime: now + 1000,
+          targetPosition: { ...boss.position },
+        };
+      } else if (rand < 0.55) {
+        boss.currentAttack = {
+          type: "system-collapse",
+          telegraphStartTime: now,
+          telegraphDuration: GOLEM_COLLAPSE_TELEGRAPH,
+          executeTime: now + GOLEM_COLLAPSE_TELEGRAPH,
+          targetPosition: { ...target.position },
+          count: 0,
+        };
+      } else if (rand < 0.8) {
+        boss.currentAttack = {
+          type: "builder-drop",
+          telegraphStartTime: now,
+          telegraphDuration: 1120,
+          executeTime: now + 1120,
+          targetPosition: { ...target.position },
+          count: 3,
+        };
+      } else {
+        boss.currentAttack = {
+          type: "slam",
+          telegraphStartTime: now,
+          telegraphDuration: 1400,
+          executeTime: now + 1400,
+          targetPosition: { ...target.position },
+          count: 2,
+        };
+      }
     } else if (boss.type === "viral-swarm") {
       const target = this.getNearestPlayer(state, boss.position);
       if (!target) return;
@@ -3529,43 +3967,21 @@ export class LocalGameEngine {
 
       if (now < attack.executeTime! + 100) {
         if (boss.type === "glitch-golem") {
-          if (!state.hazards) state.hazards = [];
           if (!attack.targetPosition) return;
-          state.hazards.push({
-            id: uuidv4(),
-            position: { ...attack.targetPosition },
-            type: "spike-trap",
-            variant: "wall",
-            radius: 56,
-            damage: 65,
-            activationRadius: 130,
-            activationThreshold: 1050,
-            activationCharge: 0,
-            health: 100,
-            maxHealth: 100,
-            isActive: true,
-            activeUntil: now + 1150,
-            zoneUntil: now + 8000,
-            lastToggle: now,
-            lastSlamAt: now - 1,
-          });
-
-          if (boss.isEnraged) {
-            const count = GOLEM_ENRAGED_SHOCKWAVE_COUNT;
-            for (let i = 0; i < count; i++) {
-              state.shockwaveRings.push({
-                id: uuidv4(),
-                position: { ...attack.targetPosition },
-                currentRadius: 0,
-                maxRadius: 400,
-                damage: 40,
-                timestamp: now,
-                speed: 300,
-                hitPlayers: new Set(),
-              });
-            }
+          const ringCount = boss.isEnraged ? 5 : 3;
+          for (let i = 0; i < ringCount; i++) {
+            state.shockwaveRings.push({
+              id: uuidv4(),
+              position: { ...attack.targetPosition },
+              currentRadius: i * (boss.isEnraged ? 20 : 24),
+              maxRadius: boss.isEnraged ? 360 : 300,
+              damage: boss.isEnraged ? 34 : 24,
+              timestamp: now,
+              speed: boss.isEnraged ? 260 : 220,
+              hitPlayers: new Set(),
+            });
           }
-          this.triggerScreenShake(20, 800);
+          this.triggerScreenShake(boss.isEnraged ? 22 : 14, boss.isEnraged ? 850 : 620);
         } else {
           // Berserker Slam
           const rings = boss.isEnraged ? BERSERKER_ENRAGED_SLAM_RINGS : BERSERKER_SLAM_RINGS;
@@ -3743,6 +4159,135 @@ export class LocalGameEngine {
       if (now >= attack.executeTime! + 2500) {
         boss.currentAttack = undefined;
       }
+    } else if (attack.type === "builder-drop") {
+      if (now < attack.executeTime!) return;
+      if (!attack.targetPosition) return;
+
+      if (!attack.bombId) {
+        const radius = boss.isEnraged ? GOLEM_BUILDER_DROP_RADIUS + 18 : GOLEM_BUILDER_DROP_RADIUS;
+        const damage = BOSS_CONFIGS[boss.type].baseDamage * (boss.isEnraged ? 2.25 : 1.8);
+        this.spawnGolemBuilderCrash(state, attack.targetPosition, now, {
+          radius,
+          damage,
+          burstCount: boss.isEnraged ? 10 : 6,
+          burstSpeed: boss.isEnraged ? 340 : 280,
+        });
+        attack.bombId = uuidv4();
+      }
+
+      if (now >= attack.executeTime! + 180) {
+        if (attack.count && attack.count > 1) {
+          const target = this.getNearestPlayer(state, boss.position);
+          const jitter = 25 + Math.random() * 90;
+          const jitterAngle = Math.random() * Math.PI * 2;
+          const nextTarget = target
+            ? {
+                x: target.position.x + Math.cos(jitterAngle) * jitter,
+                y: target.position.y + Math.sin(jitterAngle) * jitter,
+              }
+            : { ...boss.position };
+          attack.targetPosition = {
+            x: Math.max(60, Math.min(ARENA_WIDTH - 60, nextTarget.x)),
+            y: Math.max(60, Math.min(ARENA_HEIGHT - 60, nextTarget.y)),
+          };
+          attack.telegraphStartTime = now;
+          attack.executeTime = now + GOLEM_BUILDER_DROP_CHAIN_DELAY;
+          attack.bombId = undefined;
+          attack.count--;
+        } else {
+          boss.currentAttack = undefined;
+        }
+      }
+    } else if (attack.type === "glitch-zone") {
+      if (now < attack.executeTime!) return;
+      if (!state.bossProjectiles) state.bossProjectiles = [];
+
+      const elapsed = now - attack.executeTime!;
+      const zoneDuration = GOLEM_GLITCH_ZONE_DURATION + (boss.isEnraged ? 2000 : 0);
+      const interval = GOLEM_GLITCH_ZONE_PROJECTILE_INTERVAL * (boss.isEnraged ? 0.78 : 1);
+      const frame = Math.floor(elapsed / interval);
+      const previousFrame = Math.floor((elapsed - delta) / interval);
+
+      if (frame !== previousFrame) {
+        const arms = boss.isEnraged ? 6 : 4;
+        const angleOffset = frame % 2 === 0 ? 0 : Math.PI / arms;
+        const baseAngle = elapsed * (boss.isEnraged ? 0.0056 : 0.0042);
+        const projectileSpeed = boss.isEnraged ? 390 : 320;
+        const damage = BOSS_CONFIGS[boss.type].baseDamage * (boss.isEnraged ? 0.44 : 0.34);
+        for (let i = 0; i < arms; i++) {
+          const angle = baseAngle + angleOffset + (Math.PI * 2 * i) / arms;
+          state.bossProjectiles.push({
+            id: uuidv4(),
+            position: { ...boss.position },
+            velocity: {
+              x: Math.cos(angle) * projectileSpeed,
+              y: Math.sin(angle) * projectileSpeed,
+            },
+            damage,
+            radius: 11,
+            type: "beam",
+            hitPlayers: new Set(),
+          });
+        }
+      }
+
+      state.players.forEach((p) => {
+        if (p.status !== "alive") return;
+        const dx = boss.position.x - p.position.x;
+        const dy = boss.position.y - p.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist > GOLEM_GLITCH_ZONE_RADIUS) return;
+        const pullScale = 1 - dist / GOLEM_GLITCH_ZONE_RADIUS;
+        const force = GOLEM_GLITCH_ZONE_PULL_FORCE * pullScale * timeFactor;
+        p.position.x += (dx / dist) * force;
+        p.position.y += (dy / dist) * force;
+        p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
+        p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+      });
+
+      if (now >= attack.executeTime! + zoneDuration) {
+        boss.currentAttack = undefined;
+      }
+    } else if (attack.type === "system-collapse") {
+      if (now < attack.executeTime!) return;
+      if (!attack.targetPosition) return;
+
+      const elapsed = now - attack.executeTime!;
+      const pulseInterval = GOLEM_COLLAPSE_PULSE_INTERVAL * (boss.isEnraged ? 0.78 : 1);
+      const pulse = Math.floor(elapsed / pulseInterval);
+      const prevPulse = Math.floor((elapsed - delta) / pulseInterval);
+      const maxPulses = boss.isEnraged ? 6 : 4;
+
+      if (pulse !== prevPulse && pulse < maxPulses) {
+        const burstCount = boss.isEnraged ? 20 : 14;
+        const speed = boss.isEnraged ? 430 : 350;
+        const damage = BOSS_CONFIGS[boss.type].baseDamage * (boss.isEnraged ? 0.65 : 0.5);
+        const baseOffset = pulse % 2 === 0 ? 0 : Math.PI / burstCount;
+        this.spawnOffsetRadialBurst(
+          state,
+          attack.targetPosition,
+          burstCount,
+          speed,
+          damage,
+          baseOffset
+        );
+
+        if (pulse === maxPulses - 1) {
+          this.spawnGolemBuilderCrash(state, attack.targetPosition, now, {
+            radius: boss.isEnraged ? GOLEM_BUILDER_DROP_RADIUS + 10 : GOLEM_BUILDER_DROP_RADIUS - 10,
+            damage: BOSS_CONFIGS[boss.type].baseDamage * (boss.isEnraged ? 2 : 1.6),
+            burstCount: boss.isEnraged ? 12 : 8,
+            burstSpeed: boss.isEnraged ? 360 : 300,
+          });
+        }
+
+        this.triggerScreenShake(10 + pulse * 2, 220);
+      }
+
+      const collapseDuration = pulseInterval * maxPulses + 200;
+      if (elapsed >= collapseDuration) {
+        boss.currentAttack = undefined;
+      }
     } else if (attack.type === "magnetic-flux") {
       if (now < attack.executeTime!) return;
       const duration = MAGNUS_FLUX_DURATION;
@@ -3899,6 +4444,54 @@ export class LocalGameEngine {
               }
             });
           }
+        } else if (boss.type === "glitch-golem") {
+          const target = this.getNearestPlayer(state, boss.position);
+          const direction =
+            attack.direction && (Math.abs(attack.direction.x) > 0 || Math.abs(attack.direction.y) > 0)
+              ? attack.direction
+              : target
+                ? {
+                    x: (target.position.x - boss.position.x) /
+                      (Math.hypot(target.position.x - boss.position.x, target.position.y - boss.position.y) || 1),
+                    y: (target.position.y - boss.position.y) /
+                      (Math.hypot(target.position.x - boss.position.x, target.position.y - boss.position.y) || 1),
+                  }
+                : { x: 1, y: 0 };
+          const rotateDir = (dir: Vector2D, radians: number): Vector2D => ({
+            x: dir.x * Math.cos(radians) - dir.y * Math.sin(radians),
+            y: dir.x * Math.sin(radians) + dir.y * Math.cos(radians),
+          });
+
+          this.spawnShotgunBurst(
+            state,
+            boss.position,
+            direction,
+            boss.isEnraged ? 9 : 7,
+            boss.isEnraged ? Math.PI * 0.9 : Math.PI * 0.75,
+            boss.isEnraged ? speed * 1.08 : speed,
+            damage * 0.75
+          );
+
+          if (boss.isEnraged) {
+            this.spawnShotgunBurst(
+              state,
+              boss.position,
+              rotateDir(direction, Math.PI / 3),
+              6,
+              Math.PI * 0.55,
+              speed * 1.1,
+              damage * 0.55
+            );
+            this.spawnShotgunBurst(
+              state,
+              boss.position,
+              rotateDir(direction, -Math.PI / 3),
+              6,
+              Math.PI * 0.55,
+              speed * 1.1,
+              damage * 0.55
+            );
+          }
         }
       }
       if (now >= attack.executeTime! + 200) boss.currentAttack = undefined;
@@ -3921,6 +4514,16 @@ export class LocalGameEngine {
             };
             this.spawnRadialBurst(state, satPos, 6, speed * 0.8, damage * 0.5);
           }
+        } else if (boss.type === "glitch-golem") {
+          const burstCount = boss.isEnraged ? 18 : 12;
+          this.spawnOffsetRadialBurst(
+            state,
+            boss.position,
+            burstCount,
+            boss.isEnraged ? speed * 1.15 : speed,
+            damage * 0.8,
+            boss.isEnraged ? Math.PI / burstCount : 0
+          );
         }
       }
       if (now >= attack.executeTime! + 200) boss.currentAttack = undefined;
@@ -3956,9 +4559,96 @@ export class LocalGameEngine {
             this.triggerScreenShake(15, 500);
             state.bossProjectiles = state.bossProjectiles?.filter(p => p.id !== attack.bombId);
           }
-          boss.currentAttack = undefined;
+
+          if (attack.count && attack.count > 1) {
+            const target = this.getNearestPlayer(state, boss.position);
+            attack.targetPosition = target ? { ...target.position } : { ...boss.position };
+            attack.bombId = undefined;
+            attack.executeTime = now + 700;
+            attack.count--;
+          } else {
+            boss.currentAttack = undefined;
+          }
         }
       }
+    }
+  }
+
+  private spawnGolemBuilderCrash(
+    state: GameState,
+    position: Vector2D,
+    now: number,
+    options?: { radius?: number; damage?: number; burstCount?: number; burstSpeed?: number }
+  ) {
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+    const safePosition = {
+      x: clamp(position.x, 70, ARENA_WIDTH - 70),
+      y: clamp(position.y, 70, ARENA_HEIGHT - 70),
+    };
+    const radius = options?.radius ?? GOLEM_BUILDER_DROP_RADIUS;
+    const damage = options?.damage ?? BOSS_CONFIGS["glitch-golem"].baseDamage * 1.8;
+
+    if (!state.explosions) state.explosions = [];
+    state.explosions.push({
+      id: uuidv4(),
+      position: safePosition,
+      radius,
+      timestamp: now,
+      damage,
+      ownerId: "boss",
+      type: "normal",
+    });
+
+    state.players.forEach((p) => {
+      if (p.status !== "alive") return;
+      const dist = Math.hypot(
+        p.position.x - safePosition.x,
+        p.position.y - safePosition.y
+      );
+      if (dist >= radius) return;
+      const hitFalloff = 0.72 + 0.28 * (1 - dist / radius);
+      this.damagePlayer(p, damage * hitFalloff, now);
+    });
+
+    const burstCount = options?.burstCount ?? 6;
+    const burstSpeed = options?.burstSpeed ?? 280;
+    this.spawnOffsetRadialBurst(
+      state,
+      safePosition,
+      burstCount,
+      burstSpeed,
+      BOSS_CONFIGS["glitch-golem"].baseDamage * 0.35,
+      Math.PI / Math.max(1, burstCount)
+    );
+
+    this.spawnParticles(safePosition, "#FF8F4D", 26, "glitch", 18);
+    this.triggerScreenShake(14, 360);
+  }
+
+  private spawnOffsetRadialBurst(
+    state: GameState,
+    position: Vector2D,
+    count: number,
+    speed: number,
+    damage: number,
+    angleOffset: number = 0,
+    type: "beam" | "hazard" = "beam"
+  ) {
+    if (!state.bossProjectiles) state.bossProjectiles = [];
+    for (let i = 0; i < count; i++) {
+      const angle = angleOffset + (Math.PI * 2 * i) / count;
+      state.bossProjectiles.push({
+        id: uuidv4(),
+        position: { ...position },
+        velocity: {
+          x: Math.cos(angle) * speed,
+          y: Math.sin(angle) * speed,
+        },
+        damage,
+        radius: 12,
+        type,
+        hitPlayers: new Set(),
+      });
     }
   }
 
@@ -4002,22 +4692,7 @@ export class LocalGameEngine {
     damage: number,
     type: "beam" | "hazard" = "beam"
   ) {
-    if (!state.bossProjectiles) state.bossProjectiles = [];
-    for (let i = 0; i < count; i++) {
-      const angle = (Math.PI * 2 * i) / count;
-      state.bossProjectiles.push({
-        id: uuidv4(),
-        position: { ...position },
-        velocity: {
-          x: Math.cos(angle) * speed,
-          y: Math.sin(angle) * speed,
-        },
-        damage,
-        radius: 12,
-        type,
-        hitPlayers: new Set(),
-      });
-    }
+    this.spawnOffsetRadialBurst(state, position, count, speed, damage, 0, type);
   }
 
   private bossChasePlayer(state: GameState, boss: Boss, timeFactor: number) {
@@ -4170,11 +4845,14 @@ export class LocalGameEngine {
     // Grant reward - legendary upgrade choice
     const player = state.players.find((p) => p.status === "alive");
     if (player) {
-      state.levelingUpPlayerId = player.id;
       const legendaryUpgrades = getRandomUpgrades(3, "legendary");
-      this.upgradeChoices.set(
+      this.openUpgradePrompt(
         player.id,
-        legendaryUpgrades.map((o) => ({ ...o, id: uuidv4() }))
+        legendaryUpgrades.map((o) => ({
+          ...o,
+          id: uuidv4(),
+          source: "levelUp" as const,
+        }))
       );
     }
 
@@ -4718,6 +5396,13 @@ export class LocalGameEngine {
   private damagePlayer(player: Player, amount: number, now: number) {
     if (player.status !== "alive") return;
     if (amount <= 0) return;
+    if (
+      player.isInvulnerable &&
+      player.invulnerableUntil &&
+      now < player.invulnerableUntil
+    ) {
+      return;
+    }
 
     let finalAmount = amount;
 
@@ -4732,12 +5417,17 @@ export class LocalGameEngine {
       }
     }
 
+    if (finalAmount <= 0) return;
+
+    const heartDamage = Math.max(1, player.maxHealth / PLAYER_HEART_SLOTS);
+
     // Legenday: God Mode logic
-    if (player.hasGodMode && player.health <= amount + 1) {
+    if (player.hasGodMode && player.health <= heartDamage + 1) {
       if (!player.godModeCooldown || now - player.godModeCooldown > 60000) {
         player.health = Math.max(1, player.health);
         player.isInvulnerable = true;
-        player.invulnerableUntil = now + 5000;
+        player.invulnerableUntil = now + PLAYER_HIT_INVULNERABILITY_MS;
+        player.lastHitTimestamp = now;
         player.godModeCooldown = now;
         this.spawnParticles(player.position, "#FFFFFF", 40, "glitch", 15);
         this.triggerScreenShake(15, 500);
@@ -4746,22 +5436,18 @@ export class LocalGameEngine {
     }
 
     // Legenday: Plot Armor (Invincibility) - Survive lethal once per wave
-    if (player.hasInvincibility && !player.invincibilityUsedInWave && player.health <= amount) {
+    if (
+      player.hasInvincibility &&
+      !player.invincibilityUsedInWave &&
+      player.health <= heartDamage
+    ) {
       player.health = 1;
       player.invincibilityUsedInWave = true;
       player.isInvulnerable = true;
-      player.invulnerableUntil = now + 2000;
+      player.invulnerableUntil = now + PLAYER_HIT_INVULNERABILITY_MS;
+      player.lastHitTimestamp = now;
       this.spawnParticles(player.position, "#FFD700", 30, "pixel", 10);
       this.triggerScreenShake(10, 300);
-      return;
-    }
-
-    // Invulnerability check
-    if (
-      player.isInvulnerable &&
-      player.invulnerableUntil &&
-      now < player.invulnerableUntil
-    ) {
       return;
     }
 
@@ -4769,14 +5455,18 @@ export class LocalGameEngine {
       this.tookDamageAfterWave5 = true;
     }
 
-    player.health = Math.max(0, player.health - amount);
+    player.health = Math.max(0, player.health - heartDamage);
     player.lastHitTimestamp = now;
+    player.isInvulnerable = true;
+    player.invulnerableUntil = now + PLAYER_HIT_INVULNERABILITY_MS;
 
     if (player.health <= 0) {
       player.health = 0;
       player.status = "dead";
       player.attachedBug = undefined;
       player.wasShakePressed = false;
+      player.isInvulnerable = false;
+      player.invulnerableUntil = 0;
     }
   }
 
@@ -4817,4 +5507,5 @@ export class LocalGameEngine {
     });
   }
 }
+
 

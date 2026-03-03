@@ -17,6 +17,7 @@ export type InputState = {
   right: boolean;
   analogX?: number; // -1 to 1
   analogY?: number; // -1 to 1
+  interact?: boolean;
   blink?: boolean;
   ability?: boolean;
   shake?: boolean;
@@ -113,6 +114,9 @@ export interface Player {
   level: number;
   xp: number;
   xpToNextLevel: number;
+  coins?: number; // Currency used in shop rounds
+  temporaryDamageMultiplier?: number;
+  temporaryDamageExpiresWave?: number;
   lastInput?: InputState;
   color: string;
   attackCooldown: number;
@@ -211,6 +215,9 @@ export interface Player {
     requiredShakes: number;
   };
   wasShakePressed?: boolean;
+  lastInteractTriggered?: boolean;
+  lastBlinkTriggered?: boolean;
+  lastAbilityTriggered?: boolean;
 }
 export interface DamageNumber {
   id: string;
@@ -287,6 +294,7 @@ export interface XpOrb {
   id: string;
   position: Vector2D;
   value: number;
+  kind?: 'xp' | 'coin';
   isDoubled?: boolean; // Visual indicator for lucky upgrade
 }
 export type UpgradeRarity = 'common' | 'uncommon' | 'legendary' | 'boss' | 'lunar' | 'void';
@@ -353,6 +361,32 @@ export interface UpgradeOption {
   description: string;
   rarity: UpgradeRarity;
   emoji: string;
+  cost?: number;
+  source?: 'levelUp' | 'shop';
+  isSkipOption?: boolean;
+}
+
+export type ShopOfferType = "upgrade" | "heal" | "temporary" | "leave";
+
+export interface ShopOffer {
+  id: string;
+  type: ShopOfferType;
+  title: string;
+  description: string;
+  emoji: string;
+  cost: number;
+  rarity?: UpgradeRarity;
+  upgradeType?: UpgradeType;
+  healAmount?: number;
+  tempDamageMultiplier?: number;
+  tempDurationWaves?: number;
+  purchased?: boolean;
+}
+
+export interface ShopStand {
+  id: string;
+  position: Vector2D;
+  offer: ShopOffer;
 }
 
 export interface CollectedUpgrade {
@@ -474,7 +508,7 @@ export interface Hazard {
 export type BossType = 'berserker' | 'summoner' | 'architect' | 'glitch-golem' | 'viral-swarm' | 'overclocker' | 'magnetic-magnus' | 'neon-reaper' | 'core-destroyer';
 
 export interface BossAttack {
-  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard' | 'glitch-zone' | 'viral-dash' | 'clock-burst' | 'magnetic-flux' | 'reaper-dash' | 'decoy-spawn' | 'satellite-beam' | 'void-well' | 'magnetic-storm' | 'system-collapse' | 'time-slow' | 'shotgun-burst' | 'radial-burst' | 'projectile-bomb';
+  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard' | 'glitch-zone' | 'builder-drop' | 'viral-dash' | 'clock-burst' | 'magnetic-flux' | 'reaper-dash' | 'decoy-spawn' | 'satellite-beam' | 'void-well' | 'magnetic-storm' | 'system-collapse' | 'time-slow' | 'shotgun-burst' | 'radial-burst' | 'projectile-bomb';
   telegraphStartTime: number;
   telegraphDuration: number;
   executeTime?: number;
@@ -606,6 +640,11 @@ export interface GameState {
   projectiles: Projectile[];
   xpOrbs: XpOrb[];
   levelingUpPlayerId?: string | null;
+  upgradePromptType?: 'levelUp' | 'shop' | null;
+  isShopRound?: boolean;
+  shopStands?: ShopStand[];
+  shopPrompt?: string | null;
+  shopPendingBossType?: BossType | null;
   wave: number;
   teleporter: Teleporter | null;
   explosions?: Explosion[];
