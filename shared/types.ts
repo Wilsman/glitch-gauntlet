@@ -257,6 +257,21 @@ export interface Enemy {
   attackCooldown?: number;
   attackSpeed?: number;
   projectileSpeed?: number;
+  preferredRange?: number;
+  strafeDirection?: -1 | 1;
+  nextStrafeSwapAt?: number;
+  pulseCooldown?: number;
+  pulseRadius?: number;
+  pulseTelegraphUntil?: number;
+  chargeCooldown?: number;
+  chargeTelegraphUntil?: number;
+  chargeUntil?: number;
+  chargeDirection?: Vector2D;
+  chargeHitPlayerIds?: string[];
+  isPackAlpha?: boolean;
+  packLeaderId?: string;
+  packMarkPlayerId?: string;
+  packMarkUntil?: number;
   // Visual history
   history?: Vector2D[];
 }
@@ -484,7 +499,7 @@ export interface Clone {
   opacity: number; // for fade-in/fade-out effect
 }
 
-export type HazardType = 'explosive-barrel' | 'freeze-barrel' | 'spike-trap';
+export type HazardType = 'explosive-barrel' | 'freeze-barrel' | 'spike-trap' | 'pulse-zone';
 
 export interface Hazard {
   id: string;

@@ -1,184 +1,155 @@
-# Enemy Scaling System
+# Enemy System
 
 ## Overview
 
-The game features a dynamic enemy scaling system that increases difficulty as players progress through waves. Different enemy types have unique behaviors, stats, and scaling patterns.
+The current roster is built around readable combat jobs instead of raw stat inflation alone.
+The core question for each enemy is "what movement or target-priority mistake does this punish?"
 
-## Enemy Types
+Current regular enemies:
 
-### 1. Grunt (Basic Enemy)
+- `grunt`: baseline melee pressure
+- `slugger`: ranged standoff + strafing pressure
+- `hellhound`: pack rush pressure during special rounds
+- `splitter`: death-triggered target-priority pressure
+- `mini-splitter`: cleanup swarm pressure
+- `glitch-spider`: latch / panic-response pressure
+- `neon-pulse`: area-denial pressure
+- `tank-bot`: telegraphed disruption / knockback pressure
 
-- **Color**: Yellow (#FFFF00)
-- **Size**: 20x20 pixels
-- **Behavior**: Melee only - chases players and deals contact damage
-- **Base Stats**:
-  - Health: 20
-  - Damage: 5
-  - Speed: 2
-  - XP Value: 5
-- **Scaling per Wave**:
-  - Health: +30% per wave
-  - Damage: +20% per wave
-  - Speed: +5% per wave
-  - XP: +15% per wave
-- **Spawn Weight**: 1.0 (standard spawn rate)
+## Live Roster
 
-### 2. Slugger (Ranged Enemy)
+### 1. Grunt
 
-- **Color**: Orange (#FF8800)
-- **Size**: 24x24 pixels (slightly larger)
-- **Behavior**: Ranged attacker - moves slower but shoots projectiles at players
-- **Base Stats**:
-  - Health: 30
-  - Damage: 3 (per projectile)
-  - Speed: 1.0 (50% slower than grunt)
-  - XP Value: 8
-  - Attack Speed: 2500ms (shoots every 2.5 seconds)
-  - Projectile Speed: 5
-  - Attack Range: 400 pixels
-- **Scaling per Wave**:
-  - Health: +40% per wave
-  - Damage: +15% per wave
-  - Speed: +3% per wave
-  - XP: +20% per wave
-  - Attack Speed: -5% per wave (shoots faster)
-- **Spawn Weight**: 0.6 (spawns less frequently than grunts)
-- **Projectile Appearance**: Red bullets (#FF0000)
+- Role: baseline chaser
+- Behavior: runs straight at the closest living player and deals contact damage
+- Strength: simple, reliable pressure that scales cleanly with wave number
+- Counterplay: kite, slow, knock back, or delete quickly
 
-### 3. Splitter (Division Enemy)
+### 2. Slugger
 
-- **Color**: Purple/Magenta (#9D00FF)
-- **Size**: 26x26 pixels (medium-large)
-- **Behavior**: Melee chaser that splits into 2-3 Mini-Splitters upon death
-- **Base Stats**:
-  - Health: 35
-  - Damage: 6
-  - Speed: 1.5 (slower than grunt, faster than slugger)
-  - XP Value: 12
-- **Scaling per Wave**:
-  - Health: +35% per wave
-  - Damage: +20% per wave
-  - Speed: +4% per wave
-  - XP: +25% per wave
-- **Spawn Weight**: 0.4 (rare spawn - tactical challenge)
-- **Unlock Requirement**: Only spawns starting from Wave 6 (after the first hellhound round)
-- **Special Mechanic**: When killed, spawns 2-3 Mini-Splitters in a radial pattern around its death position
+- Role: ranged flanker
+- Behavior: maintains a preferred range, strafes laterally, and fires projectiles
+- Signature: no longer just walks directly at the player; it slides across sightlines and punishes standing still
+- Counterplay: close distance, dodge laterally, or force it out of its comfort range
 
-### 4. Mini-Splitter (Split Offspring)
+### 3. Hellhound
 
-- **Color**: Light Purple (#C77DFF)
-- **Size**: 16x16 pixels (smaller than grunt)
-- **Behavior**: Fast melee chaser - offspring of Splitter
-- **Base Stats**:
-  - Health: 10 (30% of Splitter's base health)
-  - Damage: 3 (50% of Splitter's base damage)
-  - Speed: 1.8 (120% of Splitter's base speed)
-  - XP Value: 2 (20% of Splitter's base XP)
-- **Scaling per Wave**: Same multipliers as parent Splitter
-- **Spawn Weight**: 0 (never spawns naturally - only from Splitter deaths)
-- **Special Note**: Cannot split again when killed (prevents infinite splitting)
+- Role: coordinated rush threat
+- Behavior: appears in hellhound rounds as 3-5 dog packs
+- Signature: each pack promotes one alpha hound; nearby packmates accelerate and collapse from offset angles around the marked player
+- Counterplay: kill the alpha first or break the pack before it surrounds the player
+
+### 4. Splitter
+
+- Role: death-punish enemy
+- Behavior: medium melee chaser that splits into 2-3 mini-splitters on death
+- Signature: changes kill priority because deleting it in the wrong place creates immediate cleanup pressure
+- Counterplay: clear nearby trash first, then burst it where you have room
+
+### 5. Mini-Splitter
+
+- Role: fast follow-up threat
+- Behavior: small melee offspring spawned only by splitters and some boss attacks
+- Signature: low health, fast approach, never splits again
+- Counterplay: sweep with AoE, pierce, or fast tracking shots
+
+### 6. Glitch-Spider
+
+- Role: panic / execution check
+- Behavior: very fast chaser that latches onto the player on contact
+- Signature: forces the facehugger shake-break interaction instead of normal damage pressure
+- Counterplay: keep distance, slow it, or react quickly to break free
+
+### 7. Neon Pulse
+
+- Role: area denial
+- Behavior: skirmishes at mid-range, fires projectiles, then telegraphs a pulse burst
+- Signature: after the pulse resolves it leaves a temporary `pulse-zone` hazard that damages and nudges players standing inside it
+- Counterplay: step out during the telegraph, then route around the unsafe ground instead of greedily holding position
+
+### 8. Tank Bot
+
+- Role: formation breaker
+- Behavior: slow advance followed by a clear charge telegraph and a short rush
+- Signature: the charge shoves players out of position and breaks "walk backward forever" kiting
+- Counterplay: respect the lane, sidestep the telegraph, then punish recovery
+
+## Spawn Rules
+
+### Normal Waves
+
+- Spawn chance scales with wave:
+  - `0.05 + wave * 0.01`, capped at `0.95`
+- Concurrent enemy cap:
+  - `10 * player_count`
+- Type unlocks:
+  - `grunt`, `slugger`: wave 1
+  - `glitch-spider`: wave 4
+  - `splitter`: wave 6
+  - `neon-pulse`: wave 8
+  - `tank-bot`: wave 13
+
+### Hellhound Waves
+
+- Hellhound rounds happen on waves `5, 15, 25, ...`
+- Normal enemies must clear before the dog packs begin
+- Hellhounds spawn in 3-5 unit packs from one side of the arena
+- The first dog in each pack becomes the alpha and can lead the others into coordinated flanks
 
 ## Scaling Formula
 
-For each stat, the scaling is calculated using exponential growth:
+All regular enemies use exponential wave scaling:
 
-```
+```text
 scaled_value = base_value * (scaling_multiplier ^ (wave - 1))
 ```
 
-Example for Grunt health at Wave 3:
+This means late unlock enemies arrive already scaled for the wave they first appear on.
 
-```
-health = 20 * (1.3 ^ 2) = 20 * 1.69 = 33.8 ≈ 34
-```
+## Behavior Summary
 
-## Enemy Spawning
+| Enemy | Main Ask | What It Punishes |
+| --- | --- | --- |
+| `grunt` | Move continuously | Standing still |
+| `slugger` | Dodge lateral fire | Linear kiting |
+| `hellhound` | Break packs quickly | Tunnel vision |
+| `splitter` | Manage death timing | Greedy burst in bad positions |
+| `mini-splitter` | Clean up loose threats | Overcommitting to large targets |
+| `glitch-spider` | React under pressure | Late reads at short range |
+| `neon-pulse` | Respect unsafe ground | Greed during telegraphs |
+| `tank-bot` | Read charge lanes | Backpedal-only movement |
 
-- Enemies spawn randomly at the top or bottom edge of the arena
-- Spawn rate increases with wave number: `0.05 + (wave * 0.01)`
-- Maximum enemies on screen: `10 * player_count`
-- Enemy type selection is weighted random based on spawn weights
+## Visual Language
 
-## Adding New Enemy Types
+- `grunt`: yellow baseline target
+- `slugger`: orange ranged unit with circular read
+- `hellhound`: deep red rush unit; alpha packs get a gold leader ring
+- `splitter`: magenta segmented body
+- `mini-splitter`: smaller light-purple shard
+- `glitch-spider`: hot-pink latch threat
+- `neon-pulse`: cyan telegraph + lingering pulse zone
+- `tank-bot`: gray heavy body with charge lane indicator
 
-To add a new enemy type:
+## Implementation Notes
 
-1. **Update Types** (`shared/types.ts`):
+Live implementation touches:
 
-   ```typescript
-   export type EnemyType = 'grunt' | 'slugger' | 'your_new_type';
-   ```
+- shared data: `shared/types.ts`, `shared/enemyConfig.ts`
+- local gameplay: `src/lib/LocalGameEngine.ts`
+- rendering and telegraphs: `src/components/GameCanvas.tsx`
 
-2. **Add Configuration** (`worker/enemyConfig.ts`):
+If multiplayer parity is required for a new enemy behavior, update the durable object AI path as well:
 
-   ```typescript
-   your_new_type: {
-     type: 'your_new_type',
-     baseHealth: 50,
-     baseDamage: 8,
-     baseSpeed: 1.5,
-     baseXpValue: 10,
-     healthScaling: 1.35,
-     damageScaling: 1.25,
-     speedScaling: 1.04,
-     xpScaling: 1.18,
-     spawnWeight: 0.8,
-     // Optional shooting config
-     canShoot: true,
-     baseAttackSpeed: 3000,
-     baseProjectileSpeed: 5,
-     attackSpeedScaling: 0.93,
-   }
-   ```
+- `worker/durableObject.ts`
 
-3. **Add Visual Rendering** (`src/components/GameCanvas.tsx`):
+## Adding More Enemies
 
-   ```typescript
-   if (enemy.type === 'your_new_type') {
-     fill = '#YOUR_COLOR';
-     shadow = '#YOUR_COLOR';
-     size = 28; // custom size
-   }
-   ```
+When adding a new enemy, prefer a new combat question over another stat bundle.
 
-4. **Optional: Add Custom Behavior** (`worker/durableObject.ts`):
-   - Modify `updateEnemyAI()` to add special movement patterns
-   - Add custom attack logic if needed
+Good additions usually do one of these:
 
-## Enemy Behaviors
-
-### Movement
-
-- Enemies track the closest alive player
-- Movement speed can be affected by status effects (ice slow, frozen)
-- Effective speed calculation includes slow multipliers
-
-### Combat
-
-- **Melee Enemies**: Deal damage on contact (within 20 pixels)
-- **Ranged Enemies**: Shoot projectiles when within attack range
-- All damage respects player's armor, dodge, and shield stats
-
-### Status Effects
-
-Enemies can be affected by player upgrades:
-
-- **Burning**: Orange/red color, fire DoT damage
-- **Poisoned**: Green color, poison DoT damage
-- **Slowed/Frozen**: Cyan color, reduced movement speed
-
-## Visual Indicators
-
-- **Hit Flash**: White flash when damaged
-- **Crit Flash**: Red flash when critically hit
-- **Status Effects**: Color changes based on active effects
-- **Damage Numbers**: Float upward showing damage dealt
-- **Size Variation**: Different enemy types have different sizes
-
-## Balance Considerations
-
-- Sluggers have higher health but lower damage and speed
-- Sluggers provide more XP to compensate for ranged difficulty
-- Attack speed scaling makes later waves more challenging
-- Spawn weights allow fine-tuning of enemy composition
-- Exponential scaling ensures difficulty increases meaningfully each wave
+- change spacing
+- change target priority
+- change pathing
+- change the arena state
+- force a readable reaction window

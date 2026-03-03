@@ -131,6 +131,19 @@ const FACEHUGGER_SLOW_MULTIPLIER = 0.72;
 const FACEHUGGER_REQUIRED_SHAKES = 5;
 const PLAYER_HEART_SLOTS = 5;
 const PLAYER_HIT_INVULNERABILITY_MS = 5000;
+const SLUGGER_STRAFE_SWAP_MIN_MS = 1250;
+const SLUGGER_STRAFE_SWAP_VARIANCE_MS = 950;
+const NEON_PULSE_TELEGRAPH_MS = 900;
+const NEON_PULSE_ZONE_DURATION_MS = 2600;
+const NEON_PULSE_ZONE_DAMAGE_INTERVAL_MS = 320;
+const NEON_PULSE_ZONE_DAMAGE = 10;
+const TANK_BOT_CHARGE_TELEGRAPH_MS = 700;
+const TANK_BOT_CHARGE_DURATION_MS = 650;
+const TANK_BOT_CHARGE_SPEED = 7.5;
+const TANK_BOT_CHARGE_KNOCKBACK = 80;
+const HELLHOUND_PACK_RADIUS = 220;
+const HELLHOUND_PACK_BOOST = 1.35;
+const HELLHOUND_PACK_OFFSET_RADIUS = 55;
 const GOLEM_GLITCH_ZONE_RADIUS = 320;
 const GOLEM_GLITCH_ZONE_PULL_FORCE = 1.9;
 const GOLEM_GLITCH_ZONE_PROJECTILE_INTERVAL = 140;
@@ -187,6 +200,14 @@ function addDamageNumber(
     position: { ...position },
     timestamp: now,
   });
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
 }
 
 export class LocalGameEngine {
@@ -999,6 +1020,17 @@ export class LocalGameEngine {
       type,
       this.gameState.wave
     );
+    if (type === "hellhound") {
+      const existingAlpha = this.gameState.enemies.find(
+        (enemy) => enemy.type === "hellhound" && enemy.isPackAlpha
+      );
+      if (existingAlpha) {
+        newEnemy.packLeaderId = existingAlpha.id;
+      } else {
+        newEnemy.isPackAlpha = true;
+        newEnemy.packMarkUntil = 0;
+      }
+    }
     this.gameState.enemies.push(newEnemy);
     this.markStateDirty();
   }
@@ -1845,6 +1877,79 @@ export class LocalGameEngine {
     });
   }
 
+  private getEnemyEffectiveSpeed(state: GameState, enemy: Enemy) {
+    let effectiveSpeed = enemy.speed;
+
+    if (enemy.statusEffects && enemy.statusEffects.length > 0) {
+      const slowEffect = enemy.statusEffects.find(
+        (effect) => effect.type === "frozen" || effect.type === "slowed"
+      );
+      if (slowEffect?.slowAmount) {
+        effectiveSpeed *= slowEffect.slowAmount;
+      }
+    }
+
+    const hasTimeWarpPlayer = state.players.some((player) => player.hasTimeWarp);
+    if (hasTimeWarpPlayer) {
+      effectiveSpeed *= 0.7;
+    }
+
+    return effectiveSpeed;
+  }
+
+  private moveEnemyAlong(
+    enemy: Enemy,
+    direction: Vector2D,
+    speed: number,
+    timeFactor: number
+  ) {
+    const magnitude = Math.hypot(direction.x, direction.y);
+    if (magnitude <= 0.0001) return;
+
+    if (!enemy.history) enemy.history = [];
+    enemy.history.push({ x: enemy.position.x, y: enemy.position.y });
+    if (enemy.history.length > 5) enemy.history.shift();
+
+    enemy.position.x += (direction.x / magnitude) * speed * timeFactor;
+    enemy.position.y += (direction.y / magnitude) * speed * timeFactor;
+    enemy.position.x = Math.max(18, Math.min(ARENA_WIDTH - 18, enemy.position.x));
+    enemy.position.y = Math.max(18, Math.min(ARENA_HEIGHT - 18, enemy.position.y));
+  }
+
+  private pushPlayer(player: Player, direction: Vector2D, distance: number) {
+    const magnitude = Math.hypot(direction.x, direction.y) || 1;
+    player.position.x += (direction.x / magnitude) * distance;
+    player.position.y += (direction.y / magnitude) * distance;
+    player.position.x = Math.max(20, Math.min(ARENA_WIDTH - 20, player.position.x));
+    player.position.y = Math.max(20, Math.min(ARENA_HEIGHT - 20, player.position.y));
+  }
+
+  private spawnNeonPulseZone(
+    state: GameState,
+    position: Vector2D,
+    now: number,
+    radius: number,
+    damage: number
+  ) {
+    if (!state.hazards) state.hazards = [];
+    state.hazards.push({
+      id: uuidv4(),
+      position: { ...position },
+      type: "pulse-zone",
+      variant: "zone",
+      health: 9999,
+      maxHealth: 9999,
+      radius,
+      damage,
+      isActive: true,
+      activationRadius: 0,
+      activationThreshold: 0,
+      activationCharge: 0,
+      zoneUntil: now + NEON_PULSE_ZONE_DURATION_MS,
+      lastToggle: now,
+    });
+  }
+
   private updateEnemyAI(
     state: GameState,
     now: number,
@@ -1886,6 +1991,7 @@ export class LocalGameEngine {
           );
 
           const side = Math.floor(Math.random() * 4);
+          let alphaId: string | null = null;
 
           for (let i = 0; i < packSize; i++) {
             let spawnX, spawnY;
@@ -1910,6 +2016,13 @@ export class LocalGameEngine {
               "hellhound",
               state.wave
             );
+            if (i === 0) {
+              newHellhound.isPackAlpha = true;
+              newHellhound.packMarkUntil = 0;
+              alphaId = newHellhound.id;
+            } else if (alphaId) {
+              newHellhound.packLeaderId = alphaId;
+            }
             state.enemies.push(newHellhound);
           }
 
@@ -1940,10 +2053,16 @@ export class LocalGameEngine {
     }
 
     const attachedSpiderIds = new Set<string>();
+    const hellhoundLeaders = new Map(
+      state.enemies
+        .filter((enemy) => enemy.type === "hellhound" && enemy.isPackAlpha)
+        .map((enemy) => [enemy.id, enemy] as const)
+    );
 
     state.enemies.forEach((enemy) => {
-      const alivePlayers = state.players.filter((p) => p.status === "alive");
+      const alivePlayers = state.players.filter((player) => player.status === "alive");
       if (alivePlayers.length === 0) return;
+
       const closestPlayer = alivePlayers.reduce(
         (closest, player) => {
           const dist = Math.hypot(
@@ -1954,101 +2073,262 @@ export class LocalGameEngine {
         },
         { player: null as Player | null, dist: Infinity }
       );
-      if (closestPlayer.player) {
-        const p = closestPlayer.player;
+      if (!closestPlayer.player) return;
 
-        if (enemy.attackSpeed && enemy.attackCooldown !== undefined) {
-          enemy.attackCooldown -= delta;
-          if (enemy.attackCooldown <= 0 && closestPlayer.dist < 400) {
-            enemy.attackCooldown = enemy.attackSpeed;
-            const angle = Math.atan2(
-              p.position.y - enemy.position.y,
-              p.position.x - enemy.position.x
-            );
-            const enemyProjectile: Projectile = {
-              id: uuidv4(),
-              ownerId: enemy.id,
-              position: { ...enemy.position },
-              velocity: {
-                x: Math.cos(angle) * (enemy.projectileSpeed || 4),
-                y: Math.sin(angle) * (enemy.projectileSpeed || 4),
-              },
-              damage: enemy.damage,
-              isCrit: false,
-              kind: "bullet",
-              radius: 6,
-              hitEnemies: [],
-              pierceRemaining: 0,
-              ricochetRemaining: 0,
+      let targetPlayer = closestPlayer.player;
+      let targetPosition = { ...targetPlayer.position };
+      let targetDistance = closestPlayer.dist;
+      let effectiveSpeed = this.getEnemyEffectiveSpeed(state, enemy);
+
+      if (enemy.type === "hellhound" && enemy.isPackAlpha) {
+        enemy.packMarkPlayerId = targetPlayer.id;
+        enemy.packMarkUntil = now + 250;
+        effectiveSpeed *= 1.08;
+      } else if (enemy.type === "hellhound" && enemy.packLeaderId) {
+        const leader = hellhoundLeaders.get(enemy.packLeaderId);
+        if (
+          leader &&
+          leader.health > 0 &&
+          leader.packMarkPlayerId &&
+          (leader.packMarkUntil || 0) > now
+        ) {
+          const markedPlayer = state.players.find(
+            (player) =>
+              player.id === leader.packMarkPlayerId && player.status === "alive"
+          );
+          if (markedPlayer) {
+            targetPlayer = markedPlayer;
+            const angleSeed = ((hashString(enemy.id) % 360) * Math.PI) / 180;
+            const packAngle = angleSeed + now / 1200;
+            targetPosition = {
+              x:
+                markedPlayer.position.x +
+                Math.cos(packAngle) * HELLHOUND_PACK_OFFSET_RADIUS,
+              y:
+                markedPlayer.position.y +
+                Math.sin(packAngle) * HELLHOUND_PACK_OFFSET_RADIUS,
             };
-            state.projectiles.push(enemyProjectile);
+            targetDistance = Math.hypot(
+              enemy.position.x - targetPosition.x,
+              enemy.position.y - targetPosition.y
+            );
+            if (
+              Math.hypot(
+                enemy.position.x - leader.position.x,
+                enemy.position.y - leader.position.y
+              ) < HELLHOUND_PACK_RADIUS
+            ) {
+              effectiveSpeed *= HELLHOUND_PACK_BOOST;
+            }
           }
         }
+      }
 
-        if (closestPlayer.dist < 20) {
-          if (enemy.type === "glitch-spider" && !p.attachedBug) {
-            p.attachedBug = {
-              shakes: 0,
-              requiredShakes: FACEHUGGER_REQUIRED_SHAKES,
-            };
-            p.wasShakePressed = false;
-            attachedSpiderIds.add(enemy.id);
-            this.spawnParticles(p.position, "#FF55CC", 18, "glitch", 10);
-            this.triggerScreenShake(5, 220);
+      if (enemy.type === "neon-pulse") {
+        enemy.pulseCooldown = (enemy.pulseCooldown ?? 0) - delta;
+        if (
+          enemy.pulseTelegraphUntil &&
+          now >= enemy.pulseTelegraphUntil
+        ) {
+          const pulseRadius = enemy.pulseRadius || 155;
+          state.players.forEach((player) => {
+            if (player.status !== "alive") return;
+            const dist = Math.hypot(
+              player.position.x - enemy.position.x,
+              player.position.y - enemy.position.y
+            );
+            if (dist < pulseRadius * 0.9) {
+              this.damagePlayer(player, enemy.damage * 0.9, now);
+            }
+          });
+          this.spawnNeonPulseZone(
+            state,
+            enemy.position,
+            now,
+            pulseRadius + 22,
+            NEON_PULSE_ZONE_DAMAGE
+          );
+          this.spawnParticles(enemy.position, "#00FFFF", 18, "glitch", 12);
+          this.triggerScreenShake(8, 180);
+          enemy.pulseTelegraphUntil = undefined;
+        } else if (
+          !enemy.pulseTelegraphUntil &&
+          (enemy.pulseCooldown ?? 0) <= 0 &&
+          closestPlayer.dist < (enemy.pulseRadius || 155) + 140
+        ) {
+          enemy.pulseTelegraphUntil = now + NEON_PULSE_TELEGRAPH_MS;
+          enemy.pulseCooldown = 2600 + Math.random() * 900;
+        }
+      }
+
+      if (enemy.type === "tank-bot") {
+        if (enemy.chargeTelegraphUntil && now >= enemy.chargeTelegraphUntil) {
+          enemy.chargeTelegraphUntil = undefined;
+          enemy.chargeUntil = now + TANK_BOT_CHARGE_DURATION_MS;
+          enemy.chargeHitPlayerIds = [];
+        }
+
+        if (enemy.chargeUntil && enemy.chargeDirection) {
+          if (now < enemy.chargeUntil) {
+            this.moveEnemyAlong(
+              enemy,
+              enemy.chargeDirection,
+              Math.max(TANK_BOT_CHARGE_SPEED, effectiveSpeed * 3.4),
+              timeFactor
+            );
+            alivePlayers.forEach((player) => {
+              if (enemy.chargeHitPlayerIds?.includes(player.id)) return;
+              const dist = Math.hypot(
+                enemy.position.x - player.position.x,
+                enemy.position.y - player.position.y
+              );
+              if (dist >= 28) return;
+              this.damagePlayer(player, enemy.damage * 1.4, now);
+              this.pushPlayer(player, enemy.chargeDirection!, TANK_BOT_CHARGE_KNOCKBACK);
+              if (!enemy.chargeHitPlayerIds) enemy.chargeHitPlayerIds = [];
+              enemy.chargeHitPlayerIds.push(player.id);
+              this.triggerScreenShake(10, 150);
+            });
             return;
           }
 
-          let incomingDamage = enemy.damage * (delta / 1000);
-          if (p.dodge && Math.random() < p.dodge) {
-            incomingDamage = 0;
-          } else {
-            if (p.armor && p.armor > 0) {
-              incomingDamage *= 1 - p.armor;
-            }
-            if (p.shield && p.shield > 0) {
-              const absorbed = Math.min(p.shield, incomingDamage);
-              p.shield -= absorbed;
-              incomingDamage -= absorbed;
-            }
-            if (p.thorns && p.thorns > 0) {
-              enemy.health -= incomingDamage * p.thorns;
-            }
-          }
+          enemy.chargeUntil = undefined;
+          enemy.chargeDirection = undefined;
+          enemy.chargeHitPlayerIds = undefined;
+        }
 
-          this.damagePlayer(p, incomingDamage, now);
-        } else {
-          let effectiveSpeed = enemy.speed;
-
-          // Apply status effect slows
-          if (enemy.statusEffects && enemy.statusEffects.length > 0) {
-            const slowEffect = enemy.statusEffects.find(
-              (e) => e.type === "frozen" || e.type === "slowed"
-            );
-            if (slowEffect && slowEffect.slowAmount) {
-              effectiveSpeed *= slowEffect.slowAmount;
-            }
-          }
-
-          // Apply timeWarp slow (30% slow = 70% speed)
-          const hasTimeWarpPlayer = state.players.some((p) => p.hasTimeWarp);
-          if (hasTimeWarpPlayer) {
-            effectiveSpeed *= 0.7;
-          }
-
-          const angle = Math.atan2(
-            p.position.y - enemy.position.y,
-            p.position.x - enemy.position.x
-          );
-
-          // Track history for trails
-          if (!enemy.history) enemy.history = [];
-          enemy.history.push({ x: enemy.position.x, y: enemy.position.y });
-          if (enemy.history.length > 5) enemy.history.shift();
-
-          enemy.position.x += Math.cos(angle) * effectiveSpeed * timeFactor;
-          enemy.position.y += Math.sin(angle) * effectiveSpeed * timeFactor;
+        enemy.chargeCooldown = (enemy.chargeCooldown ?? 0) - delta;
+        if (
+          !enemy.chargeTelegraphUntil &&
+          !enemy.chargeUntil &&
+          (enemy.chargeCooldown ?? 0) <= 0 &&
+          targetDistance > 95 &&
+          targetDistance < 300
+        ) {
+          const dx = targetPosition.x - enemy.position.x;
+          const dy = targetPosition.y - enemy.position.y;
+          const magnitude = Math.hypot(dx, dy) || 1;
+          enemy.chargeDirection = {
+            x: dx / magnitude,
+            y: dy / magnitude,
+          };
+          enemy.chargeTelegraphUntil = now + TANK_BOT_CHARGE_TELEGRAPH_MS;
+          enemy.chargeCooldown = 3000 + Math.random() * 1200;
+          return;
         }
       }
+
+      if (enemy.attackSpeed && enemy.attackCooldown !== undefined) {
+        enemy.attackCooldown -= delta;
+        if (enemy.attackCooldown <= 0 && closestPlayer.dist < 400) {
+          enemy.attackCooldown = enemy.attackSpeed;
+          const angle = Math.atan2(
+            targetPlayer.position.y - enemy.position.y,
+            targetPlayer.position.x - enemy.position.x
+          );
+          const enemyProjectile: Projectile = {
+            id: uuidv4(),
+            ownerId: enemy.id,
+            position: { ...enemy.position },
+            velocity: {
+              x: Math.cos(angle) * (enemy.projectileSpeed || 4),
+              y: Math.sin(angle) * (enemy.projectileSpeed || 4),
+            },
+            damage: enemy.damage,
+            isCrit: false,
+            kind: "bullet",
+            radius: 6,
+            hitEnemies: [],
+            pierceRemaining: 0,
+            ricochetRemaining: 0,
+          };
+          state.projectiles.push(enemyProjectile);
+        }
+      }
+
+      if (closestPlayer.dist < 20) {
+        if (enemy.type === "glitch-spider" && !targetPlayer.attachedBug) {
+          targetPlayer.attachedBug = {
+            shakes: 0,
+            requiredShakes: FACEHUGGER_REQUIRED_SHAKES,
+          };
+          targetPlayer.wasShakePressed = false;
+          attachedSpiderIds.add(enemy.id);
+          this.spawnParticles(targetPlayer.position, "#FF55CC", 18, "glitch", 10);
+          this.triggerScreenShake(5, 220);
+          return;
+        }
+
+        let incomingDamage = enemy.damage * (delta / 1000);
+        if (targetPlayer.dodge && Math.random() < targetPlayer.dodge) {
+          incomingDamage = 0;
+        } else {
+          if (targetPlayer.armor && targetPlayer.armor > 0) {
+            incomingDamage *= 1 - targetPlayer.armor;
+          }
+          if (targetPlayer.shield && targetPlayer.shield > 0) {
+            const absorbed = Math.min(targetPlayer.shield, incomingDamage);
+            targetPlayer.shield -= absorbed;
+            incomingDamage -= absorbed;
+          }
+          if (targetPlayer.thorns && targetPlayer.thorns > 0) {
+            enemy.health -= incomingDamage * targetPlayer.thorns;
+          }
+        }
+
+        this.damagePlayer(targetPlayer, incomingDamage, now);
+        return;
+      }
+
+      if (enemy.type === "tank-bot" && enemy.chargeTelegraphUntil) {
+        return;
+      }
+
+      const dx = targetPosition.x - enemy.position.x;
+      const dy = targetPosition.y - enemy.position.y;
+      const distanceToTarget = Math.hypot(dx, dy) || 1;
+
+      if (enemy.type === "slugger" || enemy.type === "neon-pulse") {
+        if (
+          enemy.nextStrafeSwapAt === undefined ||
+          now >= enemy.nextStrafeSwapAt
+        ) {
+          enemy.strafeDirection =
+            enemy.strafeDirection === -1 ? 1 : -1;
+          enemy.nextStrafeSwapAt =
+            now +
+            SLUGGER_STRAFE_SWAP_MIN_MS +
+            Math.random() * SLUGGER_STRAFE_SWAP_VARIANCE_MS;
+        }
+
+        const preferredRange = enemy.preferredRange || 260;
+        const radialX = dx / distanceToTarget;
+        const radialY = dy / distanceToTarget;
+        const strafeX = -radialY;
+        const strafeY = radialX;
+        const strafeStrength = enemy.type === "slugger" ? 0.62 : 1;
+        const radialWeight =
+          distanceToTarget < preferredRange * 0.78
+            ? -1.25
+            : distanceToTarget > preferredRange * 1.12
+              ? 0.95
+              : enemy.type === "slugger"
+                ? 0.18
+                : 0.12;
+        const direction = {
+          x: radialX * radialWeight + strafeX * (enemy.strafeDirection || 1) * strafeStrength,
+          y: radialY * radialWeight + strafeY * (enemy.strafeDirection || 1) * strafeStrength,
+        };
+        this.moveEnemyAlong(
+          enemy,
+          direction,
+          effectiveSpeed * (enemy.type === "neon-pulse" ? 0.92 : 1),
+          timeFactor
+        );
+        return;
+      }
+
+      this.moveEnemyAlong(enemy, { x: dx, y: dy }, effectiveSpeed, timeFactor);
     });
 
     if (attachedSpiderIds.size > 0) {
@@ -5071,6 +5351,38 @@ export class LocalGameEngine {
       });
     });
 
+    state.hazards.forEach((hazard) => {
+      if (
+        hazard.type !== "pulse-zone" ||
+        hazard.zoneUntil === undefined ||
+        hazard.zoneUntil <= now
+      ) {
+        return;
+      }
+
+      if (
+        hazard.lastToggle !== undefined &&
+        now - hazard.lastToggle < NEON_PULSE_ZONE_DAMAGE_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      hazard.lastToggle = now;
+      const zoneRadius = hazard.radius || 175;
+      const zoneDamage = hazard.damage || NEON_PULSE_ZONE_DAMAGE;
+
+      state.players.forEach((player) => {
+        if (player.status !== "alive") return;
+        const dx = player.position.x - hazard.position.x;
+        const dy = player.position.y - hazard.position.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist >= zoneRadius) return;
+        this.damagePlayer(player, zoneDamage, now);
+        this.pushPlayer(player, { x: dx, y: dy }, 18);
+        this.spawnParticles(player.position, "#52F7FF", 4, "pixel", 4);
+      });
+    });
+
     // Spawn hazards occasionally; keep count/chance low for readability.
     const maxHazards = state.wave >= 15 ? 5 : state.wave >= 8 ? 4 : 3;
     const hazardSpawnChance =
@@ -5198,6 +5510,15 @@ export class LocalGameEngine {
       if (
         hazard.type === "freeze-barrel" &&
         hazard.variant === "zone" &&
+        hazard.zoneUntil !== undefined &&
+        now >= hazard.zoneUntil
+      ) {
+        hazardsToRemove.add(hazard.id);
+        return;
+      }
+
+      if (
+        hazard.type === "pulse-zone" &&
         hazard.zoneUntil !== undefined &&
         now >= hazard.zoneUntil
       ) {

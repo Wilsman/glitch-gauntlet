@@ -41,7 +41,7 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     damageScaling: 1.15, // +15% per wave
     speedScaling: 1.03, // +3% per wave
     xpScaling: 1.2, // +20% per wave
-    spawnWeight: 0.6,
+    spawnWeight: 0.45,
     canShoot: true,
     baseAttackSpeed: 2500, // shoots every 2.5 seconds
     baseProjectileSpeed: 5, // Slightly faster projectiles
@@ -160,6 +160,28 @@ export function createEnemy(
     enemy.attackCooldown = attackSpeed; // Start with full cooldown
     enemy.attackSpeed = attackSpeed;
     enemy.projectileSpeed = config.baseProjectileSpeed;
+  }
+
+  if (type === 'slugger') {
+    enemy.preferredRange = 245;
+    enemy.strafeDirection = Math.random() > 0.5 ? 1 : -1;
+    enemy.nextStrafeSwapAt = 0;
+  }
+
+  if (type === 'neon-pulse') {
+    enemy.preferredRange = 230;
+    enemy.strafeDirection = Math.random() > 0.5 ? 1 : -1;
+    enemy.nextStrafeSwapAt = 0;
+    enemy.pulseCooldown = 1700 + Math.random() * 600;
+    enemy.pulseRadius = 155;
+  }
+
+  if (type === 'tank-bot') {
+    enemy.chargeCooldown = 1800 + Math.random() * 800;
+  }
+
+  if (type === 'hellhound') {
+    enemy.packMarkUntil = 0;
   }
 
   return enemy;

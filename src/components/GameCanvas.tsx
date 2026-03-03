@@ -217,7 +217,13 @@ const RenderHazards = memo(({ hazards, now }: { hazards: Hazard[]; now: number }
             : 0;
         const activationRadius =
           h.activationRadius ||
-          (h.type === "spike-trap" ? 130 : h.type === "freeze-barrel" ? 122 : 112);
+          (h.type === "spike-trap"
+            ? 130
+            : h.type === "freeze-barrel"
+              ? 122
+              : h.type === "pulse-zone"
+                ? 175
+                : 112);
 
         return (
         <Group key={h.id} x={h.position.x} y={h.position.y}>
@@ -294,6 +300,40 @@ const RenderHazards = memo(({ hazards, now }: { hazards: Hazard[]; now: number }
                 fontFamily='"Press Start 2P"'
                 shadowColor="#2EE8FF"
                 shadowBlur={8}
+              />
+            </Group>
+          )}
+
+          {h.type === "pulse-zone" && (
+            <Group>
+              <Circle
+                radius={h.radius || 175}
+                fill="#3E0A5E"
+                opacity={0.14 + Math.sin(now / 140) * 0.05}
+                stroke="#74F7FF"
+                strokeWidth={2}
+              />
+              <Ring
+                innerRadius={(h.radius || 175) * 0.64}
+                outerRadius={(h.radius || 175) * 0.82}
+                fill="#7EFCFF"
+                opacity={0.18 + Math.sin(now / 100) * 0.08}
+              />
+              <Ring
+                innerRadius={(h.radius || 175) * 0.28}
+                outerRadius={(h.radius || 175) * 0.4}
+                fill="#A9FEFF"
+                opacity={0.1 + Math.sin(now / 120) * 0.05}
+              />
+              <Text
+                text="PULSE"
+                x={-24}
+                y={-8}
+                fontSize={8}
+                fill="#E4FDFF"
+                fontFamily='"Press Start 2P"'
+                shadowColor="#00EFFF"
+                shadowBlur={10}
               />
             </Group>
           )}
@@ -956,6 +996,19 @@ const EnemyVisuals = memo(
     }
 
     const isLowHealth = enemy.health / enemy.maxHealth < 0.25;
+    const isPulseTelegraphing =
+      enemy.pulseTelegraphUntil && enemy.pulseTelegraphUntil > now;
+    const pulseTelegraphProgress = isPulseTelegraphing
+      ? 1 - Math.max(0, (enemy.pulseTelegraphUntil - now) / 900)
+      : 0;
+    const isTankTelegraphing =
+      enemy.chargeTelegraphUntil && enemy.chargeTelegraphUntil > now;
+    const isTankCharging = enemy.chargeUntil && enemy.chargeUntil > now;
+    const hasPackLeaderMark =
+      enemy.type === "hellhound" &&
+      enemy.isPackAlpha &&
+      enemy.packMarkUntil &&
+      enemy.packMarkUntil > now;
 
     return (
       <Group>
@@ -983,6 +1036,93 @@ const EnemyVisuals = memo(
               dash={[4, 4]}
             />
           )}
+
+          {isPulseTelegraphing && (
+            <>
+              <Circle
+                radius={enemy.pulseRadius || 155}
+                fill="#00F0FF"
+                opacity={0.04 + pulseTelegraphProgress * 0.12}
+                stroke="#A5FCFF"
+                strokeWidth={2}
+                dash={[10, 10]}
+              />
+              <Ring
+                innerRadius={(enemy.pulseRadius || 155) * (0.18 + pulseTelegraphProgress * 0.52)}
+                outerRadius={(enemy.pulseRadius || 155) * (0.26 + pulseTelegraphProgress * 0.52)}
+                fill="#BFFFFF"
+                opacity={0.18 + pulseTelegraphProgress * 0.22}
+              />
+            </>
+          )}
+
+          {enemy.type === "hellhound" && enemy.isPackAlpha && (
+            <>
+              <Ring
+                innerRadius={size / 2 + 4}
+                outerRadius={size / 2 + 8}
+                fill="#FFB347"
+                opacity={0.35 + Math.sin(now / 130) * 0.12}
+              />
+              <Line
+                points={[
+                  -8,
+                  -size / 2 - 6,
+                  -3,
+                  -size / 2 - 16,
+                  0,
+                  -size / 2 - 10,
+                  3,
+                  -size / 2 - 16,
+                  8,
+                  -size / 2 - 6,
+                ]}
+                stroke="#FFD37A"
+                strokeWidth={2}
+                lineCap="round"
+                lineJoin="round"
+              />
+            </>
+          )}
+
+          {hasPackLeaderMark && (
+            <Circle
+              radius={size / 2 + 13}
+              fillEnabled={false}
+              stroke="#FF8C42"
+              strokeWidth={2}
+              opacity={0.45 + Math.sin(now / 90) * 0.2}
+              dash={[6, 6]}
+            />
+          )}
+
+          {enemy.type === "tank-bot" &&
+            enemy.chargeDirection &&
+            (isTankTelegraphing || isTankCharging) && (
+              <>
+                <Line
+                  points={[
+                    0,
+                    0,
+                    enemy.chargeDirection.x * 135,
+                    enemy.chargeDirection.y * 135,
+                  ]}
+                  stroke={isTankCharging ? "#FFAA33" : "#FF6666"}
+                  strokeWidth={isTankCharging ? 7 : 5}
+                  opacity={isTankCharging ? 0.75 : 0.45}
+                  dash={isTankCharging ? [] : [10, 8]}
+                />
+                <Circle
+                  x={enemy.chargeDirection.x * 135}
+                  y={enemy.chargeDirection.y * 135}
+                  radius={isTankCharging ? 12 : 18}
+                  fillEnabled={false}
+                  stroke={isTankCharging ? "#FFD27A" : "#FF8888"}
+                  strokeWidth={2}
+                  opacity={0.65}
+                />
+              </>
+            )}
 
           {/* Main Shape */}
           {sprite ? (
