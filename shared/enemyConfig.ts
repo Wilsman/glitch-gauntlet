@@ -123,6 +123,46 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     xpScaling: 1.5,
     spawnWeight: 0.2,
   },
+  'leech-beacon': {
+    type: 'leech-beacon',
+    baseHealth: 42,
+    baseDamage: 2,
+    baseSpeed: 1.15,
+    baseXpValue: 14,
+    healthScaling: 1.32,
+    damageScaling: 1.12,
+    speedScaling: 1.04,
+    xpScaling: 1.24,
+    spawnWeight: 0.24,
+  },
+  bomber: {
+    type: 'bomber',
+    baseHealth: 24,
+    baseDamage: 12,
+    baseSpeed: 2.6,
+    baseXpValue: 10,
+    healthScaling: 1.26,
+    damageScaling: 1.22,
+    speedScaling: 1.05,
+    xpScaling: 1.18,
+    spawnWeight: 0.28,
+  },
+  'orbit-drone': {
+    type: 'orbit-drone',
+    baseHealth: 28,
+    baseDamage: 4,
+    baseSpeed: 1.4,
+    baseXpValue: 12,
+    healthScaling: 1.34,
+    damageScaling: 1.18,
+    speedScaling: 1.05,
+    xpScaling: 1.22,
+    spawnWeight: 0.22,
+    canShoot: true,
+    baseAttackSpeed: 2200,
+    baseProjectileSpeed: 5,
+    attackSpeedScaling: 0.95,
+  },
 };
 
 export function createEnemy(
@@ -184,6 +224,24 @@ export function createEnemy(
     enemy.packMarkUntil = 0;
   }
 
+  if (type === 'leech-beacon') {
+    enemy.preferredRange = 255;
+    enemy.strafeDirection = Math.random() > 0.5 ? 1 : -1;
+    enemy.nextStrafeSwapAt = 0;
+    enemy.supportCooldown = 1600 + Math.random() * 500;
+    enemy.supportRadius = 220;
+  }
+
+  if (type === 'bomber') {
+    enemy.explodeRadius = 130;
+  }
+
+  if (type === 'orbit-drone') {
+    enemy.preferredRange = 315;
+    enemy.strafeDirection = Math.random() > 0.5 ? 1 : -1;
+    enemy.nextStrafeSwapAt = 0;
+  }
+
   return enemy;
 }
 
@@ -194,8 +252,14 @@ export function selectRandomEnemyType(wave: number = 1): EnemyType {
     if (type === 'splitter' && wave < 6) return false;
     // Glitch Spiders after wave 3
     if (type === 'glitch-spider' && wave < 4) return false;
+    // Bombers after wave 7
+    if (type === 'bomber' && wave < 7) return false;
     // Neon Pulse after wave 7
     if (type === 'neon-pulse' && wave < 8) return false;
+    // Leech Beacon after wave 9
+    if (type === 'leech-beacon' && wave < 9) return false;
+    // Orbit Drone after wave 11
+    if (type === 'orbit-drone' && wave < 11) return false;
     // Tank Bot after wave 12
     if (type === 'tank-bot' && wave < 13) return false;
 

@@ -10,7 +10,10 @@
 | `splitter` | Wave 6 | 35 | 6 | 1.5 | 12 | 0.4 | Splits into 2-3 minis on death |
 | `mini-splitter` | Spawned only | 10 | 3 | 1.8 | 2 | 0.0 | Fast cleanup swarm |
 | `glitch-spider` | Wave 4 | 15 | 4 | 3.5 | 6 | 0.5 | Latches onto players |
+| `bomber` | Wave 7 | 24 | 12 | 2.6 | 10 | 0.28 | Fuse telegraph into self-destruct blast |
 | `neon-pulse` | Wave 8 | 50 | 10 | 1.2 | 20 | 0.3 | Pulse telegraph plus unsafe ground |
+| `leech-beacon` | Wave 9 | 42 | 2 | 1.15 | 14 | 0.24 | Heals and speeds nearby enemies |
+| `orbit-drone` | Wave 11 | 28 | 4 | 1.4 | 12 | 0.22 | Wide orbiting ranged pressure |
 | `tank-bot` | Wave 13 | 120 | 15 | 0.8 | 30 | 0.2 | Telegraphs and charges through players |
 
 ## Scaling Multipliers
@@ -23,7 +26,10 @@
 | `splitter` | 1.35 | 1.20 | 1.04 | 1.25 | Death split count stays `2-3` |
 | `mini-splitter` | 1.35 | 1.20 | 1.04 | 1.25 | Inherits parent scaling |
 | `glitch-spider` | 1.20 | 1.20 | 1.08 | 1.20 | Latch mechanic is the real threat |
+| `bomber` | 1.26 | 1.22 | 1.05 | 1.18 | Explosion is the actual kill check |
 | `neon-pulse` | 1.40 | 1.30 | 1.05 | 1.30 | Attack speed `0.90x` per wave |
+| `leech-beacon` | 1.32 | 1.12 | 1.04 | 1.24 | Support pulse heals and adds a short speed buff |
+| `orbit-drone` | 1.34 | 1.18 | 1.05 | 1.22 | Attack speed `0.95x` per wave |
 | `tank-bot` | 1.60 | 1.40 | 1.02 | 1.50 | Charge pattern does the displacement work |
 
 ## Behavior Timings
@@ -33,10 +39,20 @@
 | `slugger` | Strafe swap | `1250-2200ms` |
 | `slugger` | Preferred range | `245px` |
 | `slugger` | Base shot cooldown | `2500ms` |
+| `bomber` | Explosion telegraph | `750ms` |
+| `bomber` | Explosion radius | `130px` |
 | `neon-pulse` | Preferred range | `230px` |
 | `neon-pulse` | Base shot cooldown | `3000ms` |
 | `neon-pulse` | Pulse telegraph | `900ms` |
 | `neon-pulse` | Pulse zone duration | `2600ms` |
+| `leech-beacon` | Preferred range | `255px` |
+| `leech-beacon` | Support radius | `220px` |
+| `leech-beacon` | Initial support cooldown | `1600-2100ms` |
+| `leech-beacon` | Repeat support cooldown | `2600-3300ms` |
+| `leech-beacon` | Support buff duration | `1800ms` |
+| `orbit-drone` | Preferred range | `315px` |
+| `orbit-drone` | Strafe swap | `1800-2700ms` |
+| `orbit-drone` | Base shot cooldown | `2200ms` |
 | `tank-bot` | Charge telegraph | `700ms` |
 | `tank-bot` | Charge duration | `650ms` |
 | `tank-bot` | Charge speed floor | `7.5` |
@@ -70,7 +86,10 @@
 - `hellhound`: strongest when the alpha survives long enough for flanking angles to form.
 - `splitter`: effective HP is higher than the table suggests because death creates more bodies.
 - `glitch-spider`: real danger is the attachment, not its listed damage.
+- `bomber`: low listed HP is offset by how hard it punishes greedy close-range play.
 - `neon-pulse`: area denial makes the arena state part of the fight.
+- `leech-beacon`: support value spikes sharply when mixed into already-threatening packs.
+- `orbit-drone`: more dangerous when combined with ground pressure that limits dodge lanes.
 - `tank-bot`: displacement is usually more dangerous than the damage value.
 
 ## Reading Late Unlocks
@@ -82,5 +101,8 @@ The roster escalation is:
 - early waves: `grunt`, `slugger`
 - first disruption layer: `glitch-spider`
 - kill-order pressure: `splitter`
+- greed punishment: `bomber`
 - arena-control pressure: `neon-pulse`
+- support pressure: `leech-beacon`
+- orbiting ranged pressure: `orbit-drone`
 - positional punishment: `tank-bot`

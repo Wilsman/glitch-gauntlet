@@ -144,6 +144,14 @@ const TANK_BOT_CHARGE_KNOCKBACK = 80;
 const HELLHOUND_PACK_RADIUS = 220;
 const HELLHOUND_PACK_BOOST = 1.35;
 const HELLHOUND_PACK_OFFSET_RADIUS = 55;
+const LEECH_BEACON_SUPPORT_RADIUS = 220;
+const LEECH_BEACON_SUPPORT_DURATION_MS = 1800;
+const LEECH_BEACON_SUPPORT_HEAL = 18;
+const BOMBER_TELEGRAPH_MS = 750;
+const BOMBER_EXPLOSION_RADIUS = 130;
+const BOMBER_KNOCKBACK = 68;
+const ORBIT_DRONE_STRAFE_SWAP_MIN_MS = 1800;
+const ORBIT_DRONE_STRAFE_SWAP_VARIANCE_MS = 900;
 const GOLEM_GLITCH_ZONE_RADIUS = 320;
 const GOLEM_GLITCH_ZONE_PULL_FORCE = 1.9;
 const GOLEM_GLITCH_ZONE_PROJECTILE_INTERVAL = 140;
@@ -1877,8 +1885,12 @@ export class LocalGameEngine {
     });
   }
 
-  private getEnemyEffectiveSpeed(state: GameState, enemy: Enemy) {
+  private getEnemyEffectiveSpeed(state: GameState, enemy: Enemy, now: number) {
     let effectiveSpeed = enemy.speed;
+
+    if (enemy.supportBuffUntil && enemy.supportBuffUntil > now) {
+      effectiveSpeed *= 1.22;
+    }
 
     if (enemy.statusEffects && enemy.statusEffects.length > 0) {
       const slowEffect = enemy.statusEffects.find(
@@ -1948,6 +1960,37 @@ export class LocalGameEngine {
       zoneUntil: now + NEON_PULSE_ZONE_DURATION_MS,
       lastToggle: now,
     });
+  }
+
+  private detonateBomber(state: GameState, enemy: Enemy, now: number) {
+    const radius = enemy.explodeRadius || BOMBER_EXPLOSION_RADIUS;
+    const damage = enemy.damage * 1.25;
+
+    if (!state.explosions) state.explosions = [];
+    state.explosions.push({
+      id: uuidv4(),
+      position: { ...enemy.position },
+      radius,
+      timestamp: now,
+      damage,
+      ownerId: enemy.id,
+    });
+
+    state.players.forEach((player) => {
+      if (player.status !== "alive") return;
+      const dx = player.position.x - enemy.position.x;
+      const dy = player.position.y - enemy.position.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      if (dist >= radius) return;
+      const falloff = 0.55 + 0.45 * (1 - dist / radius);
+      this.damagePlayer(player, damage * falloff, now);
+      this.pushPlayer(player, { x: dx, y: dy }, BOMBER_KNOCKBACK * falloff);
+    });
+
+    this.spawnParticles(enemy.position, "#FF7A3C", 24, "glitch", 14);
+    this.triggerScreenShake(12, 220);
+    enemy.health = 0;
+    enemy.lastHitTimestamp = now;
   }
 
   private updateEnemyAI(
@@ -2078,7 +2121,7 @@ export class LocalGameEngine {
       let targetPlayer = closestPlayer.player;
       let targetPosition = { ...targetPlayer.position };
       let targetDistance = closestPlayer.dist;
-      let effectiveSpeed = this.getEnemyEffectiveSpeed(state, enemy);
+      let effectiveSpeed = this.getEnemyEffectiveSpeed(state, enemy, now);
 
       if (enemy.type === "hellhound" && enemy.isPackAlpha) {
         enemy.packMarkPlayerId = targetPlayer.id;
@@ -2121,6 +2164,58 @@ export class LocalGameEngine {
               effectiveSpeed *= HELLHOUND_PACK_BOOST;
             }
           }
+        }
+      }
+
+      if (enemy.type === "leech-beacon") {
+        enemy.supportCooldown = (enemy.supportCooldown ?? 0) - delta;
+        if ((enemy.supportCooldown ?? 0) <= 0) {
+          const supportRadius = enemy.supportRadius || LEECH_BEACON_SUPPORT_RADIUS;
+          const targets = state.enemies
+            .filter(
+              (candidate) =>
+                candidate.id !== enemy.id &&
+                candidate.type !== "leech-beacon" &&
+                candidate.health > 0 &&
+                Math.hypot(
+                  candidate.position.x - enemy.position.x,
+                  candidate.position.y - enemy.position.y
+                ) < supportRadius
+            )
+            .sort((a, b) => a.health / a.maxHealth - b.health / b.maxHealth)
+            .slice(0, 3);
+
+          enemy.supportTargetIds = targets.map((target) => target.id);
+          enemy.supportLinkUntil = targets.length > 0 ? now + 850 : undefined;
+
+          targets.forEach((target) => {
+            target.health = Math.min(
+              target.maxHealth,
+              target.health + Math.min(LEECH_BEACON_SUPPORT_HEAL, target.maxHealth * 0.18)
+            );
+            target.supportBuffUntil = now + LEECH_BEACON_SUPPORT_DURATION_MS;
+            target.lastHitTimestamp = now;
+          });
+
+          enemy.supportCooldown = 2600 + Math.random() * 700;
+        }
+      }
+
+      if (enemy.type === "bomber") {
+        if (
+          enemy.explodeTelegraphUntil &&
+          now >= enemy.explodeTelegraphUntil
+        ) {
+          this.detonateBomber(state, enemy, now);
+          return;
+        }
+
+        if (
+          !enemy.explodeTelegraphUntil &&
+          closestPlayer.dist < 115
+        ) {
+          enemy.explodeTelegraphUntil = now + BOMBER_TELEGRAPH_MS;
+          return;
         }
       }
 
@@ -2280,7 +2375,10 @@ export class LocalGameEngine {
         return;
       }
 
-      if (enemy.type === "tank-bot" && enemy.chargeTelegraphUntil) {
+      if (
+        (enemy.type === "tank-bot" && enemy.chargeTelegraphUntil) ||
+        (enemy.type === "bomber" && enemy.explodeTelegraphUntil)
+      ) {
         return;
       }
 
@@ -2288,17 +2386,28 @@ export class LocalGameEngine {
       const dy = targetPosition.y - enemy.position.y;
       const distanceToTarget = Math.hypot(dx, dy) || 1;
 
-      if (enemy.type === "slugger" || enemy.type === "neon-pulse") {
+      if (
+        enemy.type === "slugger" ||
+        enemy.type === "neon-pulse" ||
+        enemy.type === "leech-beacon" ||
+        enemy.type === "orbit-drone"
+      ) {
         if (
           enemy.nextStrafeSwapAt === undefined ||
           now >= enemy.nextStrafeSwapAt
         ) {
           enemy.strafeDirection =
             enemy.strafeDirection === -1 ? 1 : -1;
+          const swapMin =
+            enemy.type === "orbit-drone"
+              ? ORBIT_DRONE_STRAFE_SWAP_MIN_MS
+              : SLUGGER_STRAFE_SWAP_MIN_MS;
+          const swapVariance =
+            enemy.type === "orbit-drone"
+              ? ORBIT_DRONE_STRAFE_SWAP_VARIANCE_MS
+              : SLUGGER_STRAFE_SWAP_VARIANCE_MS;
           enemy.nextStrafeSwapAt =
-            now +
-            SLUGGER_STRAFE_SWAP_MIN_MS +
-            Math.random() * SLUGGER_STRAFE_SWAP_VARIANCE_MS;
+            now + swapMin + Math.random() * swapVariance;
         }
 
         const preferredRange = enemy.preferredRange || 260;
@@ -2306,15 +2415,30 @@ export class LocalGameEngine {
         const radialY = dy / distanceToTarget;
         const strafeX = -radialY;
         const strafeY = radialX;
-        const strafeStrength = enemy.type === "slugger" ? 0.62 : 1;
+        const strafeStrength =
+          enemy.type === "slugger"
+            ? 0.62
+            : enemy.type === "leech-beacon"
+              ? 0.38
+              : enemy.type === "orbit-drone"
+                ? 1.18
+                : 1;
         const radialWeight =
           distanceToTarget < preferredRange * 0.78
-            ? -1.25
+            ? enemy.type === "orbit-drone"
+              ? -0.92
+              : -1.25
             : distanceToTarget > preferredRange * 1.12
-              ? 0.95
+              ? enemy.type === "orbit-drone"
+                ? 0.82
+                : 0.95
               : enemy.type === "slugger"
                 ? 0.18
-                : 0.12;
+                : enemy.type === "leech-beacon"
+                  ? 0.24
+                  : enemy.type === "orbit-drone"
+                    ? 0.06
+                    : 0.12;
         const direction = {
           x: radialX * radialWeight + strafeX * (enemy.strafeDirection || 1) * strafeStrength,
           y: radialY * radialWeight + strafeY * (enemy.strafeDirection || 1) * strafeStrength,
@@ -2322,7 +2446,14 @@ export class LocalGameEngine {
         this.moveEnemyAlong(
           enemy,
           direction,
-          effectiveSpeed * (enemy.type === "neon-pulse" ? 0.92 : 1),
+          effectiveSpeed *
+            (enemy.type === "neon-pulse"
+              ? 0.92
+              : enemy.type === "leech-beacon"
+                ? 0.88
+                : enemy.type === "orbit-drone"
+                  ? 1.02
+                  : 1),
           timeFactor
         );
         return;

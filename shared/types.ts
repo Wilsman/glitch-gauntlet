@@ -235,7 +235,10 @@ export interface StatusEffect {
 
 export type EnemyType = 'grunt' | 'slugger' | 'hellhound' | 'splitter' | 'mini-splitter' | "neon-pulse"
   | "glitch-spider"
-  | "tank-bot";
+  | "tank-bot"
+  | "leech-beacon"
+  | "bomber"
+  | "orbit-drone";
 
 export interface Enemy {
   id: string;
@@ -272,6 +275,13 @@ export interface Enemy {
   packLeaderId?: string;
   packMarkPlayerId?: string;
   packMarkUntil?: number;
+  supportCooldown?: number;
+  supportRadius?: number;
+  supportLinkUntil?: number;
+  supportTargetIds?: string[];
+  supportBuffUntil?: number;
+  explodeTelegraphUntil?: number;
+  explodeRadius?: number;
   // Visual history
   history?: Vector2D[];
 }

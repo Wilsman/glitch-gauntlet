@@ -977,6 +977,18 @@ const EnemyVisuals = memo(
       fill = "#555555";
       shadow = "#555555";
       size = 35;
+    } else if (enemy.type === "leech-beacon") {
+      fill = "#7CFF8A";
+      shadow = "#7CFF8A";
+      size = 21;
+    } else if (enemy.type === "bomber") {
+      fill = "#FF6A33";
+      shadow = "#FF6A33";
+      size = 23;
+    } else if (enemy.type === "orbit-drone") {
+      fill = "#7AE3FF";
+      shadow = "#7AE3FF";
+      size = 18;
     }
 
     if (isCrit) {
@@ -1004,6 +1016,15 @@ const EnemyVisuals = memo(
     const isTankTelegraphing =
       enemy.chargeTelegraphUntil && enemy.chargeTelegraphUntil > now;
     const isTankCharging = enemy.chargeUntil && enemy.chargeUntil > now;
+    const isSupportCasting =
+      enemy.supportLinkUntil && enemy.supportLinkUntil > now;
+    const isSupportBuffed =
+      enemy.supportBuffUntil && enemy.supportBuffUntil > now;
+    const isBomberTelegraphing =
+      enemy.explodeTelegraphUntil && enemy.explodeTelegraphUntil > now;
+    const bomberTelegraphProgress = isBomberTelegraphing
+      ? 1 - Math.max(0, (enemy.explodeTelegraphUntil - now) / 750)
+      : 0;
     const hasPackLeaderMark =
       enemy.type === "hellhound" &&
       enemy.isPackAlpha &&
@@ -1052,6 +1073,55 @@ const EnemyVisuals = memo(
                 outerRadius={(enemy.pulseRadius || 155) * (0.26 + pulseTelegraphProgress * 0.52)}
                 fill="#BFFFFF"
                 opacity={0.18 + pulseTelegraphProgress * 0.22}
+              />
+            </>
+          )}
+
+          {isSupportBuffed && (
+            <Circle
+              radius={size / 2 + 8}
+              fillEnabled={false}
+              stroke="#95FFF3"
+              strokeWidth={2}
+              opacity={0.65}
+              dash={[5, 5]}
+            />
+          )}
+
+          {isSupportCasting && (
+            <>
+              <Circle
+                radius={enemy.supportRadius || 220}
+                fill="#7CFF8A"
+                opacity={0.035}
+                stroke="#B4FFD1"
+                strokeWidth={2}
+                dash={[10, 12]}
+              />
+              <Ring
+                innerRadius={size / 2 + 9}
+                outerRadius={size / 2 + 15}
+                fill="#B9FF88"
+                opacity={0.28 + Math.sin(now / 120) * 0.08}
+              />
+            </>
+          )}
+
+          {isBomberTelegraphing && (
+            <>
+              <Circle
+                radius={enemy.explodeRadius || 130}
+                fill="#FF6A33"
+                opacity={0.035 + bomberTelegraphProgress * 0.1}
+                stroke="#FFC08F"
+                strokeWidth={2}
+                dash={[8, 8]}
+              />
+              <Ring
+                innerRadius={(enemy.explodeRadius || 130) * (0.18 + bomberTelegraphProgress * 0.45)}
+                outerRadius={(enemy.explodeRadius || 130) * (0.26 + bomberTelegraphProgress * 0.45)}
+                fill="#FFD19A"
+                opacity={0.14 + bomberTelegraphProgress * 0.24}
               />
             </>
           )}
@@ -1205,6 +1275,89 @@ const EnemyVisuals = memo(
                     opacity={isHit ? 1 : 0.8}
                   />
                   <Text text="💠" fontSize={20} offsetX={10} offsetY={10} />
+                </Group>
+              ) : enemy.type === "leech-beacon" ? (
+                <Group rotation={now / 18}>
+                  <Circle
+                    radius={size / 2 + 3}
+                    fillEnabled={false}
+                    stroke="#C9FFD3"
+                    strokeWidth={2}
+                    opacity={0.75}
+                  />
+                  <Rect
+                    x={-size / 2 + 3}
+                    y={-size / 2 + 3}
+                    width={size - 6}
+                    height={size - 6}
+                    rotation={45}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={18}
+                    cornerRadius={3}
+                    opacity={isHit ? 1 : 0.84}
+                  />
+                  <Circle
+                    radius={size / 5}
+                    fill="#EFFFF2"
+                    opacity={0.9}
+                  />
+                </Group>
+              ) : enemy.type === "bomber" ? (
+                <Group>
+                  <Rect
+                    x={-size / 2}
+                    y={-size / 2}
+                    width={size}
+                    height={size}
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={20}
+                    cornerRadius={6}
+                    rotation={Math.sin(now / 260) * 6}
+                    opacity={isHit ? 1 : 0.9}
+                  />
+                  <Line
+                    points={[-2, -size / 2 + 2, 2, -size / 2 - 8, 7, -size / 2 - 3]}
+                    stroke="#FFF0B8"
+                    strokeWidth={2}
+                    lineCap="round"
+                    lineJoin="round"
+                  />
+                  <Circle
+                    x={8}
+                    y={-size / 2 - 4}
+                    radius={isBomberTelegraphing ? 4.5 : 3}
+                    fill={isBomberTelegraphing ? "#FFF4C7" : "#FFD36A"}
+                    opacity={0.7 + Math.sin(now / 70) * 0.25}
+                  />
+                </Group>
+              ) : enemy.type === "orbit-drone" ? (
+                <Group rotation={now / 16}>
+                  <Circle
+                    radius={size / 2 + 4}
+                    fillEnabled={false}
+                    stroke="#B8F7FF"
+                    strokeWidth={2}
+                    opacity={0.5}
+                  />
+                  <Line
+                    points={[0, -size / 2 - 2, size / 2, size / 2, -size / 2, size / 2]}
+                    closed
+                    fill={fill}
+                    shadowColor={shadow}
+                    shadowBlur={18}
+                    stroke="#E7FFFF"
+                    strokeWidth={1.5}
+                    opacity={isHit ? 1 : 0.9}
+                  />
+                  <Circle
+                    x={0}
+                    y={-size / 2 - 4}
+                    radius={2.5}
+                    fill="#E7FFFF"
+                    opacity={0.9}
+                  />
                 </Group>
               ) : enemy.type === "slugger" ? (
                 <Group>

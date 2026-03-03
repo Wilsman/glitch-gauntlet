@@ -14,6 +14,9 @@ Current regular enemies:
 - `mini-splitter`: cleanup swarm pressure
 - `glitch-spider`: latch / panic-response pressure
 - `neon-pulse`: area-denial pressure
+- `leech-beacon`: support / kill-first pressure
+- `bomber`: greed-punish dive pressure
+- `orbit-drone`: orbiting ranged pressure
 - `tank-bot`: telegraphed disruption / knockback pressure
 
 ## Live Roster
@@ -67,7 +70,28 @@ Current regular enemies:
 - Signature: after the pulse resolves it leaves a temporary `pulse-zone` hazard that damages and nudges players standing inside it
 - Counterplay: step out during the telegraph, then route around the unsafe ground instead of greedily holding position
 
-### 8. Tank Bot
+### 8. Leech Beacon
+
+- Role: support anchor
+- Behavior: maintains distance, periodically links to nearby enemies, heals them, and grants a short speed buff
+- Signature: turns mixed packs into a target-priority puzzle because ignoring it makes every nearby enemy harder to clean up
+- Counterplay: collapse onto the beacon first or force the pack to separate before it can chain support
+
+### 9. Bomber
+
+- Role: anti-greed diver
+- Behavior: rushes into close range, locks in place for a short explosion telegraph, then detonates in a radius with knockback
+- Signature: punishes point-blank overcommitment and crowded pathing with a readable but urgent blast check
+- Counterplay: bait the trigger, disengage during the fuse, then re-enter after the self-destruct
+
+### 10. Orbit Drone
+
+- Role: orbiting skirmisher
+- Behavior: keeps a wide preferred range, circles laterally around the player, and fires while moving
+- Signature: creates cross-angle projectile pressure instead of the more direct slugger lane
+- Counterplay: cut the orbit, use burst windows while it crosses close, or outrange its arc
+
+### 11. Tank Bot
 
 - Role: formation breaker
 - Behavior: slow advance followed by a clear charge telegraph and a short rush
@@ -86,7 +110,10 @@ Current regular enemies:
   - `grunt`, `slugger`: wave 1
   - `glitch-spider`: wave 4
   - `splitter`: wave 6
+  - `bomber`: wave 7
   - `neon-pulse`: wave 8
+  - `leech-beacon`: wave 9
+  - `orbit-drone`: wave 11
   - `tank-bot`: wave 13
 
 ### Hellhound Waves
@@ -117,6 +144,9 @@ This means late unlock enemies arrive already scaled for the wave they first app
 | `mini-splitter` | Clean up loose threats | Overcommitting to large targets |
 | `glitch-spider` | React under pressure | Late reads at short range |
 | `neon-pulse` | Respect unsafe ground | Greed during telegraphs |
+| `leech-beacon` | Kill support first | Letting packs stabilize |
+| `bomber` | Disengage on time | Staying too close too long |
+| `orbit-drone` | Track lateral orbiting fire | Front-only aiming |
 | `tank-bot` | Read charge lanes | Backpedal-only movement |
 
 ## Visual Language
@@ -128,6 +158,9 @@ This means late unlock enemies arrive already scaled for the wave they first app
 - `mini-splitter`: smaller light-purple shard
 - `glitch-spider`: hot-pink latch threat
 - `neon-pulse`: cyan telegraph + lingering pulse zone
+- `leech-beacon`: green support core with wide healing aura
+- `bomber`: orange fuse body with blast-radius telegraph
+- `orbit-drone`: pale-cyan orbit frame with rotating skirmisher silhouette
 - `tank-bot`: gray heavy body with charge lane indicator
 
 ## Implementation Notes

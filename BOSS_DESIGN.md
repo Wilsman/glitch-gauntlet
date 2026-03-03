@@ -45,7 +45,10 @@ The regular roster now trains the same readability rules the bosses use:
 
 - `slugger` trains lateral dodge reads.
 - `hellhound` trains coordinated angle pressure.
+- `bomber` trains urgent disengage timing.
 - `neon-pulse` trains respect for telegraphed unsafe ground.
+- `leech-beacon` trains support-target prioritization.
+- `orbit-drone` trains tracking enemies that attack from a moving side angle.
 - `tank-bot` trains charge-lane recognition and repositioning.
 - `glitch-spider` trains panic recovery under close pressure.
 
