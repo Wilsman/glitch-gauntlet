@@ -1,6 +1,14 @@
 import { motion } from "framer-motion";
 import { Crown, Crosshair, PawPrint, ShoppingBag } from "lucide-react";
-import { useEffect, useMemo, useState, type ComponentType } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type PointerEvent,
+  type WheelEvent,
+} from "react";
 import { getCharacter } from "@shared/characterConfig";
 import type {
   BossType,
@@ -167,6 +175,19 @@ function buildCurvePath(
   return `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
 }
 
+function clampValue(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+const MAP_LAYOUT_PADDING = {
+  top: 84,
+  right: 300,
+  bottom: 84,
+  left: 92,
+};
+const DEFAULT_VIEWPORT_SIZE = { width: 1280, height: 720 };
+const BASE_SCALE_OVERSHOOT = 1.06;
+
 function renderMapNodeButton({
   runNode,
   selectable,
@@ -189,7 +210,7 @@ function renderMapNodeButton({
   const style = getNodeStyle(runNode);
   const Icon = style.Icon;
   const isBoss = runNode.encounterType === "boss";
-  const size = isBoss ? 82 : 62;
+  const size = isBoss ? 52 : 28;
 
   return (
     <button
@@ -228,11 +249,8 @@ function renderMapNodeButton({
         height: size,
       }}
     >
-      <div className="flex h-full w-full flex-col items-center justify-center">
-        <Icon className={`h-6 w-6 ${style.text}`} />
-        <div className="mt-1 font-press-start text-[8px] tracking-[0.16em] text-white/68">
-          {isBoss ? "BOSS" : `R${runNode.depth}`}
-        </div>
+      <div className="flex h-full w-full items-center justify-center">
+        <Icon className={`${isBoss ? "h-6 w-6" : "h-4 w-4"} ${style.text}`} />
       </div>
     </button>
   );
@@ -247,6 +265,17 @@ export default function RunMapOverlay({
   localPlayerCharacterType = null,
 }: RunMapOverlayProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(0.9);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [viewportSize, setViewportSize] = useState(DEFAULT_VIEWPORT_SIZE);
+  const panAnchorRef = useRef<{
+    pointerX: number;
+    pointerY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const graphViewportRef = useRef<HTMLDivElement | null>(null);
   const nodesById = useMemo(
     () => new Map(runMap.nodes.map((node) => [node.id, node])),
     [runMap.nodes],
@@ -271,7 +300,7 @@ export default function RunMapOverlay({
     runMap.nodes[0] ||
     null;
   const activeLegendType = hoveredNode?.encounterType || null;
-  const emphasizedRouteId = hoveredNode?.routeId || null;
+  const emphasizedRouteId = currentNode?.routeId || null;
   const maxDepth = runMap.nodes.reduce(
     (max, node) => Math.max(max, node.depth),
     0,
@@ -304,20 +333,127 @@ export default function RunMapOverlay({
     }
   }, [hoveredNodeId, nodesById]);
 
-  const maxAbsX = Math.max(1, ...runMap.nodes.map((node) => Math.abs(node.x)));
-  const maxAbsY = Math.max(1, ...runMap.nodes.map((node) => Math.abs(node.y)));
-  // center the graphCenter screenwidth/2, screenheight/2
-  const graphCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-  const graphHalfWidth = window.innerWidth * 0.35;
-  const graphHalfHeight = window.innerHeight * 0.35;
+  useEffect(() => {
+    const viewport = graphViewportRef.current;
+    if (!viewport) return;
+    const updateViewportSize = () => {
+      setViewportSize({
+        width: viewport.clientWidth || DEFAULT_VIEWPORT_SIZE.width,
+        height: viewport.clientHeight || DEFAULT_VIEWPORT_SIZE.height,
+      });
+    };
+    updateViewportSize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateViewportSize);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setZoom(0.9);
+    setPan({ x: 0, y: 0 });
+  }, [runMap.floorIndex, runMap.nodes.length]);
+
+  const minX = Math.min(...runMap.nodes.map((node) => node.x));
+  const maxX = Math.max(...runMap.nodes.map((node) => node.x));
+  const minY = Math.min(...runMap.nodes.map((node) => node.y));
+  const maxY = Math.max(...runMap.nodes.map((node) => node.y));
+  const worldCenterX = (minX + maxX) / 2;
+  const worldCenterY = (minY + maxY) / 2;
+  const worldWidth = Math.max(1, maxX - minX);
+  const worldHeight = Math.max(1, maxY - minY);
+  const usableWidth = Math.max(
+    320,
+    viewportSize.width - MAP_LAYOUT_PADDING.left - MAP_LAYOUT_PADDING.right,
+  );
+  const usableHeight = Math.max(
+    280,
+    viewportSize.height - MAP_LAYOUT_PADDING.top - MAP_LAYOUT_PADDING.bottom,
+  );
+  const graphCenter = {
+    x: MAP_LAYOUT_PADDING.left + usableWidth / 2,
+    y: MAP_LAYOUT_PADDING.top + usableHeight / 2,
+  };
+  const fitScale = Math.min(usableWidth / worldWidth, usableHeight / worldHeight);
+  const graphScale = fitScale * BASE_SCALE_OVERSHOOT;
   const normalizePoint = (x: number, y: number) => ({
-    x: graphCenter.x + (x / maxAbsX) * graphHalfWidth,
-    y: graphCenter.y + (y / maxAbsY) * graphHalfHeight,
+    x: graphCenter.x + (x - worldCenterX) * graphScale,
+    y: graphCenter.y + (y - worldCenterY) * graphScale,
   });
 
-  const nodeScreenPositions = new Map(
-    runMap.nodes.map((node) => [node.id, normalizePoint(node.x, node.y)]),
-  );
+  const nodeScreenPositions = useMemo(() => {
+    const minBoundX = MAP_LAYOUT_PADDING.left + 20;
+    const maxBoundX = MAP_LAYOUT_PADDING.left + usableWidth - 20;
+    const minBoundY = MAP_LAYOUT_PADDING.top + 20;
+    const maxBoundY = MAP_LAYOUT_PADDING.top + usableHeight - 20;
+    const points = runMap.nodes.map((node) => {
+      const anchor = normalizePoint(node.x, node.y);
+      return {
+        id: node.id,
+        type: node.encounterType,
+        x: anchor.x,
+        y: anchor.y,
+        anchorX: anchor.x,
+        anchorY: anchor.y,
+        radius: node.encounterType === "boss" ? 30 : 21,
+      };
+    });
+
+    for (let iteration = 0; iteration < 70; iteration++) {
+      for (const point of points) {
+        point.x += (point.anchorX - point.x) * 0.08;
+        point.y += (point.anchorY - point.y) * 0.08;
+      }
+
+      for (const point of points) {
+        const corePadding = point.type === "boss" ? 20 : 12;
+        const minCoreDistance = 88 + point.radius + corePadding;
+        const deltaX = point.x - graphCenter.x;
+        const deltaY = point.y - graphCenter.y;
+        const distance = Math.hypot(deltaX, deltaY) || 0.001;
+        if (distance < minCoreDistance) {
+          const push = minCoreDistance - distance;
+          point.x += (deltaX / distance) * push;
+          point.y += (deltaY / distance) * push;
+        }
+      }
+
+      for (let index = 0; index < points.length; index++) {
+        const source = points[index];
+        for (let targetIndex = index + 1; targetIndex < points.length; targetIndex++) {
+          const target = points[targetIndex];
+          const deltaX = target.x - source.x;
+          const deltaY = target.y - source.y;
+          const distance = Math.hypot(deltaX, deltaY) || 0.001;
+          const minDistance = source.radius + target.radius + 8;
+          if (distance >= minDistance) continue;
+          const push = ((minDistance - distance) / 2) * 0.95;
+          const normX = deltaX / distance;
+          const normY = deltaY / distance;
+          source.x -= normX * push;
+          source.y -= normY * push;
+          target.x += normX * push;
+          target.y += normY * push;
+        }
+      }
+
+      for (const point of points) {
+        point.x = clampValue(point.x, minBoundX, maxBoundX);
+        point.y = clampValue(point.y, minBoundY, maxBoundY);
+      }
+    }
+
+    return new Map(points.map((point) => [point.id, { x: point.x, y: point.y }]));
+  }, [
+    graphCenter.x,
+    graphCenter.y,
+    runMap.nodes,
+    usableHeight,
+    usableWidth,
+    worldCenterX,
+    worldCenterY,
+    graphScale,
+  ]);
   const entryNodes = runMap.nodes.filter((node) => node.depth === 1);
   const edgeSegments = [
     ...entryNodes.map((node) => ({
@@ -350,6 +486,63 @@ export default function RunMapOverlay({
         ),
     ),
   ];
+
+  const handleZoomChange = (nextZoom: number, cursorX?: number, cursorY?: number) => {
+    const clamped = clampValue(nextZoom, 0.32, 3.2);
+    if (cursorX === undefined || cursorY === undefined) {
+      setZoom(clamped);
+      return;
+    }
+
+    const worldX = (cursorX - pan.x) / zoom;
+    const worldY = (cursorY - pan.y) / zoom;
+    setZoom(clamped);
+    setPan({
+      x: cursorX - worldX * clamped,
+      y: cursorY - worldY * clamped,
+    });
+  };
+
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const rect = graphViewportRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cursorX = event.clientX - rect.left;
+    const cursorY = event.clientY - rect.top;
+    const factor = event.deltaY < 0 ? 1.12 : 0.89;
+    handleZoomChange(zoom * factor, cursorX, cursorY);
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button[data-map-node-id]")) return;
+    setIsPanning(true);
+    panAnchorRef.current = {
+      pointerX: event.clientX,
+      pointerY: event.clientY,
+      startX: pan.x,
+      startY: pan.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!isPanning || !panAnchorRef.current) return;
+    const deltaX = event.clientX - panAnchorRef.current.pointerX;
+    const deltaY = event.clientY - panAnchorRef.current.pointerY;
+    setPan({
+      x: panAnchorRef.current.startX + deltaX,
+      y: panAnchorRef.current.startY + deltaY,
+    });
+  };
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    setIsPanning(false);
+    panAnchorRef.current = null;
+  };
 
   return (
     <motion.div
@@ -428,93 +621,112 @@ export default function RunMapOverlay({
         exit={{ opacity: 0, y: 10 }}
         transition={{ duration: 0.32, delay: 0.08 }}
       >
-        <svg
-          className="absolute inset-0 z-[1] pr-[270px]"
-          width="100%"
-          height="100%"
+        <div
+          ref={graphViewportRef}
+          className={`absolute inset-0 z-[1] touch-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onPointerLeave={handlePointerUp}
         >
-          {edgeSegments.map((edge) => {
-            const routeMeta = ROUTE_META[edge.routeId];
-            const isEmphasized = emphasizedRouteId === edge.routeId;
-            const isReachableRoute = reachableRouteIds.has(edge.routeId);
-            const isCurrentRoute = currentNode?.routeId === edge.routeId;
-            const active = isEmphasized || isCurrentRoute;
-            const path = buildCurvePath(edge.source, edge.target, graphCenter);
-
-            return (
-              <g key={edge.id}>
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={active ? routeMeta.glow : "rgba(90,130,160,0.08)"}
-                  strokeWidth={active ? 10 : isReachableRoute ? 6 : 4}
-                  strokeLinecap="round"
-                />
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={
-                    active
-                      ? routeMeta.stroke
-                      : isReachableRoute
-                        ? "rgba(142,245,255,0.72)"
-                        : "rgba(106,154,194,0.42)"
-                  }
-                  strokeWidth={active ? 2.7 : isReachableRoute ? 2.1 : 1.5}
-                  strokeLinecap="round"
-                  strokeDasharray={active ? "2 8" : "1 10"}
-                />
-              </g>
-            );
-          })}
-        </svg>
-
-        <div className="absolute inset-0 z-[2] pr-[270px]">
-          <motion.div
-            className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/35 bg-black/70 p-3 text-center ${highlightedRouteMeta?.coreGlow || "shadow-[0_0_28px_rgba(34,211,238,0.12)]"}`}
+          <div
+            className="absolute inset-0"
             style={{
-              left: graphCenter.x,
-              top: graphCenter.y,
-              width: 170,
-              height: 170,
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "0 0",
             }}
-            animate={{
-              boxShadow:
-                emphasizedRouteId && highlightedRouteMeta
-                  ? `0 0 42px ${ROUTE_META[emphasizedRouteId].glow}`
-                  : "0 0 28px rgba(34,211,238,0.12)",
-            }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
           >
-            <div className="flex h-full flex-col items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.08),transparent_60%)]">
-              <div className="text-[30px] leading-none">
-                {character?.emoji || "O"}
-              </div>
-              <div className="mt-3 font-press-start text-[10px] tracking-[0.16em] text-white/70">
-                RUN CORE
-              </div>
-              <div className="mt-2 font-vt323 text-[20px] leading-none text-white">
-                {localPlayerName || character?.name || "Operator"}
-              </div>
-              <div className="mt-2 font-vt323 text-[16px] text-white/48">
-                Select an outward route
-              </div>
-            </div>
-          </motion.div>
+            <svg
+              className="absolute inset-0 z-[1]"
+              width="100%"
+              height="100%"
+            >
+              {edgeSegments.map((edge) => {
+                const routeMeta = ROUTE_META[edge.routeId];
+                const isEmphasized = emphasizedRouteId === edge.routeId;
+                const isReachableRoute = reachableRouteIds.has(edge.routeId);
+                const isCurrentRoute = currentNode?.routeId === edge.routeId;
+                const active = isEmphasized || isCurrentRoute;
+                const path = buildCurvePath(edge.source, edge.target, graphCenter);
 
-          {runMap.nodes.map((node) => {
-            const point = nodeScreenPositions.get(node.id) || graphCenter;
-            return renderMapNodeButton({
-              runNode: node,
-              selectable: reachableNodeIds.has(node.id),
-              visited: visitedNodeIds.has(node.id),
-              current: currentNode?.id === node.id,
-              left: point.x,
-              top: point.y,
-              onSelectNode,
-              onHoverNode: setHoveredNodeId,
-            });
-          })}
+                return (
+                  <g key={edge.id}>
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={active ? routeMeta.glow : "rgba(90,130,160,0.08)"}
+                      strokeWidth={active ? 10 : isReachableRoute ? 6 : 4}
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={
+                        active
+                          ? routeMeta.stroke
+                          : isReachableRoute
+                            ? "rgba(142,245,255,0.72)"
+                            : "rgba(106,154,194,0.42)"
+                      }
+                      strokeWidth={active ? 2.7 : isReachableRoute ? 2.1 : 1.5}
+                      strokeLinecap="round"
+                      strokeDasharray={active ? "2 8" : "1 10"}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+
+            <div className="absolute inset-0 z-[2]">
+              <motion.div
+                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/35 bg-black/70 p-3 text-center ${highlightedRouteMeta?.coreGlow || "shadow-[0_0_28px_rgba(34,211,238,0.12)]"}`}
+                style={{
+                  left: graphCenter.x,
+                  top: graphCenter.y,
+                  width: 170,
+                  height: 170,
+                }}
+                animate={{
+                  boxShadow:
+                    emphasizedRouteId && highlightedRouteMeta
+                      ? `0 0 42px ${ROUTE_META[emphasizedRouteId].glow}`
+                      : "0 0 28px rgba(34,211,238,0.12)",
+                }}
+                transition={{ duration: 0.22, ease: "easeOut" }}
+              >
+                <div className="flex h-full flex-col items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.08),transparent_60%)]">
+                  <div className="text-[30px] leading-none">
+                    {character?.emoji || "O"}
+                  </div>
+                  <div className="mt-3 font-press-start text-[10px] tracking-[0.16em] text-white/70">
+                    RUN CORE
+                  </div>
+                  <div className="mt-2 font-vt323 text-[20px] leading-none text-white">
+                    {localPlayerName || character?.name || "Operator"}
+                  </div>
+                  <div className="mt-2 font-vt323 text-[16px] text-white/48">
+                    Select an outward route
+                  </div>
+                </div>
+              </motion.div>
+
+              {runMap.nodes.map((node) => {
+                const point = nodeScreenPositions.get(node.id) || graphCenter;
+                return renderMapNodeButton({
+                  runNode: node,
+                  selectable: reachableNodeIds.has(node.id),
+                  visited: visitedNodeIds.has(node.id),
+                  current: currentNode?.id === node.id,
+                  left: point.x,
+                  top: point.y,
+                  onSelectNode,
+                  onHoverNode: setHoveredNodeId,
+                });
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="absolute right-5 top-5 z-[3] w-[250px] rounded-[24px] border border-cyan-400/22 bg-black/55 p-4 shadow-[0_0_24px_rgba(0,0,0,0.3)] backdrop-blur-sm">
@@ -526,11 +738,10 @@ export default function RunMapOverlay({
               <div className="mt-3 font-vt323 text-[28px] leading-none text-white">
                 {highlightedNode.bossType
                   ? formatBossType(highlightedNode.bossType)
-                  : highlightedNode.title || `Ring ${highlightedNode.depth}`}
+                  : highlightedNode.title || getNodeStyle(highlightedNode).label}
               </div>
               <div className="mt-2 font-vt323 text-[18px] text-white/55">
-                {ROUTE_META[highlightedNode.routeId].tag} | Ring{" "}
-                {highlightedNode.depth}
+                {ROUTE_META[highlightedNode.routeId].tag}
                 {reachableNodeIds.has(highlightedNode.id)
                   ? "  |  Reachable"
                   : visitedNodeIds.has(highlightedNode.id)
@@ -627,6 +838,32 @@ export default function RunMapOverlay({
         >
           <div className="rounded-full border border-white/12 bg-black/40 px-4 py-2 font-vt323 text-[18px] text-white/62">
             Inspect every node. Reachable nodes are the only selectable sockets.
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/28 bg-black/45 px-3 py-2">
+            <button
+              type="button"
+              onClick={() => handleZoomChange(zoom * 0.88)}
+              className="h-7 w-7 rounded-full border border-white/20 bg-white/5 font-press-start text-[12px] text-white/80 hover:border-white/45 hover:bg-white/12"
+            >
+              -
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setZoom(1);
+                setPan({ x: 0, y: 0 });
+              }}
+              className="rounded-full border border-white/18 bg-white/5 px-3 py-1 font-press-start text-[9px] text-white/70 hover:border-white/45 hover:bg-white/12"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => handleZoomChange(zoom * 1.14)}
+              className="h-7 w-7 rounded-full border border-white/20 bg-white/5 font-press-start text-[12px] text-white/80 hover:border-white/45 hover:bg-white/12"
+            >
+              +
+            </button>
           </div>
         </motion.div>
       </motion.div>

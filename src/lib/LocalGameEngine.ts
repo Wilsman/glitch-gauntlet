@@ -230,6 +230,12 @@ const RADIAL_ROUTE_ANGLES: Record<RunMapRouteId, number> = {
   south: Math.PI / 2,
   west: Math.PI,
 };
+const RADIAL_ROUTE_SPIN: Record<RunMapRouteId, 1 | -1> = {
+  north: 1,
+  east: -1,
+  south: 1,
+  west: -1,
+};
 const RADIAL_ROUTE_BIASES: Record<RunMapRouteId, RewardBias> = {
   north: "economy",
   east: "power",
@@ -259,6 +265,7 @@ const RADIAL_BOSS_POOL: BossType[] = [
   "neon-reaper",
   "core-destroyer",
 ];
+const NODE_CLUSTER_SPACING_MULTIPLIER = 2;
 
 type RewardBias = "economy" | "recovery" | "power";
 
@@ -461,6 +468,38 @@ function createShopRewards(
   return rewards;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function pickWeightedUnique<T>(
+  random: () => number,
+  source: T[],
+  count: number,
+  weightFor: (item: T) => number,
+): T[] {
+  const pool = [...source];
+  const chosen: T[] = [];
+
+  while (pool.length > 0 && chosen.length < count) {
+    const weights = pool.map((item) => Math.max(0.001, weightFor(item)));
+    const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = random() * totalWeight;
+    let pickIndex = 0;
+    for (let index = 0; index < pool.length; index++) {
+      roll -= weights[index];
+      if (roll <= 0) {
+        pickIndex = index;
+        break;
+      }
+    }
+    chosen.push(pool[pickIndex]);
+    pool.splice(pickIndex, 1);
+  }
+
+  return chosen;
+}
+
 function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
   const random = createSeededRandom(hashString(seed) || Date.now());
   const shuffledBosses = shuffle(random, RADIAL_BOSS_POOL);
@@ -470,31 +509,81 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
       shuffledBosses[index],
     ]),
   );
-  const ringRadiusByDepth: Record<number, number> = {
-    1: 220,
-    2: 390,
-    3: 560,
-    4: 720,
-    5: 870,
-    6: 1010,
-  };
+  const BOSS_DEPTH = 16;
+  const nodesByRouteAndDepth = new Map<RunMapRouteId, Map<number, ProceduralRunMapNode[]>>(
+    RADIAL_ROUTE_ORDER.map((routeId) => [routeId, new Map<number, ProceduralRunMapNode[]>()]),
+  );
+  const allNodes: ProceduralRunMapNode[] = [];
+  const byId = new Map<string, ProceduralRunMapNode>();
+  const getRouteDepthNodes = (routeId: RunMapRouteId, depth: number) =>
+    nodesByRouteAndDepth.get(routeId)?.get(depth) || [];
 
   const createPolarPoint = (
     routeId: RunMapRouteId,
     depth: number,
-    tangentOffset = 0,
+    constellationSlot = 0,
+    clusterSize = 1,
+    nodeIndex = 0,
   ) => {
-    const angle = RADIAL_ROUTE_ANGLES[routeId];
-    const radiusBase = ringRadiusByDepth[depth];
-    const radialJitter = depth === 6 ? 0 : randomInt(random, -14, 14);
-    const tangentJitter = tangentOffset === 0 ? 0 : randomInt(random, -18, 18);
-    const tangentAngle = angle + Math.PI / 2;
+    const routeIndex = RADIAL_ROUTE_ORDER.indexOf(routeId);
+    const baseAngle = RADIAL_ROUTE_ANGLES[routeId];
+    const spin = RADIAL_ROUTE_SPIN[routeId];
+    const depthRatio = depth / BOSS_DEPTH;
+    const orbitalWave =
+      Math.sin(depth * 0.58 + routeIndex * 1.25) * 0.24 * spin;
+    const petalWave = Math.sin(depth * 0.78 + routeIndex * 0.9) * 0.14;
+    const angularDrift = depthRatio * 0.56 * spin + orbitalWave + petalWave;
+    const angle = baseAngle + angularDrift;
+    const radiusBase =
+      185 +
+      depth * 88 +
+      Math.pow(depthRatio, 1.8) * 210 +
+      Math.sin(depth * 0.64 + routeIndex * 1.1) * 42;
+    const radialJitter = depth === BOSS_DEPTH ? 0 : randomInt(random, -16, 16);
     const radius = radiusBase + radialJitter;
-    const tangent = tangentOffset + tangentJitter;
+    const anchorX = Math.cos(angle) * radius;
+    const anchorY = Math.sin(angle) * radius;
+
+    if (clusterSize <= 1) {
+      const microDrift =
+        randomInt(random, -10, 10) * NODE_CLUSTER_SPACING_MULTIPLIER;
+      const tangentAngle = angle + Math.PI / 2;
+      return {
+        x: anchorX + Math.cos(tangentAngle) * microDrift,
+        y: anchorY + Math.sin(tangentAngle) * microDrift,
+      };
+    }
+
+    if (clusterSize >= 4) {
+      const orbitRadius =
+        (52 + depth * 2.2 + randomInt(random, -8, 8)) *
+        NODE_CLUSTER_SPACING_MULTIPLIER;
+      const orbitAngle =
+        (nodeIndex / clusterSize) * Math.PI * 2 +
+        depth * 0.22 * spin +
+        routeIndex * 0.6;
+      return {
+        x: anchorX + Math.cos(orbitAngle) * orbitRadius,
+        y: anchorY + Math.sin(orbitAngle) * orbitRadius,
+      };
+    }
+
+    const pocketSpread =
+      (66 + depth * 3.7) * NODE_CLUSTER_SPACING_MULTIPLIER;
+    const pocketRadius =
+      pocketSpread + Math.abs(constellationSlot) * 24 + randomInt(random, -8, 8);
+    const pocketAngle =
+      angle +
+      Math.PI / 2 +
+      constellationSlot * (0.72 + depthRatio * 0.24) * spin +
+      Math.sin(depth * 0.48 + constellationSlot * 1.3) * 0.22;
+    const radialOffset =
+      (constellationSlot * 24 + randomInt(random, -10, 10)) *
+      NODE_CLUSTER_SPACING_MULTIPLIER;
 
     return {
-      x: Math.cos(angle) * radius + Math.cos(tangentAngle) * tangent,
-      y: Math.sin(angle) * radius + Math.sin(tangentAngle) * tangent,
+      x: anchorX + Math.cos(pocketAngle) * pocketRadius + Math.cos(angle) * radialOffset,
+      y: anchorY + Math.sin(pocketAngle) * pocketRadius + Math.sin(angle) * radialOffset,
     };
   };
 
@@ -503,7 +592,9 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
     routeId,
     depth,
     lane,
-    tangentOffset,
+    constellationSlot,
+    clusterSize,
+    nodeIndex,
     encounterType,
     nextNodeIds,
     bias,
@@ -514,14 +605,22 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
     routeId: RunMapRouteId;
     depth: number;
     lane: number;
-    tangentOffset?: number;
+    constellationSlot?: number;
+    clusterSize?: number;
+    nodeIndex?: number;
     encounterType: RunMapEncounterType;
     nextNodeIds: string[];
     bias: RewardBias;
     title?: string;
     bossType?: BossType;
   }): ProceduralRunMapNode => {
-    const point = createPolarPoint(routeId, depth, tangentOffset || 0);
+    const point = createPolarPoint(
+      routeId,
+      depth,
+      constellationSlot || 0,
+      clusterSize || 1,
+      nodeIndex || 0,
+    );
     return {
       id,
       depth,
@@ -554,107 +653,281 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
     };
   };
 
-  return RADIAL_ROUTE_ORDER.flatMap((routeId, routeIndex) => {
+  RADIAL_ROUTE_ORDER.forEach((routeId, routeIndex) => {
     const bias = RADIAL_ROUTE_BIASES[routeId];
     const bossType = routeBosses.get(routeId) || "berserker";
-    const specialType = RADIAL_ROUTE_SPECIALS[routeId];
-    const shopBranchAtRingFour = routeId === "north" || routeId === "south";
-    const shopOnPositiveBranch = random() > 0.5;
-    const positiveOffsetRingTwo = 116;
-    const negativeOffsetRingTwo = -116;
-    const positiveOffsetRingFour = 136;
-    const negativeOffsetRingFour = -136;
+    const hubDepths = new Set([3, 6, 10, 14]);
+    for (let depth = 1; depth < BOSS_DEPTH; depth++) {
+      let nodeCount = 1;
+      if (depth <= 2) {
+        nodeCount = 1;
+      } else if (hubDepths.has(depth)) {
+        nodeCount = depth >= 10 ? 4 : 3;
+      } else if (depth <= 6) {
+        nodeCount = 1 + (random() > 0.84 ? 1 : 0);
+      } else if (depth <= 10) {
+        nodeCount = 1 + (random() > 0.78 ? 1 : 0);
+      } else if (depth <= BOSS_DEPTH - 2) {
+        nodeCount = 1 + (random() > 0.82 ? 1 : 0);
+      } else {
+        nodeCount = 1 + (random() > 0.9 ? 1 : 0);
+      }
 
-    return [
-      createNode({
-        id: `${routeId}-entry`,
-        routeId,
-        depth: 1,
-        lane: routeIndex,
-        encounterType: "combat",
-        nextNodeIds: [`${routeId}-fork-a`, `${routeId}-fork-b`],
-        bias,
-        title: pickOne(random, ROUTE_ENTRY_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-fork-a`,
-        routeId,
-        depth: 2,
-        lane: routeIndex,
-        tangentOffset: negativeOffsetRingTwo,
-        encounterType: "combat",
-        nextNodeIds: [`${routeId}-special`],
-        bias,
-        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-fork-b`,
-        routeId,
-        depth: 2,
-        lane: routeIndex,
-        tangentOffset: positiveOffsetRingTwo,
-        encounterType: "combat",
-        nextNodeIds: [`${routeId}-special`],
-        bias,
-        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-special`,
-        routeId,
-        depth: 3,
-        lane: routeIndex,
-        encounterType: specialType,
-        nextNodeIds: [`${routeId}-branch-a`, `${routeId}-branch-b`],
-        bias,
-        title: pickOne(random, ROUTE_SPECIAL_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-branch-a`,
-        routeId,
-        depth: 4,
-        lane: routeIndex,
-        tangentOffset: negativeOffsetRingFour,
-        encounterType:
-          shopBranchAtRingFour && !shopOnPositiveBranch ? "shop" : "combat",
-        nextNodeIds: [`${routeId}-prep`],
-        bias,
-        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-branch-b`,
-        routeId,
-        depth: 4,
-        lane: routeIndex,
-        tangentOffset: positiveOffsetRingFour,
-        encounterType:
-          shopBranchAtRingFour && shopOnPositiveBranch ? "shop" : "combat",
-        nextNodeIds: [`${routeId}-prep`],
-        bias,
-        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-prep`,
-        routeId,
-        depth: 5,
-        lane: routeIndex,
-        encounterType: "combat",
-        nextNodeIds: [`${routeId}-boss`],
-        bias,
-        title: pickOne(random, ROUTE_PREP_TITLES[routeId]),
-      }),
-      createNode({
-        id: `${routeId}-boss`,
-        routeId,
-        depth: 6,
-        lane: routeIndex,
-        encounterType: "boss",
-        nextNodeIds: [],
-        bias,
-        bossType,
-        title: `${RADIAL_ROUTE_NAMES[routeId]} | ${formatBossRouteLabel(bossType)}`,
-      }),
-    ];
+      const routeNodes: ProceduralRunMapNode[] = [];
+      for (let index = 0; index < nodeCount; index++) {
+        const normalizedSlot =
+          nodeCount === 1 ? 0 : (index / (nodeCount - 1)) * 2 - 1;
+        const node = createNode({
+          id: `${routeId}-d${depth}-n${index}`,
+          routeId,
+          depth,
+          lane: routeIndex,
+          constellationSlot: normalizedSlot,
+          clusterSize: nodeCount,
+          nodeIndex: index,
+          encounterType: "combat",
+          nextNodeIds: [],
+          bias,
+          title:
+            depth === 1
+              ? pickOne(random, ROUTE_ENTRY_TITLES[routeId])
+              : pickOne(random, ROUTE_FORK_TITLES[routeId]),
+        });
+        routeNodes.push(node);
+        allNodes.push(node);
+        byId.set(node.id, node);
+      }
+      nodesByRouteAndDepth.get(routeId)?.set(depth, routeNodes);
+    }
+
+    const bossNode = createNode({
+      id: `${routeId}-boss`,
+      routeId,
+      depth: BOSS_DEPTH,
+      lane: routeIndex,
+      encounterType: "boss",
+      nextNodeIds: [],
+      bias,
+      bossType,
+      title: `${RADIAL_ROUTE_NAMES[routeId]} | ${formatBossRouteLabel(bossType)}`,
+    });
+    nodesByRouteAndDepth.get(routeId)?.set(BOSS_DEPTH, [bossNode]);
+    allNodes.push(bossNode);
+    byId.set(bossNode.id, bossNode);
   });
+
+  const adjacentRoutes = (routeId: RunMapRouteId) => {
+    const index = RADIAL_ROUTE_ORDER.indexOf(routeId);
+    const left =
+      RADIAL_ROUTE_ORDER[(index - 1 + RADIAL_ROUTE_ORDER.length) % RADIAL_ROUTE_ORDER.length];
+    const right = RADIAL_ROUTE_ORDER[(index + 1) % RADIAL_ROUTE_ORDER.length];
+    return [left, right];
+  };
+
+  const connectNode = (fromNode: ProceduralRunMapNode, targetNodeIds: string[]) => {
+    fromNode.nextNodeIds = Array.from(new Set(targetNodeIds.filter(Boolean)));
+  };
+
+  for (const routeId of RADIAL_ROUTE_ORDER) {
+    for (let depth = 1; depth < BOSS_DEPTH; depth++) {
+      const currentNodes = getRouteDepthNodes(routeId, depth);
+      if (currentNodes.length === 0) continue;
+
+      if (depth === BOSS_DEPTH - 1) {
+        const ownBoss = getRouteDepthNodes(routeId, BOSS_DEPTH)[0];
+        const [leftRoute, rightRoute] = adjacentRoutes(routeId);
+        const leftBoss = getRouteDepthNodes(leftRoute, BOSS_DEPTH)[0];
+        const rightBoss = getRouteDepthNodes(rightRoute, BOSS_DEPTH)[0];
+        currentNodes.forEach((node) => {
+          const targets = [ownBoss?.id];
+          const canLinkLeft =
+            leftBoss &&
+            Math.hypot((leftBoss.x || 0) - node.x, (leftBoss.y || 0) - node.y) < 420;
+          const canLinkRight =
+            rightBoss &&
+            Math.hypot((rightBoss.x || 0) - node.x, (rightBoss.y || 0) - node.y) < 420;
+          if (canLinkLeft && random() > 0.95) targets.push(leftBoss.id);
+          if (canLinkRight && random() > 0.95) targets.push(rightBoss.id);
+          connectNode(node, targets as string[]);
+        });
+        continue;
+      }
+
+      const sameRouteTargets = getRouteDepthNodes(routeId, depth + 1);
+      const [leftRoute, rightRoute] = adjacentRoutes(routeId);
+      const branchTargets = [
+        ...getRouteDepthNodes(leftRoute, depth + 1),
+        ...getRouteDepthNodes(rightRoute, depth + 1),
+      ];
+
+      currentNodes.forEach((node) => {
+        const desiredSameRouteTargets =
+          sameRouteTargets.length <= 1 ? 1 : random() > 0.84 ? 2 : 1;
+        const sameRouteChoice = pickWeightedUnique(
+          random,
+          sameRouteTargets,
+          desiredSameRouteTargets,
+          (candidate) => {
+            const distance = Math.hypot(candidate.x - node.x, candidate.y - node.y);
+            return 1.3 / (1 + distance / (240 * NODE_CLUSTER_SPACING_MULTIPLIER));
+          },
+        );
+
+        const isJunctionDepth =
+          depth === 5 || depth === 9 || depth === 13;
+        const switchCandidatePool = branchTargets.filter((candidate) => {
+          const distance = Math.hypot(candidate.x - node.x, candidate.y - node.y);
+          return distance < 320 * NODE_CLUSTER_SPACING_MULTIPLIER;
+        });
+        const switchChance =
+          isJunctionDepth ? 0.07 : 0;
+
+        const switchTargets =
+          switchCandidatePool.length > 0 && random() < switchChance
+            ? pickWeightedUnique(
+                random,
+                switchCandidatePool,
+                1,
+                (candidate) => {
+                  const distance = Math.hypot(candidate.x - node.x, candidate.y - node.y);
+                  return 0.88 / (1 + distance / (300 * NODE_CLUSTER_SPACING_MULTIPLIER));
+                },
+              )
+            : [];
+
+        connectNode(node, [...sameRouteChoice.map((target) => target.id), ...switchTargets.map((target) => target.id)]);
+      });
+    }
+  }
+
+  const incomingByNodeId = new Map<string, number>();
+  allNodes.forEach((node) => incomingByNodeId.set(node.id, 0));
+  allNodes.forEach((node) => {
+    node.nextNodeIds.forEach((nextNodeId) => {
+      incomingByNodeId.set(nextNodeId, (incomingByNodeId.get(nextNodeId) || 0) + 1);
+    });
+  });
+
+  for (const routeId of RADIAL_ROUTE_ORDER) {
+    for (let depth = 2; depth < BOSS_DEPTH; depth++) {
+      const currentNodes = getRouteDepthNodes(routeId, depth);
+      const previousNodes = getRouteDepthNodes(routeId, depth - 1);
+      currentNodes.forEach((node) => {
+        if ((incomingByNodeId.get(node.id) || 0) > 0 || previousNodes.length === 0) return;
+        const bridgeFrom = pickOne(random, previousNodes);
+        if (!bridgeFrom.nextNodeIds.includes(node.id)) {
+          bridgeFrom.nextNodeIds.push(node.id);
+          incomingByNodeId.set(node.id, 1);
+        }
+      });
+    }
+  }
+
+  const gameplayNodes = allNodes.filter(
+    (node) => node.encounterType !== "boss" && node.depth > 1,
+  );
+  const hellhoundCandidates = gameplayNodes.filter(
+    (node) => node.depth >= 5 && node.depth <= BOSS_DEPTH - 3,
+  );
+  const shopCandidates = gameplayNodes.filter(
+    (node) => node.depth >= 3 && node.depth <= BOSS_DEPTH - 2,
+  );
+
+  const targetHellhoundCount = clamp(Math.round(gameplayNodes.length * 0.09), 8, 18);
+  const targetShopCount = clamp(Math.round(gameplayNodes.length * 0.13), 10, 24);
+
+  const hellhoundNodes = pickWeightedUnique(
+    random,
+    hellhoundCandidates,
+    targetHellhoundCount,
+    (node) => {
+      const midpoint = BOSS_DEPTH * 0.55;
+      const depthWeight = 1 / (1 + Math.abs(node.depth - midpoint) * 0.45);
+      const routeWeight = node.routeId === "west" ? 1.5 : 1;
+      return depthWeight * routeWeight;
+    },
+  );
+
+  hellhoundNodes.forEach((node) => {
+    node.encounterType = "hellhound";
+  });
+
+  const shopPool = shopCandidates.filter(
+    (node) => node.encounterType === "combat",
+  );
+  const shopNodes = pickWeightedUnique(
+    random,
+    shopPool,
+    targetShopCount,
+    (node) => {
+      const midpoint = BOSS_DEPTH * 0.62;
+      const depthWeight = 1 / (1 + Math.abs(node.depth - midpoint) * 0.32);
+      const routeWeight = node.routeId === "north" || node.routeId === "south" ? 1.3 : 1;
+      return depthWeight * routeWeight;
+    },
+  );
+  shopNodes.forEach((node) => {
+    node.encounterType = "shop";
+  });
+
+  RADIAL_ROUTE_ORDER.forEach((routeId) => {
+    const routeShops = allNodes.filter(
+      (node) => node.routeId === routeId && node.encounterType === "shop",
+    );
+    if (routeShops.length === 0) {
+      const fallbackShop = shopPool.find((node) => node.routeId === routeId);
+      if (fallbackShop) fallbackShop.encounterType = "shop";
+    }
+
+    if (routeId === "west") {
+      const westDogs = allNodes.filter(
+        (node) => node.routeId === "west" && node.encounterType === "hellhound",
+      );
+      if (westDogs.length < 2) {
+        const candidates = allNodes.filter(
+          (node) =>
+            node.routeId === "west" &&
+            node.depth >= 5 &&
+            node.depth <= BOSS_DEPTH - 3 &&
+            node.encounterType === "combat",
+        );
+        pickWeightedUnique(random, candidates, 2 - westDogs.length, (node) => 1 + node.depth * 0.06).forEach((node) => {
+          node.encounterType = "hellhound";
+        });
+      }
+    }
+  });
+
+  allNodes.forEach((node) => {
+    if (node.encounterType === "boss") {
+      node.rewards = [];
+      return;
+    }
+
+    const bias = RADIAL_ROUTE_BIASES[node.routeId];
+    node.rewards =
+      node.encounterType === "shop"
+        ? createShopRewards(random, node.depth, bias)
+        : node.encounterType === "hellhound"
+          ? createHellhoundRewards(random, node.depth, bias)
+          : createCombatRewards(random, node.depth, bias);
+
+    if (node.depth === 1) {
+      node.title = pickOne(random, ROUTE_ENTRY_TITLES[node.routeId]);
+    } else if (node.encounterType === "shop") {
+      node.title = pickOne(random, SHOP_ROUTE_TITLES);
+    } else if (node.encounterType === "hellhound") {
+      node.title = pickOne(random, HELLHOUND_TITLES);
+    } else if (node.depth >= BOSS_DEPTH - 1) {
+      node.title = pickOne(random, ROUTE_PREP_TITLES[node.routeId]);
+    } else if (node.depth <= 3) {
+      node.title = pickOne(random, ROUTE_SPECIAL_TITLES[node.routeId]);
+    } else {
+      node.title = pickOne(random, ROUTE_FORK_TITLES[node.routeId]);
+    }
+  });
+
+  return allNodes;
 }
 
 function createInitialRunMap(seed: string): RunMapState {
@@ -6762,5 +7035,4 @@ export class LocalGameEngine {
     });
   }
 }
-
 
