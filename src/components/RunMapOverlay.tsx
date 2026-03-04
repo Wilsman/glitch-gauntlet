@@ -114,7 +114,9 @@ const REWARD_STYLES: Record<
 > = {
   coins: { chip: "border-amber-300/45 bg-amber-400/12 text-amber-100" },
   heal: { chip: "border-emerald-300/45 bg-emerald-400/12 text-emerald-100" },
-  shopDiscount: { chip: "border-yellow-300/45 bg-yellow-400/14 text-yellow-100" },
+  shopDiscount: {
+    chip: "border-yellow-300/45 bg-yellow-400/14 text-yellow-100",
+  },
   shopStock: { chip: "border-violet-300/45 bg-violet-400/14 text-violet-100" },
   damageBoost: { chip: "border-rose-300/45 bg-rose-400/14 text-rose-100" },
 };
@@ -134,8 +136,7 @@ function getBossChoices(nodes: RunMapNode[]) {
   return nodes
     .filter((node) => node.encounterType === "boss" && node.bossType)
     .sort(
-      (a, b) =>
-        ROUTE_ORDER.indexOf(a.routeId) - ROUTE_ORDER.indexOf(b.routeId),
+      (a, b) => ROUTE_ORDER.indexOf(a.routeId) - ROUTE_ORDER.indexOf(b.routeId),
     );
 }
 
@@ -228,7 +229,7 @@ function renderMapNodeButton({
       }}
     >
       <div className="flex h-full w-full flex-col items-center justify-center">
-        <Icon className={`h-6 w-6 ${style.text}`} strokeWidth={2.1} />
+        <Icon className={`h-6 w-6 ${style.text}`} />
         <div className="mt-1 font-press-start text-[8px] tracking-[0.16em] text-white/68">
           {isBoss ? "BOSS" : `R${runNode.depth}`}
         </div>
@@ -260,7 +261,9 @@ export default function RunMapOverlay({
   const currentNode = runMap.currentNodeId
     ? nodesById.get(runMap.currentNodeId) || null
     : null;
-  const hoveredNode = hoveredNodeId ? nodesById.get(hoveredNodeId) || null : null;
+  const hoveredNode = hoveredNodeId
+    ? nodesById.get(hoveredNodeId) || null
+    : null;
   const highlightedNode =
     hoveredNode ||
     currentNode ||
@@ -269,7 +272,10 @@ export default function RunMapOverlay({
     null;
   const activeLegendType = hoveredNode?.encounterType || null;
   const emphasizedRouteId = hoveredNode?.routeId || null;
-  const maxDepth = runMap.nodes.reduce((max, node) => Math.max(max, node.depth), 0);
+  const maxDepth = runMap.nodes.reduce(
+    (max, node) => Math.max(max, node.depth),
+    0,
+  );
   const bossChoices = getBossChoices(runMap.nodes);
   const routeBossById = new Map(
     bossChoices.map((node) => [node.routeId, node]),
@@ -298,14 +304,8 @@ export default function RunMapOverlay({
     }
   }, [hoveredNodeId, nodesById]);
 
-  const maxAbsX = Math.max(
-    1,
-    ...runMap.nodes.map((node) => Math.abs(node.x)),
-  );
-  const maxAbsY = Math.max(
-    1,
-    ...runMap.nodes.map((node) => Math.abs(node.y)),
-  );
+  const maxAbsX = Math.max(1, ...runMap.nodes.map((node) => Math.abs(node.x)));
+  const maxAbsY = Math.max(1, ...runMap.nodes.map((node) => Math.abs(node.y)));
   // center the graphCenter screenwidth/2, screenheight/2
   const graphCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const graphHalfWidth = window.innerWidth * 0.35;
@@ -316,10 +316,7 @@ export default function RunMapOverlay({
   });
 
   const nodeScreenPositions = new Map(
-    runMap.nodes.map((node) => [
-      node.id,
-      normalizePoint(node.x, node.y),
-    ]),
+    runMap.nodes.map((node) => [node.id, normalizePoint(node.x, node.y)]),
   );
   const entryNodes = runMap.nodes.filter((node) => node.depth === 1);
   const edgeSegments = [
@@ -383,12 +380,15 @@ export default function RunMapOverlay({
         transition={{ duration: 0.28, delay: 0.04 }}
       >
         <div className="max-w-[58%]">
-          <div className="font-press-start text-[18px] text-white">SYSTEM ROUTE MAP</div>
+          <div className="font-press-start text-[18px] text-white">
+            SYSTEM ROUTE MAP
+          </div>
           <div className="mt-2 font-vt323 text-[22px] uppercase tracking-[0.24em] text-cyan-200/90">
             Choose a boss arm
           </div>
           <div className="mt-2 font-vt323 text-[18px] text-white/60">
-            Commit from the core, fork inside the route, then break the boss at the edge.
+            Commit from the core, fork inside the route, then break the boss at
+            the edge.
           </div>
           {bossSummary && (
             <div className="mt-2 font-vt323 text-[18px] text-fuchsia-100/75">
@@ -396,19 +396,24 @@ export default function RunMapOverlay({
             </div>
           )}
           <div className="mt-2 font-vt323 text-[18px] text-cyan-100/55">
-            Every arm is visible from the start. Hover any node to inspect its entire route.
+            Every arm is visible from the start. Hover any node to inspect its
+            entire route.
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-right">
           <div className="rounded-xl border border-cyan-400/35 bg-black/45 px-4 py-3">
-            <div className="font-press-start text-[10px] text-cyan-300/80">RING</div>
+            <div className="font-press-start text-[10px] text-cyan-300/80">
+              RING
+            </div>
             <div className="mt-2 font-press-start text-[18px] text-white">
               {currentDepth}/{maxDepth}
             </div>
           </div>
           <div className="rounded-xl border border-fuchsia-400/35 bg-black/45 px-4 py-3">
-            <div className="font-press-start text-[10px] text-fuchsia-300/80">THREAT</div>
+            <div className="font-press-start text-[10px] text-fuchsia-300/80">
+              THREAT
+            </div>
             <div className="mt-2 font-press-start text-[18px] text-white">
               {Math.max(0, threatTier)}
             </div>
@@ -423,7 +428,11 @@ export default function RunMapOverlay({
         exit={{ opacity: 0, y: 10 }}
         transition={{ duration: 0.32, delay: 0.08 }}
       >
-        <svg className="absolute inset-0 z-[1] pr-[270px]" width="100%" height="100%">
+        <svg
+          className="absolute inset-0 z-[1] pr-[270px]"
+          width="100%"
+          height="100%"
+        >
           {edgeSegments.map((edge) => {
             const routeMeta = ROUTE_META[edge.routeId];
             const isEmphasized = emphasizedRouteId === edge.routeId;
@@ -478,7 +487,9 @@ export default function RunMapOverlay({
             transition={{ duration: 0.22, ease: "easeOut" }}
           >
             <div className="flex h-full flex-col items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.08),transparent_60%)]">
-              <div className="text-[30px] leading-none">{character?.emoji || "O"}</div>
+              <div className="text-[30px] leading-none">
+                {character?.emoji || "O"}
+              </div>
               <div className="mt-3 font-press-start text-[10px] tracking-[0.16em] text-white/70">
                 RUN CORE
               </div>
@@ -518,7 +529,8 @@ export default function RunMapOverlay({
                   : highlightedNode.title || `Ring ${highlightedNode.depth}`}
               </div>
               <div className="mt-2 font-vt323 text-[18px] text-white/55">
-                {ROUTE_META[highlightedNode.routeId].tag}  |  Ring {highlightedNode.depth}
+                {ROUTE_META[highlightedNode.routeId].tag} | Ring{" "}
+                {highlightedNode.depth}
                 {reachableNodeIds.has(highlightedNode.id)
                   ? "  |  Reachable"
                   : visitedNodeIds.has(highlightedNode.id)
@@ -526,7 +538,9 @@ export default function RunMapOverlay({
                     : ""}
               </div>
               <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
-                <div className="font-press-start text-[10px] text-white/42">ROUTE</div>
+                <div className="font-press-start text-[10px] text-white/42">
+                  ROUTE
+                </div>
                 <div className="mt-2 font-vt323 text-[22px] leading-none text-white">
                   {ROUTE_META[highlightedNode.routeId].label}
                 </div>
@@ -538,9 +552,13 @@ export default function RunMapOverlay({
               </div>
               {(highlightedNode.rewards || []).length > 0 && (
                 <div className="mt-4">
-                  <div className="font-press-start text-[10px] text-white/48">REWARDS</div>
+                  <div className="font-press-start text-[10px] text-white/48">
+                    REWARDS
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    {(highlightedNode.rewards || []).map((reward) => renderRewardChip(reward))}
+                    {(highlightedNode.rewards || []).map((reward) =>
+                      renderRewardChip(reward),
+                    )}
                   </div>
                 </div>
               )}
@@ -552,7 +570,9 @@ export default function RunMapOverlay({
           )}
 
           <div className="mt-5 border-t border-white/10 pt-4">
-            <div className="font-press-start text-[10px] text-white/48">LEGEND</div>
+            <div className="font-press-start text-[10px] text-white/48">
+              LEGEND
+            </div>
             <div className="mt-3 flex flex-col gap-2">
               {(
                 [
@@ -587,8 +607,10 @@ export default function RunMapOverlay({
                     transition={{ duration: 0.28, ease: "easeOut" }}
                     className={`inline-flex items-center gap-3 rounded-full border px-3 py-2 ${style.chip}`}
                   >
-                    <Icon className={`h-4 w-4 ${style.text}`} strokeWidth={2.1} />
-                    <span className="font-vt323 text-[18px] text-white/82">{label}</span>
+                    <Icon className={`h-4 w-4 ${style.text}`} />
+                    <span className="font-vt323 text-[18px] text-white/82">
+                      {label}
+                    </span>
                   </motion.div>
                 );
               })}
