@@ -171,6 +171,25 @@
     }
   }
   .animate-ready {
-    animation: ready-pop 0.5s ease-out, ready-pulse 2s ease-in-out infinite 0.5s;
+    animation:
+      ready-pop 0.5s ease-out,
+      ready-pulse 2s ease-in-out infinite 0.5s;
+  }
+  @keyframes mapNodePulse {
+    0%,
+    100% {
+      filter: brightness(1);
+    }
+    50% {
+      filter: brightness(1.3);
+    }
+  }
+  @keyframes edgeFlow {
+    from {
+      stroke-dashoffset: 0;
+    }
+    to {
+      stroke-dashoffset: -24;
+    }
   }
 }

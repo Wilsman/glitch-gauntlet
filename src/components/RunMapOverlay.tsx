@@ -186,7 +186,26 @@ const MAP_LAYOUT_PADDING = {
   left: 92,
 };
 const DEFAULT_VIEWPORT_SIZE = { width: 1280, height: 720 };
-const BASE_SCALE_OVERSHOOT = 1.06;
+const HUB_DEPTHS = new Set([3, 6, 10, 14]);
+
+function getNodeTier(node: RunMapNode): "keystone" | "notable" | "minor" {
+  if (node.encounterType === "boss") return "keystone";
+  if (HUB_DEPTHS.has(node.depth)) return "notable";
+  return "minor";
+}
+
+const NODE_TIER_SIZES: Record<"keystone" | "notable" | "minor", number> = {
+  keystone: 62,
+  notable: 38,
+  minor: 24,
+};
+
+const ROUTE_COLORS: Record<RunMapRouteId, string> = {
+  north: "#facc15",
+  east: "#22d3ee",
+  south: "#34d399",
+  west: "#f87171",
+};
 
 function renderMapNodeButton({
   runNode,
@@ -209,8 +228,11 @@ function renderMapNodeButton({
 }) {
   const style = getNodeStyle(runNode);
   const Icon = style.Icon;
-  const isBoss = runNode.encounterType === "boss";
-  const size = isBoss ? 52 : 28;
+  const tier = getNodeTier(runNode);
+  const size = NODE_TIER_SIZES[tier];
+  const routeColor = ROUTE_COLORS[runNode.routeId];
+  const isKeystone = tier === "keystone";
+  const isNotable = tier === "notable";
 
   return (
     <button
@@ -231,17 +253,11 @@ function renderMapNodeButton({
       data-map-node-type={runNode.encounterType}
       data-map-node-route={runNode.routeId}
       data-map-node-selectable={selectable ? "true" : "false"}
-      className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border transition-all duration-200 ${
-        style.ring
-      } ${style.glow} ${
+      className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ${
         selectable
-          ? "cursor-pointer hover:scale-[1.06] hover:border-white/80 hover:bg-white/10"
-          : visited
-            ? "cursor-help opacity-95 hover:scale-[1.03] hover:border-white/45 hover:bg-white/6"
-            : "cursor-help opacity-72 hover:scale-[1.03] hover:border-white/45 hover:bg-white/6"
-      } ${current ? "ring-2 ring-yellow-300/80 ring-offset-2 ring-offset-transparent" : ""} ${
-        isBoss ? "rounded-[24px]" : ""
-      }`}
+          ? "cursor-pointer hover:scale-110"
+          : "cursor-help hover:scale-105"
+      } ${selectable ? "animate-[mapNodePulse_2s_ease-in-out_infinite]" : ""}`}
       style={{
         left,
         top,
@@ -249,9 +265,96 @@ function renderMapNodeButton({
         height: size,
       }}
     >
-      <div className="flex h-full w-full items-center justify-center">
-        <Icon className={`${isBoss ? "h-6 w-6" : "h-4 w-4"} ${style.text}`} />
+      {/* Outer glow aura */}
+      <div
+        className="absolute rounded-full pointer-events-none"
+        style={{
+          inset: isKeystone ? -14 : isNotable ? -10 : -7,
+          background: `radial-gradient(circle, ${routeColor}${selectable ? "40" : visited ? "18" : "0c"}, transparent 70%)`,
+          filter: selectable ? `blur(${isKeystone ? 6 : 4}px)` : "blur(3px)",
+        }}
+      />
+      {/* Outer ring for notable/keystone */}
+      {(isKeystone || isNotable) && (
+        <div
+          className="absolute rounded-full pointer-events-none"
+          style={{
+            inset: -3,
+            border: `1.5px solid ${routeColor}${selectable ? "70" : visited ? "40" : "20"}`,
+            borderRadius: "9999px",
+          }}
+        />
+      )}
+      {/* Main body */}
+      <div
+        className={`relative h-full w-full rounded-full border ${
+          current ? "ring-2 ring-offset-1 ring-offset-transparent" : ""
+        }`}
+        style={{
+          borderColor: `${routeColor}${selectable ? "b0" : visited ? "60" : "30"}`,
+          background: `radial-gradient(circle at 40% 35%, ${routeColor}${selectable ? "20" : visited ? "10" : "08"}, rgba(0,0,0,0.7) 80%)`,
+          boxShadow: selectable
+            ? `0 0 ${isKeystone ? 24 : 14}px ${routeColor}40, inset 0 0 ${isKeystone ? 12 : 8}px ${routeColor}15`
+            : visited
+              ? `0 0 8px ${routeColor}18`
+              : "none",
+          opacity: selectable ? 1 : visited ? 0.85 : 0.55,
+        }}
+      >
+        {/* Inner highlight for minor */}
+        {!isKeystone && !isNotable && (
+          <div
+            className="absolute inset-[3px] rounded-full pointer-events-none"
+            style={{
+              background: `radial-gradient(circle at 45% 40%, ${routeColor}30, transparent 65%)`,
+            }}
+          />
+        )}
+        {/* Diamond inset for keystone */}
+        {isKeystone && (
+          <div
+            className="absolute inset-[5px] rounded-full pointer-events-none border"
+            style={{
+              borderColor: `${routeColor}35`,
+              background: `radial-gradient(circle at 50% 35%, ${routeColor}18, transparent 60%)`,
+            }}
+          />
+        )}
+        <div className="flex h-full w-full items-center justify-center relative z-10">
+          <span
+            style={{
+              filter: selectable
+                ? `drop-shadow(0 0 4px ${routeColor}80)`
+                : "none",
+            }}
+          >
+            <Icon
+              className={`${
+                isKeystone
+                  ? "h-7 w-7"
+                  : isNotable
+                    ? "h-[18px] w-[18px]"
+                    : "h-3 w-3"
+              } ${style.text}`}
+            />
+          </span>
+        </div>
       </div>
+      {/* Visited indicator dot */}
+      {visited && !current && (
+        <div
+          className="absolute -top-1 -right-1 h-3 w-3 rounded-full border flex items-center justify-center pointer-events-none z-20"
+          style={{
+            borderColor: `${routeColor}80`,
+            background: `${routeColor}30`,
+          }}
+        >
+          <div
+            className="h-1.5 w-1.5 rounded-full"
+            style={{ background: routeColor }}
+          />
+        </div>
+      )}
     </button>
   );
 }
@@ -354,14 +457,6 @@ export default function RunMapOverlay({
     setPan({ x: 0, y: 0 });
   }, [runMap.floorIndex, runMap.nodes.length]);
 
-  const minX = Math.min(...runMap.nodes.map((node) => node.x));
-  const maxX = Math.max(...runMap.nodes.map((node) => node.x));
-  const minY = Math.min(...runMap.nodes.map((node) => node.y));
-  const maxY = Math.max(...runMap.nodes.map((node) => node.y));
-  const worldCenterX = (minX + maxX) / 2;
-  const worldCenterY = (minY + maxY) / 2;
-  const worldWidth = Math.max(1, maxX - minX);
-  const worldHeight = Math.max(1, maxY - minY);
   const usableWidth = Math.max(
     320,
     viewportSize.width - MAP_LAYOUT_PADDING.left - MAP_LAYOUT_PADDING.right,
@@ -374,66 +469,108 @@ export default function RunMapOverlay({
     x: MAP_LAYOUT_PADDING.left + usableWidth / 2,
     y: MAP_LAYOUT_PADDING.top + usableHeight / 2,
   };
-  const fitScale = Math.min(usableWidth / worldWidth, usableHeight / worldHeight);
-  const graphScale = fitScale * BASE_SCALE_OVERSHOOT;
-  const normalizePoint = (x: number, y: number) => ({
-    x: graphCenter.x + (x - worldCenterX) * graphScale,
-    y: graphCenter.y + (y - worldCenterY) * graphScale,
-  });
-
   const nodeScreenPositions = useMemo(() => {
     const minBoundX = MAP_LAYOUT_PADDING.left + 20;
     const maxBoundX = MAP_LAYOUT_PADDING.left + usableWidth - 20;
     const minBoundY = MAP_LAYOUT_PADDING.top + 20;
     const maxBoundY = MAP_LAYOUT_PADDING.top + usableHeight - 20;
+
+    const ROUTE_BASE_ANGLES: Record<RunMapRouteId, number> = {
+      north: -Math.PI / 2,
+      east: 0,
+      south: Math.PI / 2,
+      west: Math.PI,
+    };
+
+    const localMaxDepth = runMap.nodes.reduce(
+      (m, n) => Math.max(m, n.depth),
+      0,
+    );
+    const maxReach = Math.min(usableWidth, usableHeight) / 2 - 30;
+    const minRing = 105;
+    const ringStep =
+      localMaxDepth > 1 ? (maxReach - minRing) / localMaxDepth : 0;
+    const sectorHalf = Math.PI / 4.4;
+
+    const nodesByRouteDepth = new Map<string, typeof runMap.nodes>();
+    runMap.nodes.forEach((node) => {
+      const key = `${node.routeId}-${node.depth}`;
+      if (!nodesByRouteDepth.has(key)) nodesByRouteDepth.set(key, []);
+      nodesByRouteDepth.get(key)!.push(node);
+    });
+
     const points = runMap.nodes.map((node) => {
-      const anchor = normalizePoint(node.x, node.y);
+      const baseAngle = ROUTE_BASE_ANGLES[node.routeId];
+      const ringRadius = minRing + node.depth * ringStep;
+
+      const siblings =
+        nodesByRouteDepth.get(`${node.routeId}-${node.depth}`) || [];
+      const sibIndex = siblings.indexOf(node);
+      const sibCount = siblings.length;
+
+      let angleOffset = 0;
+      if (sibCount > 1) {
+        const spread = sectorHalf * Math.min(1, 0.4 + sibCount * 0.2);
+        angleOffset = -spread + (2 * spread * sibIndex) / (sibCount - 1);
+      }
+
+      const angle = baseAngle + angleOffset;
+      const x = graphCenter.x + Math.cos(angle) * ringRadius;
+      const y = graphCenter.y + Math.sin(angle) * ringRadius;
+
       return {
         id: node.id,
         type: node.encounterType,
-        x: anchor.x,
-        y: anchor.y,
-        anchorX: anchor.x,
-        anchorY: anchor.y,
-        radius: node.encounterType === "boss" ? 30 : 21,
+        depth: node.depth,
+        x,
+        y,
+        anchorX: x,
+        anchorY: y,
+        radius:
+          node.encounterType === "boss"
+            ? 36
+            : HUB_DEPTHS.has(node.depth)
+              ? 24
+              : 16,
       };
     });
 
-    for (let iteration = 0; iteration < 70; iteration++) {
+    for (let iteration = 0; iteration < 60; iteration++) {
       for (const point of points) {
-        point.x += (point.anchorX - point.x) * 0.08;
-        point.y += (point.anchorY - point.y) * 0.08;
+        point.x += (point.anchorX - point.x) * 0.12;
+        point.y += (point.anchorY - point.y) * 0.12;
       }
 
       for (const point of points) {
-        const corePadding = point.type === "boss" ? 20 : 12;
-        const minCoreDistance = 88 + point.radius + corePadding;
-        const deltaX = point.x - graphCenter.x;
-        const deltaY = point.y - graphCenter.y;
-        const distance = Math.hypot(deltaX, deltaY) || 0.001;
-        if (distance < minCoreDistance) {
-          const push = minCoreDistance - distance;
-          point.x += (deltaX / distance) * push;
-          point.y += (deltaY / distance) * push;
+        const corePadding =
+          point.radius > 30 ? 28 : point.radius > 20 ? 18 : 12;
+        const minCoreDistance = 100 + point.radius + corePadding;
+        const dx = point.x - graphCenter.x;
+        const dy = point.y - graphCenter.y;
+        const dist = Math.hypot(dx, dy) || 0.001;
+        if (dist < minCoreDistance) {
+          const push = minCoreDistance - dist;
+          point.x += (dx / dist) * push;
+          point.y += (dy / dist) * push;
         }
       }
 
-      for (let index = 0; index < points.length; index++) {
-        const source = points[index];
-        for (let targetIndex = index + 1; targetIndex < points.length; targetIndex++) {
-          const target = points[targetIndex];
-          const deltaX = target.x - source.x;
-          const deltaY = target.y - source.y;
-          const distance = Math.hypot(deltaX, deltaY) || 0.001;
-          const minDistance = source.radius + target.radius + 8;
-          if (distance >= minDistance) continue;
-          const push = ((minDistance - distance) / 2) * 0.95;
-          const normX = deltaX / distance;
-          const normY = deltaY / distance;
-          source.x -= normX * push;
-          source.y -= normY * push;
-          target.x += normX * push;
-          target.y += normY * push;
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i];
+        for (let j = i + 1; j < points.length; j++) {
+          const b = points[j];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy) || 0.001;
+          const minDist = a.radius + b.radius + 12;
+          if (dist >= minDist) continue;
+          const push = ((minDist - dist) / 2) * 0.9;
+          const nx = dx / dist;
+          const ny = dy / dist;
+          a.x -= nx * push;
+          a.y -= ny * push;
+          b.x += nx * push;
+          b.y += ny * push;
         }
       }
 
@@ -443,17 +580,28 @@ export default function RunMapOverlay({
       }
     }
 
-    return new Map(points.map((point) => [point.id, { x: point.x, y: point.y }]));
-  }, [
-    graphCenter.x,
-    graphCenter.y,
-    runMap.nodes,
-    usableHeight,
-    usableWidth,
-    worldCenterX,
-    worldCenterY,
-    graphScale,
-  ]);
+    return new Map(
+      points.map((point) => [point.id, { x: point.x, y: point.y }]),
+    );
+  }, [graphCenter.x, graphCenter.y, runMap.nodes, usableHeight, usableWidth]);
+
+  const depthRings = useMemo(() => {
+    const depthRadii = new Map<number, number[]>();
+    runMap.nodes.forEach((node) => {
+      const pos = nodeScreenPositions.get(node.id);
+      if (!pos) return;
+      const r = Math.hypot(pos.x - graphCenter.x, pos.y - graphCenter.y);
+      if (!depthRadii.has(node.depth)) depthRadii.set(node.depth, []);
+      depthRadii.get(node.depth)!.push(r);
+    });
+    return Array.from(depthRadii.entries())
+      .map(([depth, radii]) => ({
+        depth,
+        radius: radii.reduce((a, b) => a + b, 0) / radii.length,
+      }))
+      .sort((a, b) => a.depth - b.depth);
+  }, [runMap.nodes, nodeScreenPositions, graphCenter.x, graphCenter.y]);
+
   const entryNodes = runMap.nodes.filter((node) => node.depth === 1);
   const edgeSegments = [
     ...entryNodes.map((node) => ({
@@ -487,7 +635,11 @@ export default function RunMapOverlay({
     ),
   ];
 
-  const handleZoomChange = (nextZoom: number, cursorX?: number, cursorY?: number) => {
+  const handleZoomChange = (
+    nextZoom: number,
+    cursorX?: number,
+    cursorY?: number,
+  ) => {
     const clamped = clampValue(nextZoom, 0.32, 3.2);
     if (cursorX === undefined || cursorY === undefined) {
       setZoom(clamped);
@@ -638,41 +790,138 @@ export default function RunMapOverlay({
               transformOrigin: "0 0",
             }}
           >
-            <svg
-              className="absolute inset-0 z-[1]"
-              width="100%"
-              height="100%"
-            >
+            <svg className="absolute inset-0 z-[1]" width="100%" height="100%">
+              <defs>
+                <filter
+                  id="edgeGlow"
+                  x="-50%"
+                  y="-50%"
+                  width="200%"
+                  height="200%"
+                >
+                  <feGaussianBlur stdDeviation="4" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+                <filter
+                  id="ringGlow"
+                  x="-50%"
+                  y="-50%"
+                  width="200%"
+                  height="200%"
+                >
+                  <feGaussianBlur stdDeviation="1.5" result="blur" />
+                  <feMerge>
+                    <feMergeNode in="blur" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              {/* Concentric depth rings - POE2 web structure */}
+              {depthRings.map(({ depth, radius }) => (
+                <circle
+                  key={`ring-${depth}`}
+                  cx={graphCenter.x}
+                  cy={graphCenter.y}
+                  r={radius}
+                  fill="none"
+                  stroke={
+                    HUB_DEPTHS.has(depth)
+                      ? "rgba(142,245,255,0.09)"
+                      : "rgba(100,140,180,0.035)"
+                  }
+                  strokeWidth={HUB_DEPTHS.has(depth) ? 1.2 : 0.6}
+                  strokeDasharray={HUB_DEPTHS.has(depth) ? "4 8" : "2 14"}
+                  filter={HUB_DEPTHS.has(depth) ? "url(#ringGlow)" : undefined}
+                />
+              ))}
+
+              {/* Route sector guide lines from center */}
+              {ROUTE_ORDER.map((routeId) => {
+                const routeNodes = runMap.nodes.filter(
+                  (n) => n.routeId === routeId && n.encounterType === "boss",
+                );
+                if (routeNodes.length === 0) return null;
+                const bossPos = nodeScreenPositions.get(routeNodes[0].id);
+                if (!bossPos) return null;
+                return (
+                  <line
+                    key={`sector-${routeId}`}
+                    x1={graphCenter.x}
+                    y1={graphCenter.y}
+                    x2={bossPos.x}
+                    y2={bossPos.y}
+                    stroke={`${ROUTE_COLORS[routeId]}08`}
+                    strokeWidth={1}
+                    strokeDasharray="6 18"
+                  />
+                );
+              })}
+
+              {/* Edge connections - 3-layer rendering */}
               {edgeSegments.map((edge) => {
-                const routeMeta = ROUTE_META[edge.routeId];
+                const routeColor = ROUTE_COLORS[edge.routeId];
                 const isEmphasized = emphasizedRouteId === edge.routeId;
                 const isReachableRoute = reachableRouteIds.has(edge.routeId);
                 const isCurrentRoute = currentNode?.routeId === edge.routeId;
                 const active = isEmphasized || isCurrentRoute;
-                const path = buildCurvePath(edge.source, edge.target, graphCenter);
+                const path = buildCurvePath(
+                  edge.source,
+                  edge.target,
+                  graphCenter,
+                );
 
                 return (
                   <g key={edge.id}>
-                    <path
-                      d={path}
-                      fill="none"
-                      stroke={active ? routeMeta.glow : "rgba(90,130,160,0.08)"}
-                      strokeWidth={active ? 10 : isReachableRoute ? 6 : 4}
-                      strokeLinecap="round"
-                    />
+                    {/* Wide glow halo */}
                     <path
                       d={path}
                       fill="none"
                       stroke={
                         active
-                          ? routeMeta.stroke
+                          ? `${routeColor}28`
                           : isReachableRoute
-                            ? "rgba(142,245,255,0.72)"
-                            : "rgba(106,154,194,0.42)"
+                            ? "rgba(90,130,160,0.06)"
+                            : "rgba(60,90,120,0.025)"
                       }
-                      strokeWidth={active ? 2.7 : isReachableRoute ? 2.1 : 1.5}
+                      strokeWidth={active ? 14 : isReachableRoute ? 8 : 5}
                       strokeLinecap="round"
-                      strokeDasharray={active ? "2 8" : "1 10"}
+                      filter={active ? "url(#edgeGlow)" : undefined}
+                    />
+                    {/* Medium core stroke */}
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={
+                        active
+                          ? `${routeColor}55`
+                          : isReachableRoute
+                            ? "rgba(142,245,255,0.22)"
+                            : "rgba(106,154,194,0.10)"
+                      }
+                      strokeWidth={active ? 3 : isReachableRoute ? 2 : 1}
+                      strokeLinecap="round"
+                    />
+                    {/* Thin bright animated dash */}
+                    <path
+                      d={path}
+                      fill="none"
+                      stroke={
+                        active
+                          ? `${routeColor}cc`
+                          : isReachableRoute
+                            ? "rgba(142,245,255,0.50)"
+                            : "rgba(106,154,194,0.25)"
+                      }
+                      strokeWidth={active ? 1.5 : isReachableRoute ? 1 : 0.5}
+                      strokeLinecap="round"
+                      strokeDasharray={active ? "3 9" : "2 14"}
+                      className={
+                        active ? "animate-[edgeFlow_2s_linear_infinite]" : ""
+                      }
                     />
                   </g>
                 );
@@ -738,7 +987,8 @@ export default function RunMapOverlay({
               <div className="mt-3 font-vt323 text-[28px] leading-none text-white">
                 {highlightedNode.bossType
                   ? formatBossType(highlightedNode.bossType)
-                  : highlightedNode.title || getNodeStyle(highlightedNode).label}
+                  : highlightedNode.title ||
+                    getNodeStyle(highlightedNode).label}
               </div>
               <div className="mt-2 font-vt323 text-[18px] text-white/55">
                 {ROUTE_META[highlightedNode.routeId].tag}
