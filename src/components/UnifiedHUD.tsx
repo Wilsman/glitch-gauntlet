@@ -37,6 +37,9 @@ export default function UnifiedHUD({
   const [avatarFrame, setAvatarFrame] = useState(0);
   const {
     wave,
+    mapDepth = 0,
+    runMap = null,
+    currentEncounterType = null,
     waveTimer,
     isHellhoundRound,
     hellhoundsKilled,
@@ -76,11 +79,17 @@ export default function UnifiedHUD({
   const isDead = localPlayer.status === "dead";
   const remainingTime = Math.max(0, Math.ceil((WAVE_DURATION - (waveTimer || 0)) / 1000));
   const timerPercentage = Math.min(100, ((waveTimer || 0) / WAVE_DURATION) * 100);
-  const statusText = isShopRound
-    ? "SHOP ROUND"
-    : status === "bossFight"
-      ? "BOSS FIGHT"
-      : "SURVIVE";
+  const totalMapDepth = runMap?.nodes.reduce((max, node) => Math.max(max, node.depth), 10) || 10;
+  const statusText = status === "mapSelection"
+    ? "CHOOSE PATH"
+    : isShopRound
+      ? "SHOP ROUND"
+      : status === "bossFight"
+        ? "BOSS FIGHT"
+        : isHellhoundRound
+          ? "HELLHOUND NODE"
+          : "SURVIVE";
+  const showTimer = currentEncounterType === "combat" && status === "playing" && !isHellhoundRound;
   const petDps = localPlayerPet
     ? (localPlayerPet.damage / Math.max(0.001, localPlayerPet.attackSpeed / 1000)).toFixed(1)
     : null;
@@ -260,28 +269,61 @@ export default function UnifiedHUD({
         <div className="rounded-xl border border-neon-cyan/45 bg-black/65 px-4 py-2 backdrop-blur-md shadow-[0_0_18px_rgba(0,255,255,0.15)]">
           <div className="flex items-center justify-between gap-3 text-[10px]">
             <span className="text-neon-cyan/90">
-              WAVE <span className="text-neon-yellow">{wave}</span>
+              NODE <span className="text-neon-yellow">{mapDepth}</span>
+              <span className="text-white/50">/{totalMapDepth}</span>
+            </span>
+            <span
+              className={`${
+                status === "mapSelection"
+                  ? "text-cyan-200"
+                  : currentEncounterType === "hellhound"
+                    ? "text-red-300"
+                    : currentEncounterType === "shop"
+                      ? "text-yellow-300"
+                      : currentEncounterType === "boss"
+                        ? "text-fuchsia-300"
+                        : "text-green-400"
+              }`}
+            >
+              {statusText}
+            </span>
+            <span className="text-white/75">
+              THREAT <span className="text-neon-pink">{Math.max(0, wave)}</span>
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-[10px]">
+            <span className="text-white/65">
+              {currentEncounterType
+                ? `NEXT TYPE: ${currentEncounterType.toUpperCase()}`
+                : "SELECT A REACHABLE NODE"}
             </span>
             <span
               className={`${
                 isShopRound
                   ? "text-yellow-300"
-                  : status === "bossFight"
-                    ? "text-red-400"
-                    : "text-green-400"
+                  : isHellhoundRound
+                    ? "text-red-300"
+                    : showTimer
+                      ? "text-white"
+                      : "text-white/65"
               }`}
             >
-              {statusText}
-            </span>
-            {isHellhoundRound ? (
-              <span className="text-red-300">
+              {isHellhoundRound ? (
+                <>
                 {hellhoundsKilled || 0}/{totalHellhoundsInRound || 0} HELLHOUNDS
-              </span>
-            ) : (
-              <span className="text-white">{remainingTime}s</span>
-            )}
+                </>
+              ) : showTimer ? (
+                <>{remainingTime}s</>
+              ) : status === "mapSelection" ? (
+                <>ROUTE PLANNING</>
+              ) : status === "bossFight" ? (
+                <>FINAL PUSH</>
+              ) : (
+                <>SAFE ROOM</>
+              )}
+            </span>
           </div>
-          {!isHellhoundRound && (
+          {showTimer && (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full border border-white/10 bg-black/40">
               <div
                 className="h-full bg-neon-cyan transition-all duration-1000 ease-linear"

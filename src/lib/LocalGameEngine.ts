@@ -1,5 +1,9 @@
 import type {
   GameState,
+  RunMapEncounterType,
+  RunMapNode,
+  RunMapReward,
+  RunMapState,
   Player,
   InputState,
   UpgradeOption,
@@ -218,6 +222,606 @@ function hashString(value: string) {
   return hash;
 }
 
+const BOSS_ROUTE_PAIRINGS: Array<[BossType, BossType]> = [
+  ["berserker", "magnetic-magnus"],
+  ["glitch-golem", "neon-reaper"],
+  ["architect", "viral-swarm"],
+  ["summoner", "overclocker"],
+  ["core-destroyer", "berserker"],
+];
+
+type RewardBias = "economy" | "recovery" | "power";
+
+type ProceduralRunMapNode = {
+  id: string;
+  depth: number;
+  lane: number;
+  yMin: number;
+  yMax: number;
+  encounterType: RunMapEncounterType;
+  nextNodeIds: string[];
+  title?: string;
+  bossType?: BossType;
+  rewards?: RunMapReward[];
+};
+
+function formatBossRouteLabel(bossType: BossType) {
+  return bossType
+    .split("-")
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
+}
+
+function createSeededRandom(seed: number) {
+  let state = seed >>> 0;
+  if (state === 0) state = 0x6d2b79f5;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+function randomInt(random: () => number, min: number, max: number) {
+  return Math.floor(random() * (max - min + 1)) + min;
+}
+
+function pickOne<T>(random: () => number, values: T[]) {
+  return values[Math.floor(random() * values.length)];
+}
+
+function shuffle<T>(random: () => number, values: T[]) {
+  const next = [...values];
+  for (let index = next.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+}
+
+function cloneRewards(rewards?: RunMapReward[]) {
+  return rewards?.map((reward) => ({ ...reward })) || [];
+}
+
+function createCoinsReward(value: number): RunMapReward {
+  return {
+    type: "coins",
+    value,
+    label: `+${value}C`,
+    description: `Gain ${value} coins after this node.`,
+  };
+}
+
+function createHealReward(value: number): RunMapReward {
+  return {
+    type: "heal",
+    value,
+    label: `+${value}HP`,
+    description: `Restore ${value} health when this node resolves.`,
+  };
+}
+
+function createShopDiscountReward(value: number): RunMapReward {
+  return {
+    type: "shopDiscount",
+    value,
+    label: `-${value}%`,
+    description: `Reduce all market prices by ${value}% in this shop.`,
+  };
+}
+
+function createShopStockReward(value: number): RunMapReward {
+  return {
+    type: "shopStock",
+    value,
+    label: `+${value} STOCK`,
+    description: `Adds ${value} extra upgrade offer${value === 1 ? "" : "s"} to this shop.`,
+  };
+}
+
+function createDamageBoostReward(value: number, durationWaves: number): RunMapReward {
+  return {
+    type: "damageBoost",
+    value,
+    label: `+${value}% DMG`,
+    description: `Gain ${value}% bonus damage for ${durationWaves} wave${durationWaves === 1 ? "" : "s"}.`,
+    durationWaves,
+  };
+}
+
+const START_TITLES = {
+  upper: ["Signal Spire", "Skyline Breach", "Antenna Ruin", "Gridline Gate"],
+  middle: ["Crossfeed Hub", "Switchboard", "Transit Relay", "Forked Signal"],
+  lower: ["Drain Tunnel", "Subgrid Leak", "Basement Cut", "Power Duct"],
+};
+
+const COMMIT_TITLES = {
+  upper: ["Upper Push", "Skywire Run", "Aerial Surge", "Static Ladder"],
+  lower: ["Lower Push", "Basement Sweep", "Drainline Rush", "Ground Loop"],
+};
+
+const PRESSURE_TITLES = {
+  upper: ["Upper Pressure", "Voltage Crush", "Spire Lock", "Signal Clamp"],
+  lower: ["Lower Pressure", "Drain Clamp", "Rust Funnel", "Sump Lock"],
+};
+
+const COMBAT_ROUTE_TITLES = [
+  "Signal Clash",
+  "Packet Raid",
+  "Kill Switch",
+  "Pulse Break",
+  "System Breach",
+  "Static Clash",
+];
+
+const SHOP_ROUTE_TITLES = [
+  "Black Market",
+  "Patch Bazaar",
+  "Smuggler Cache",
+  "Armory Leak",
+  "Backdoor Vendor",
+  "Ghost Vendor",
+];
+
+const GATE_TITLES = ["Boss Threshold", "Core Door", "Override Gate", "Kill Gate"];
+const HELLHOUND_TITLES = ["Hellhound Pack", "Dog Gauntlet", "Rabid Kennels"];
+
+function createCombatRewards(
+  random: () => number,
+  depth: number,
+  bias: RewardBias,
+): RunMapReward[] {
+  const scaledDepth = Math.max(1, depth);
+
+  if (bias === "economy") {
+    return [createCoinsReward(randomInt(random, 10 + scaledDepth * 3, 16 + scaledDepth * 4))];
+  }
+
+  if (bias === "recovery") {
+    return [createHealReward(randomInt(random, 10 + scaledDepth * 2, 16 + scaledDepth * 3))];
+  }
+
+  return [createDamageBoostReward(randomInt(random, 12, 24), scaledDepth >= 6 ? 2 : 1)];
+}
+
+function createHellhoundRewards(
+  random: () => number,
+  depth: number,
+  bias: RewardBias,
+): RunMapReward[] {
+  const rewards: RunMapReward[] = [
+    createCoinsReward(randomInt(random, 22 + depth * 2, 30 + depth * 3)),
+  ];
+
+  if (bias === "recovery") {
+    rewards.push(createHealReward(randomInt(random, 18, 28)));
+  } else {
+    rewards.push(createDamageBoostReward(randomInt(random, 18, 28), 2));
+  }
+
+  return rewards;
+}
+
+function createShopRewards(
+  random: () => number,
+  depth: number,
+  bias: RewardBias,
+): RunMapReward[] {
+  const rewards: RunMapReward[] = [
+    createShopDiscountReward(randomInt(random, 15, depth >= 7 ? 28 : 22)),
+  ];
+
+  if (depth >= 5 || random() > 0.35) {
+    rewards.push(createShopStockReward(1));
+  }
+
+  if (bias === "recovery" && random() > 0.4) {
+    rewards.push(createHealReward(randomInt(random, 14, 24)));
+  } else if (bias === "economy" && random() > 0.45) {
+    rewards.push(createCoinsReward(randomInt(random, 12, 24)));
+  }
+
+  return rewards;
+}
+
+function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
+  const random = createSeededRandom(hashString(seed) || Date.now());
+  const bossPair =
+    BOSS_ROUTE_PAIRINGS[randomInt(random, 0, BOSS_ROUTE_PAIRINGS.length - 1)];
+  const [upperBoss, lowerBoss] = bossPair;
+  const biasOrder = shuffle<RewardBias>(random, ["economy", "recovery", "power"]);
+  const upperBias = biasOrder[0];
+  const lowerBias = biasOrder[1];
+  const upperBossBias = biasOrder[2];
+  const lowerBossBias = biasOrder[0] === "economy" ? "power" : "economy";
+  const topSpecialType: RunMapEncounterType = random() > 0.5 ? "shop" : "hellhound";
+  const bottomSpecialType: RunMapEncounterType =
+    topSpecialType === "shop" ? "hellhound" : "shop";
+  const upperShopDepth = pickOne(random, [7, 9]);
+  const lowerShopDepth = pickOne(random, [7, 9]);
+
+  const createCombatTitle = (lane: "upper" | "lower", depth: number) => {
+    if (depth <= 2) return pickOne(random, COMMIT_TITLES[lane]);
+    if (depth <= 4) return pickOne(random, PRESSURE_TITLES[lane]);
+    if (depth === 6) return lane === "upper" ? `${formatBossRouteLabel(upperBoss)} Route` : `${formatBossRouteLabel(lowerBoss)} Route`;
+    if (depth >= 9) return pickOne(random, GATE_TITLES);
+    return pickOne(random, COMBAT_ROUTE_TITLES);
+  };
+
+  const createNode = ({
+    id,
+    depth,
+    lane,
+    yMin,
+    yMax,
+    encounterType,
+    nextNodeIds,
+    bias,
+    title,
+    bossType,
+  }: {
+    id: string;
+    depth: number;
+    lane: number;
+    yMin: number;
+    yMax: number;
+    encounterType: RunMapEncounterType;
+    nextNodeIds: string[];
+    bias: RewardBias;
+    title?: string;
+    bossType?: BossType;
+  }): ProceduralRunMapNode => ({
+    id,
+    depth,
+    lane,
+    yMin,
+    yMax,
+    encounterType,
+    nextNodeIds,
+    title:
+      title ||
+      (encounterType === "shop"
+        ? pickOne(random, SHOP_ROUTE_TITLES)
+        : encounterType === "hellhound"
+          ? pickOne(random, HELLHOUND_TITLES)
+          : encounterType === "boss"
+            ? bossType
+              ? formatBossRouteLabel(bossType)
+              : "Boss"
+            : createCombatTitle(lane <= 2 ? "upper" : "lower", depth)),
+    bossType,
+    rewards:
+      encounterType === "boss"
+        ? []
+        : encounterType === "shop"
+          ? createShopRewards(random, depth, bias)
+          : encounterType === "hellhound"
+            ? createHellhoundRewards(random, depth, bias)
+            : createCombatRewards(random, depth, bias),
+  });
+
+  return [
+    createNode({
+      id: "start-top",
+      depth: 1,
+      lane: 0,
+      yMin: 108,
+      yMax: 128,
+      encounterType: "combat",
+      nextNodeIds: ["upper-commit"],
+      bias: upperBias,
+      title: pickOne(random, START_TITLES.upper),
+    }),
+    createNode({
+      id: "start-mid",
+      depth: 1,
+      lane: 2,
+      yMin: 248,
+      yMax: 272,
+      encounterType: "combat",
+      nextNodeIds: ["upper-commit", "lower-commit"],
+      bias: pickOne(random, [upperBias, lowerBias]),
+      title: pickOne(random, START_TITLES.middle),
+    }),
+    createNode({
+      id: "start-bot",
+      depth: 1,
+      lane: 4,
+      yMin: 398,
+      yMax: 422,
+      encounterType: "combat",
+      nextNodeIds: ["lower-commit"],
+      bias: lowerBias,
+      title: pickOne(random, START_TITLES.lower),
+    }),
+
+    createNode({
+      id: "upper-commit",
+      depth: 2,
+      lane: 1,
+      yMin: 148,
+      yMax: 176,
+      encounterType: "combat",
+      nextNodeIds: ["upper-split-a", "upper-split-b"],
+      bias: upperBias,
+    }),
+    createNode({
+      id: "lower-commit",
+      depth: 2,
+      lane: 3,
+      yMin: 356,
+      yMax: 384,
+      encounterType: "combat",
+      nextNodeIds: ["lower-split-a", "lower-split-b"],
+      bias: lowerBias,
+    }),
+
+    createNode({
+      id: "upper-split-a",
+      depth: 3,
+      lane: 0,
+      yMin: 96,
+      yMax: 122,
+      encounterType: "combat",
+      nextNodeIds: ["upper-merge"],
+      bias: upperBias,
+    }),
+    createNode({
+      id: "upper-split-b",
+      depth: 3,
+      lane: 2,
+      yMin: 206,
+      yMax: 236,
+      encounterType: "combat",
+      nextNodeIds: ["upper-merge"],
+      bias: upperBias,
+    }),
+    createNode({
+      id: "lower-split-a",
+      depth: 3,
+      lane: 2,
+      yMin: 300,
+      yMax: 330,
+      encounterType: "combat",
+      nextNodeIds: ["lower-merge"],
+      bias: lowerBias,
+    }),
+    createNode({
+      id: "lower-split-b",
+      depth: 3,
+      lane: 4,
+      yMin: 446,
+      yMax: 474,
+      encounterType: "combat",
+      nextNodeIds: ["lower-merge"],
+      bias: lowerBias,
+    }),
+
+    createNode({
+      id: "upper-merge",
+      depth: 4,
+      lane: 1,
+      yMin: 164,
+      yMax: 194,
+      encounterType: "combat",
+      nextNodeIds: ["upper-special"],
+      bias: upperBias,
+    }),
+    createNode({
+      id: "lower-merge",
+      depth: 4,
+      lane: 3,
+      yMin: 348,
+      yMax: 378,
+      encounterType: "combat",
+      nextNodeIds: ["lower-special"],
+      bias: lowerBias,
+    }),
+
+    createNode({
+      id: "upper-special",
+      depth: 5,
+      lane: 1,
+      yMin: 144,
+      yMax: 174,
+      encounterType: topSpecialType,
+      nextNodeIds: ["upper-route-entry"],
+      bias: topSpecialType === "shop" ? "economy" : upperBossBias,
+    }),
+    createNode({
+      id: "lower-special",
+      depth: 5,
+      lane: 3,
+      yMin: 366,
+      yMax: 396,
+      encounterType: bottomSpecialType,
+      nextNodeIds: ["lower-route-entry"],
+      bias: bottomSpecialType === "shop" ? "economy" : lowerBossBias,
+    }),
+
+    createNode({
+      id: "upper-route-entry",
+      depth: 6,
+      lane: 1,
+      yMin: 126,
+      yMax: 156,
+      encounterType: "combat",
+      nextNodeIds: ["upper-fork-a", "upper-fork-b"],
+      bias: upperBossBias,
+      title: `${formatBossRouteLabel(upperBoss)} Route`,
+    }),
+    createNode({
+      id: "lower-route-entry",
+      depth: 6,
+      lane: 3,
+      yMin: 384,
+      yMax: 414,
+      encounterType: "combat",
+      nextNodeIds: ["lower-fork-a", "lower-fork-b"],
+      bias: lowerBossBias,
+      title: `${formatBossRouteLabel(lowerBoss)} Route`,
+    }),
+
+    createNode({
+      id: "upper-fork-a",
+      depth: 7,
+      lane: 0,
+      yMin: 92,
+      yMax: 118,
+      encounterType: upperShopDepth === 7 ? "shop" : "combat",
+      nextNodeIds: ["upper-rejoin"],
+      bias: upperBossBias,
+    }),
+    createNode({
+      id: "upper-fork-b",
+      depth: 7,
+      lane: 2,
+      yMin: 198,
+      yMax: 226,
+      encounterType: upperShopDepth === 7 ? "combat" : "shop",
+      nextNodeIds: ["upper-rejoin"],
+      bias: upperBossBias,
+    }),
+    createNode({
+      id: "lower-fork-a",
+      depth: 7,
+      lane: 2,
+      yMin: 316,
+      yMax: 344,
+      encounterType: lowerShopDepth === 7 ? "shop" : "combat",
+      nextNodeIds: ["lower-rejoin"],
+      bias: lowerBossBias,
+    }),
+    createNode({
+      id: "lower-fork-b",
+      depth: 7,
+      lane: 4,
+      yMin: 454,
+      yMax: 482,
+      encounterType: lowerShopDepth === 7 ? "combat" : "shop",
+      nextNodeIds: ["lower-rejoin"],
+      bias: lowerBossBias,
+    }),
+
+    createNode({
+      id: "upper-rejoin",
+      depth: 8,
+      lane: 1,
+      yMin: 146,
+      yMax: 174,
+      encounterType: "combat",
+      nextNodeIds: ["upper-preboss-a", "upper-preboss-b"],
+      bias: upperBossBias,
+    }),
+    createNode({
+      id: "lower-rejoin",
+      depth: 8,
+      lane: 3,
+      yMin: 360,
+      yMax: 390,
+      encounterType: "combat",
+      nextNodeIds: ["lower-preboss-a", "lower-preboss-b"],
+      bias: lowerBossBias,
+    }),
+
+    createNode({
+      id: "upper-preboss-a",
+      depth: 9,
+      lane: 0,
+      yMin: 106,
+      yMax: 132,
+      encounterType: upperShopDepth === 9 ? "shop" : "combat",
+      nextNodeIds: ["boss-upper"],
+      bias: upperBossBias,
+    }),
+    createNode({
+      id: "upper-preboss-b",
+      depth: 9,
+      lane: 2,
+      yMin: 206,
+      yMax: 234,
+      encounterType: upperShopDepth === 9 ? "combat" : "shop",
+      nextNodeIds: ["boss-upper"],
+      bias: upperBossBias,
+    }),
+    createNode({
+      id: "lower-preboss-a",
+      depth: 9,
+      lane: 2,
+      yMin: 308,
+      yMax: 336,
+      encounterType: lowerShopDepth === 9 ? "shop" : "combat",
+      nextNodeIds: ["boss-lower"],
+      bias: lowerBossBias,
+    }),
+    createNode({
+      id: "lower-preboss-b",
+      depth: 9,
+      lane: 4,
+      yMin: 442,
+      yMax: 470,
+      encounterType: lowerShopDepth === 9 ? "combat" : "shop",
+      nextNodeIds: ["boss-lower"],
+      bias: lowerBossBias,
+    }),
+
+    createNode({
+      id: "boss-upper",
+      depth: 10,
+      lane: 1,
+      yMin: 156,
+      yMax: 184,
+      encounterType: "boss",
+      nextNodeIds: [],
+      bias: upperBossBias,
+      bossType: upperBoss,
+    }),
+    createNode({
+      id: "boss-lower",
+      depth: 10,
+      lane: 3,
+      yMin: 382,
+      yMax: 410,
+      encounterType: "boss",
+      nextNodeIds: [],
+      bias: lowerBossBias,
+      bossType: lowerBoss,
+    }),
+  ];
+}
+
+function createInitialRunMap(seed: string): RunMapState {
+  const random = createSeededRandom(hashString(seed) || Date.now());
+  const nodes: RunMapNode[] = createRunMapNodes(seed).map((node) => ({
+    id: node.id,
+    depth: node.depth,
+    lane: node.lane,
+    x:
+      118 +
+      (node.depth - 1) * 103 +
+      (node.depth === 1 || node.depth === 10 ? 0 : randomInt(random, -10, 12)),
+    y: randomInt(random, node.yMin, node.yMax),
+    encounterType: node.encounterType,
+    title: node.title,
+    bossType: node.bossType,
+    rewards: cloneRewards(node.rewards),
+    nextNodeIds: [...node.nextNodeIds],
+  }));
+
+  const depthOneIds = nodes
+    .filter((node) => node.depth === 1)
+    .map((node) => node.id);
+  const allNodeIds = nodes.map((node) => node.id);
+
+  return {
+    floorIndex: 1,
+    nodes,
+    currentNodeId: null,
+    reachableNodeIds: depthOneIds,
+    revealedNodeIds: allNodeIds,
+    visitedNodeIds: [],
+  };
+}
+
 export class LocalGameEngine {
   private gameState: GameState;
   private stateVersion: number = 0;
@@ -240,6 +844,7 @@ export class LocalGameEngine {
   private characterType: CharacterType;
   private tookDamageAfterWave5: boolean = false;
   private lastToasterDeployAt: Map<string, number> = new Map();
+  private returnToMapAfterUpgrade: boolean = false;
 
   constructor(
     playerId: string,
@@ -249,6 +854,9 @@ export class LocalGameEngine {
     const character = getCharacter(characterType);
     this.characterType = characterType;
     this.gameStartTime = Date.now();
+    const initialRunMap = createInitialRunMap(
+      `${playerId}-${characterType}-${Date.now()}`,
+    );
 
     const initialPlayer: Player = {
       id: playerId,
@@ -281,7 +889,10 @@ export class LocalGameEngine {
 
     this.gameState = {
       gameId: "local",
-      status: "playing",
+      status: "mapSelection",
+      runMap: initialRunMap,
+      currentEncounterType: null,
+      mapDepth: 0,
       players: [initialPlayer],
       enemies: [],
       projectiles: [],
@@ -291,7 +902,7 @@ export class LocalGameEngine {
       shopStands: [],
       shopPrompt: null,
       shopPendingBossType: null,
-      wave: 1,
+      wave: 0,
       teleporter: null,
       pets: [],
       orbitalSkulls: [],
@@ -337,6 +948,191 @@ export class LocalGameEngine {
     if (character.weaponType === "burst-fire") {
       initialPlayer.burstShotsFired = 0;
     }
+  }
+
+  private getCurrentMapNode(state: GameState): RunMapNode | null {
+    const currentNodeId = state.runMap?.currentNodeId;
+    if (!currentNodeId) return null;
+    return state.runMap?.nodes.find((node) => node.id === currentNodeId) || null;
+  }
+
+  private getCurrentNodeRewards(state: GameState) {
+    return this.getCurrentMapNode(state)?.rewards || [];
+  }
+
+  private applyRunMapRewards(state: GameState, rewards: RunMapReward[]) {
+    const alivePlayers = state.players.filter((player) => player.status === "alive");
+    if (alivePlayers.length === 0 || rewards.length === 0) return;
+
+    const now = Date.now();
+    rewards.forEach((reward) => {
+      if (reward.type === "coins") {
+        alivePlayers.forEach((player) => {
+          player.coins = (player.coins || 0) + reward.value;
+        });
+        return;
+      }
+
+      if (reward.type === "heal") {
+        alivePlayers.forEach((player) => {
+          player.health = Math.min(player.maxHealth, player.health + reward.value);
+          player.lastHealedTimestamp = now;
+        });
+        return;
+      }
+
+      if (reward.type === "damageBoost") {
+        const durationWaves = Math.max(1, reward.durationWaves || 1);
+        const multiplier = 1 + reward.value / 100;
+        alivePlayers.forEach((player) => {
+          player.temporaryDamageMultiplier = Math.max(
+            player.temporaryDamageMultiplier || 1,
+            multiplier,
+          );
+          player.temporaryDamageExpiresWave = Math.max(
+            player.temporaryDamageExpiresWave || state.wave,
+            state.wave + durationWaves,
+          );
+        });
+      }
+    });
+  }
+
+  private getShopModifiersFromRewards(rewards: RunMapReward[]) {
+    const discountPercent = rewards
+      .filter((reward) => reward.type === "shopDiscount")
+      .reduce((total, reward) => total + reward.value, 0);
+    const extraStock = rewards
+      .filter((reward) => reward.type === "shopStock")
+      .reduce((total, reward) => total + reward.value, 0);
+    const entryRewards = rewards.filter(
+      (reward) => reward.type !== "shopDiscount" && reward.type !== "shopStock",
+    );
+
+    return {
+      discountPercent,
+      extraStock,
+      entryRewards,
+      summaryLabels: rewards.map((reward) => reward.label),
+    };
+  }
+
+  private resetArenaForEncounter(state: GameState) {
+    state.enemies = [];
+    state.projectiles = [];
+    state.xpOrbs = [];
+    state.teleporter = null;
+    state.explosions = [];
+    state.chainLightning = [];
+    state.boss = null;
+    state.shockwaveRings = [];
+    state.bossProjectiles = [];
+    state.hazards = [];
+    state.particles = [];
+    state.screenShake = undefined;
+    state.isShopRound = false;
+    state.shopStands = [];
+    state.shopPrompt = null;
+    state.shopPendingBossType = null;
+    state.isHellhoundRound = false;
+    state.hellhoundRoundPending = false;
+    state.hellhoundRoundComplete = false;
+    state.waitingForHellhoundRound = false;
+    state.totalHellhoundsInRound = 0;
+    state.hellhoundsKilled = 0;
+    state.hellhoundSpawnTimer = 0;
+    state.players.forEach((player) => {
+      player.attachedBug = undefined;
+      player.wasShakePressed = false;
+    });
+    this.waveTimer = 0;
+    state.waveTimer = 0;
+    this.returnToMapAfterUpgrade = false;
+  }
+
+  private enterMapSelection(state: GameState) {
+    const runMap = state.runMap;
+    const currentNode = this.getCurrentMapNode(state);
+    if (!runMap || !currentNode) return;
+
+    this.resetArenaForEncounter(state);
+    state.status = "mapSelection";
+    state.currentEncounterType = null;
+    state.mapDepth = currentNode.depth;
+    runMap.reachableNodeIds = [...currentNode.nextNodeIds];
+    runMap.revealedNodeIds = Array.from(
+      new Set([...runMap.revealedNodeIds, ...currentNode.nextNodeIds]),
+    );
+  }
+
+  private startCombatEncounter(state: GameState) {
+    this.resetArenaForEncounter(state);
+    state.status = "playing";
+    state.currentEncounterType = "combat";
+  }
+
+  private startHellhoundEncounter(state: GameState) {
+    this.resetArenaForEncounter(state);
+    state.status = "playing";
+    state.currentEncounterType = "hellhound";
+    state.isHellhoundRound = true;
+    state.totalHellhoundsInRound = Math.min(
+      24,
+      8 + Math.max(0, (state.wave || 1) - HELLHOUND_ROUND_START) * 2,
+    );
+    state.hellhoundsKilled = 0;
+    state.hellhoundRoundComplete = false;
+    state.hellhoundSpawnTimer = 0;
+  }
+
+  private startBossEncounter(state: GameState) {
+    this.resetArenaForEncounter(state);
+    state.status = "bossFight";
+    state.currentEncounterType = "boss";
+    const currentNode = this.getCurrentMapNode(state);
+    const bossType =
+      currentNode?.bossType || getBossForWave(10) || "berserker";
+    state.boss = createBoss(
+      uuidv4(),
+      { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+      bossType,
+      Math.max(10, state.wave || 10),
+    );
+    this.triggerScreenShake(15, 500);
+  }
+
+  selectMapNode(nodeId: string) {
+    const state = this.gameState;
+    const runMap = state.runMap;
+    if (!runMap || state.status !== "mapSelection") return;
+    if (!runMap.reachableNodeIds.includes(nodeId)) return;
+
+    const node = runMap.nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return;
+
+    runMap.currentNodeId = node.id;
+    if (!runMap.visitedNodeIds.includes(node.id)) {
+      runMap.visitedNodeIds.push(node.id);
+    }
+    runMap.reachableNodeIds = [];
+    runMap.revealedNodeIds = Array.from(
+      new Set([...runMap.revealedNodeIds, node.id, ...node.nextNodeIds]),
+    );
+    state.mapDepth = node.depth;
+    state.wave = node.depth;
+
+    if (node.encounterType === "shop") {
+      state.currentEncounterType = "shop";
+      this.startShopRound(state, null, node.rewards || []);
+    } else if (node.encounterType === "hellhound") {
+      this.startHellhoundEncounter(state);
+    } else if (node.encounterType === "boss") {
+      this.startBossEncounter(state);
+    } else {
+      this.startCombatEncounter(state);
+    }
+
+    this.markStateDirty();
   }
 
   start() {
@@ -665,6 +1461,10 @@ export class LocalGameEngine {
 
     this.applyUpgradeChoice(player, choice);
     this.clearUpgradePrompt(player.id);
+    if (this.returnToMapAfterUpgrade) {
+      this.returnToMapAfterUpgrade = false;
+      this.enterMapSelection(this.gameState);
+    }
     this.markStateDirty();
   }
 
@@ -792,18 +1592,25 @@ export class LocalGameEngine {
     }
   }
 
-  private createShopStands(wave: number): ShopStand[] {
+  private createShopStands(
+    wave: number,
+    modifiers: { discountPercent?: number; extraStock?: number } = {},
+  ): ShopStand[] {
     const centerX = ARENA_WIDTH / 2;
     const centerY = ARENA_HEIGHT / 2;
     const basePositions: { x: number; y: number }[] = [
-      { x: centerX - 250, y: centerY + 40 },
-      { x: centerX - 90, y: centerY - 60 },
-      { x: centerX + 90, y: centerY - 60 },
-      { x: centerX + 250, y: centerY + 40 },
-      { x: centerX, y: centerY + 175 },
+      { x: centerX - 320, y: centerY + 32 },
+      { x: centerX - 180, y: centerY - 64 },
+      { x: centerX, y: centerY - 104 },
+      { x: centerX + 180, y: centerY - 64 },
+      { x: centerX + 320, y: centerY + 32 },
+      { x: centerX - 90, y: centerY + 180 },
+      { x: centerX + 90, y: centerY + 180 },
     ];
-
-    const rolled = getRandomUpgrades(2);
+    const discountPercent = Math.max(0, modifiers.discountPercent || 0);
+    const extraStock = Math.max(0, Math.min(2, modifiers.extraStock || 0));
+    const priceMultiplier = Math.max(0.55, 1 - discountPercent / 100);
+    const rolled = getRandomUpgrades(2 + extraStock);
     const offers: ShopOffer[] = [
       ...rolled.map((option) => ({
         id: uuidv4(),
@@ -812,7 +1619,7 @@ export class LocalGameEngine {
         description: option.description,
         emoji: option.emoji,
         rarity: option.rarity,
-        cost: this.getShopUpgradeCost(option as UpgradeOption, wave),
+        cost: this.roundShopCost(this.getShopUpgradeCost(option as UpgradeOption, wave) * priceMultiplier),
         upgradeType: option.type,
         purchased: false,
       })),
@@ -822,7 +1629,7 @@ export class LocalGameEngine {
         title: "Patch Kit",
         description: `Restore ${SHOP_HEAL_AMOUNT} HP.`,
         emoji: "HP",
-        cost: this.roundShopCost(this.getShopCostBaseline(wave)),
+        cost: this.roundShopCost(this.getShopCostBaseline(wave) * priceMultiplier),
         healAmount: SHOP_HEAL_AMOUNT,
         purchased: false,
       },
@@ -832,7 +1639,7 @@ export class LocalGameEngine {
         title: "Battle Surge",
         description: "+25% damage for the next 2 waves.",
         emoji: "DMG",
-        cost: this.roundShopCost(this.getShopCostBaseline(wave) * 1.35),
+        cost: this.roundShopCost(this.getShopCostBaseline(wave) * 1.35 * priceMultiplier),
         tempDamageMultiplier: 1.25,
         tempDurationWaves: 2,
         purchased: false,
@@ -866,23 +1673,32 @@ export class LocalGameEngine {
     this.upgradeChoices.delete(playerId);
   }
 
-  private startShopRound(state: GameState, pendingBossType: BossType | null = null) {
+  private startShopRound(
+    state: GameState,
+    pendingBossType: BossType | null = null,
+    nodeRewards: RunMapReward[] = [],
+  ) {
+    this.resetArenaForEncounter(state);
     state.status = "playing";
     state.isShopRound = true;
     state.shopPendingBossType = pendingBossType;
-    state.shopStands = this.createShopStands(state.wave);
-    state.shopPrompt = "SHOP ROUND: move to a stand and press E to interact.";
+    const shopModifiers = this.getShopModifiersFromRewards(nodeRewards);
+    this.applyRunMapRewards(state, shopModifiers.entryRewards);
+    state.shopStands = this.createShopStands(state.wave, {
+      discountPercent: shopModifiers.discountPercent,
+      extraStock: shopModifiers.extraStock,
+    });
+    state.shopPrompt =
+      shopModifiers.summaryLabels.length > 0
+        ? `BONUSES ${shopModifiers.summaryLabels.join(" | ")}. Move to a stand and press E to interact.`
+        : "SHOP ROUND: move to a stand and press E to interact.";
     state.players.forEach((player) => {
       player.lastInteractTriggered = false;
     });
 
-    // Safe room behavior for MVP.
-    state.enemies = [];
-    state.projectiles = [];
-    state.hazards = [];
-    state.bossProjectiles = [];
-    state.explosions = [];
-    state.chainLightning = [];
+    if (!state.currentEncounterType) {
+      state.currentEncounterType = "shop";
+    }
   }
 
   private endShopRound(state: GameState) {
@@ -904,6 +1720,9 @@ export class LocalGameEngine {
         state.wave
       );
       state.status = "bossFight";
+      state.currentEncounterType = "boss";
+    } else if (state.currentEncounterType === "shop") {
+      this.enterMapSelection(state);
     }
   }
 
@@ -1151,27 +1970,14 @@ export class LocalGameEngine {
   }
 
   debugTriggerBossRound() {
+    this.gameState.currentEncounterType = "boss";
     this.gameState.status = "bossFight";
     this.gameState.waveTimer = WAVE_DURATION - 1000; // Trigger it almost immediately
     this.markStateDirty();
   }
 
   debugTriggerShopRound() {
-    this.gameState.status = "playing";
-    this.waveTimer = 0;
-    this.gameState.waveTimer = 0;
-    this.gameState.boss = null;
-    this.gameState.teleporter = null;
-    this.gameState.waitingForHellhoundRound = false;
-    this.gameState.isHellhoundRound = false;
-    this.gameState.hellhoundRoundPending = false;
-    this.gameState.hellhoundRoundComplete = false;
-    this.gameState.hellhoundSpawnTimer = 0;
-    this.gameState.hellhoundsKilled = 0;
-    this.gameState.totalHellhoundsInRound = 0;
-    this.gameState.levelingUpPlayerId = null;
-    this.gameState.upgradePromptType = null;
-    this.upgradeChoices.clear();
+    this.gameState.currentEncounterType = "shop";
     this.startShopRound(this.gameState);
     this.markStateDirty();
   }
@@ -1191,6 +1997,7 @@ export class LocalGameEngine {
     this.gameState.shopStands = [];
     this.gameState.shopPrompt = null;
     this.gameState.shopPendingBossType = null;
+    this.gameState.currentEncounterType = null;
     this.markStateDirty();
   }
 
@@ -1218,6 +2025,100 @@ export class LocalGameEngine {
     const now = Date.now();
     const delta = now - this.lastTick;
     this.lastTick = now;
+    this.runSimulationStep(now, delta);
+  }
+
+  advanceTime(ms: number) {
+    let remaining = Math.max(0, ms);
+    let simulatedNow = this.lastTick || Date.now();
+
+    while (remaining > 0) {
+      const step = Math.min(TICK_RATE, remaining);
+      simulatedNow += step;
+      this.runSimulationStep(simulatedNow, step);
+      remaining -= step;
+    }
+
+    this.lastTick = simulatedNow;
+  }
+
+  renderGameToText() {
+    const state = this.gameState;
+    const localPlayer = state.players[0];
+    const runMap = state.runMap;
+
+    return JSON.stringify({
+      mode: state.status,
+      mapDepth: state.mapDepth || 0,
+      threatTier: state.wave || 0,
+      currentEncounterType: state.currentEncounterType || null,
+      currentNodeId: runMap?.currentNodeId || null,
+      currentNodeRewards: this.getCurrentNodeRewards(state).map((reward) => ({
+        type: reward.type,
+        value: reward.value,
+        label: reward.label,
+        durationWaves: reward.durationWaves || null,
+      })),
+      reachableNodes:
+        runMap?.reachableNodeIds.map((nodeId) => {
+          const node = runMap.nodes.find((candidate) => candidate.id === nodeId);
+          return node
+            ? {
+                id: node.id,
+                depth: node.depth,
+                type: node.encounterType,
+                title: node.title || null,
+                bossType: node.bossType || null,
+                rewards: (node.rewards || []).map((reward) => ({
+                  type: reward.type,
+                  label: reward.label,
+                  value: reward.value,
+                  durationWaves: reward.durationWaves || null,
+                })),
+              }
+            : { id: nodeId };
+        }) || [],
+      bossChoices:
+        runMap?.nodes
+          .filter((node) => node.encounterType === "boss")
+          .map((node) => ({
+            id: node.id,
+            title: node.title || null,
+            bossType: node.bossType || null,
+            rewards: (node.rewards || []).map((reward) => ({
+              type: reward.type,
+              label: reward.label,
+              value: reward.value,
+            })),
+          })) || [],
+      player: localPlayer
+        ? {
+            x: Math.round(localPlayer.position.x),
+            y: Math.round(localPlayer.position.y),
+            health: Math.round(localPlayer.health),
+            level: localPlayer.level,
+            coins: Math.floor(localPlayer.coins || 0),
+          }
+        : null,
+      enemies: state.enemies.map((enemy) => ({
+        type: enemy.type,
+        x: Math.round(enemy.position.x),
+        y: Math.round(enemy.position.y),
+        health: Math.round(enemy.health),
+      })),
+      isShopRound: !!state.isShopRound,
+      isHellhoundRound: !!state.isHellhoundRound,
+      hellhoundProgress: state.isHellhoundRound
+        ? {
+            killed: state.hellhoundsKilled || 0,
+            total: state.totalHellhoundsInRound || 0,
+          }
+        : null,
+    });
+  }
+
+  private runSimulationStep(now: number, delta: number) {
+    if (delta <= 0) return;
 
     const state = this.gameState;
     const localPlayer = state.players[0];
@@ -1287,18 +2188,103 @@ export class LocalGameEngine {
   }
 
   private sanitizeState(state: GameState) {
-    state.players.forEach(p => {
-      if (isNaN(p.position.x)) p.position.x = ARENA_WIDTH / 2;
-      if (isNaN(p.position.y)) p.position.y = ARENA_HEIGHT / 2;
+    const sanitizeVector = (
+      vector: Vector2D | undefined,
+      fallbackX: number,
+      fallbackY: number,
+    ) => {
+      if (!vector) return;
+      if (!Number.isFinite(vector.x)) vector.x = fallbackX;
+      if (!Number.isFinite(vector.y)) vector.y = fallbackY;
+    };
+
+    state.players.forEach((player) => {
+      sanitizeVector(player.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      player.history?.forEach((point) =>
+        sanitizeVector(point, player.position.x, player.position.y),
+      );
+      player.satelliteOrbs?.forEach((orb, index) => {
+        if (!Number.isFinite(orb.angle)) orb.angle = index * (Math.PI / 2);
+        if (!Number.isFinite(orb.radius)) orb.radius = 85;
+      });
     });
-    state.enemies.forEach(e => {
-      if (isNaN(e.position.x)) e.position.x = 0;
-      if (isNaN(e.position.y)) e.position.y = 0;
+
+    state.enemies.forEach((enemy) => {
+      sanitizeVector(enemy.position, 0, 0);
+      enemy.history?.forEach((point) =>
+        sanitizeVector(point, enemy.position.x, enemy.position.y),
+      );
+      if (enemy.chargeDirection) {
+        sanitizeVector(enemy.chargeDirection, 1, 0);
+      }
     });
-    state.projectiles.forEach(p => {
-      if (isNaN(p.position.x)) p.position.x = -1000;
-      if (isNaN(p.position.y)) p.position.y = -1000;
+
+    state.projectiles.forEach((projectile) => {
+      sanitizeVector(projectile.position, -1000, -1000);
+      sanitizeVector(projectile.velocity, 0, 0);
     });
+
+    state.xpOrbs.forEach((orb) => sanitizeVector(orb.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2));
+    state.pets?.forEach((pet) => sanitizeVector(pet.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2));
+    state.turrets?.forEach((turret) => sanitizeVector(turret.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2));
+    state.clones?.forEach((clone) => sanitizeVector(clone.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2));
+    state.hazards?.forEach((hazard) => sanitizeVector(hazard.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2));
+    state.particles?.forEach((particle) => {
+      sanitizeVector(particle.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(particle.velocity, 0, 0);
+    });
+    state.trailSegments?.forEach((segment) =>
+      sanitizeVector(segment.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+    );
+    state.binaryDrops?.forEach((drop) =>
+      sanitizeVector(drop.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+    );
+    state.fireTrails?.forEach((trail) =>
+      sanitizeVector(trail.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+    );
+    state.explosions?.forEach((explosion) =>
+      sanitizeVector(explosion.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+    );
+    state.chainLightning?.forEach((chain) => {
+      sanitizeVector(chain.from, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(chain.to, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+    });
+    state.shockwaveRings?.forEach((ring) =>
+      sanitizeVector(ring.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+    );
+    state.bossProjectiles?.forEach((projectile) => {
+      sanitizeVector(projectile.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(projectile.velocity, 0, 0);
+    });
+    if (state.teleporter) {
+      sanitizeVector(state.teleporter.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+    }
+
+    if (state.boss) {
+      sanitizeVector(state.boss.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      if (state.boss.currentAttack?.targetPosition) {
+        sanitizeVector(
+          state.boss.currentAttack.targetPosition,
+          state.boss.position.x,
+          state.boss.position.y,
+        );
+      }
+      if (state.boss.currentAttack?.direction) {
+        sanitizeVector(state.boss.currentAttack.direction, 1, 0);
+      }
+      state.boss.portals?.forEach((portal) =>
+        sanitizeVector(portal.position, state.boss!.position.x, state.boss!.position.y),
+      );
+      state.boss.shieldGenerators?.forEach((generator) =>
+        sanitizeVector(generator.position, state.boss!.position.x, state.boss!.position.y),
+      );
+      state.boss.teslaBalls?.forEach((ball, index) => {
+        if (!Number.isFinite(ball.angle)) {
+          ball.angle = (Math.PI * 2 * index) / Math.max(1, state.boss!.teslaBalls?.length || 1);
+        }
+        if (!Number.isFinite(ball.radius)) ball.radius = MAGNUS_TESLA_BALL_BASE_RADIUS;
+      });
+    }
   }
 
   private updateToasterTurretDeployment(state: GameState, now: number) {
@@ -3631,96 +4617,38 @@ export class LocalGameEngine {
     if (state.isSandboxMode) return;
     if (state.isShopRound) return;
 
-    // If waiting for enemies to clear before starting hellhound round
-    if (state.waitingForHellhoundRound && state.enemies.length === 0) {
-      // Now increment to the hellhound wave and activate it
-      state.wave++;
-      state.waitingForHellhoundRound = false;
-      state.isHellhoundRound = true;
-      state.hellhoundRoundPending = false;
-      state.hellhoundsKilled = 0;
-      state.hellhoundRoundComplete = false;
-      state.hellhoundSpawnTimer = 0;
-      state.totalHellhoundsInRound = Math.min(
-        24,
-        8 + (state.wave - HELLHOUND_ROUND_START) * 2
-      );
-      this.waveTimer = 0;
-      state.waveTimer = 0;
-      return;
-    }
-
-    if (state.hellhoundRoundComplete) {
-      const alivePlayers = state.players.filter((p) => p.status === "alive");
-      if (alivePlayers.length > 0 && !state.levelingUpPlayerId) {
-        const player = alivePlayers[0];
-        const legendaryUpgrades = getRandomUpgrades(3, "legendary");
-        this.openUpgradePrompt(
-          player.id,
-          legendaryUpgrades.map((o) => ({
-            ...o,
-            id: uuidv4(),
-            source: "levelUp" as const,
-          }))
-        );
-      }
-
-      const playersWhoGotUpgrades = alivePlayers.filter((p) =>
-        p.collectedUpgrades?.some((u) => u.rarity === "legendary")
-      );
-
-      if (
-        playersWhoGotUpgrades.length === alivePlayers.length ||
-        !state.levelingUpPlayerId
-      ) {
-        state.isHellhoundRound = false;
-        state.hellhoundRoundComplete = false;
-        state.hellhoundsKilled = 0;
-        state.totalHellhoundsInRound = 0;
-        state.hellhoundRoundPending = false;
-        state.wave++;
-        this.waveTimer = 0;
-        state.waveTimer = 0;
-        // Shop immediately after hellhound rounds.
-        this.startShopRound(state);
+    if (state.currentEncounterType === "hellhound") {
+      if (state.hellhoundRoundComplete && !this.returnToMapAfterUpgrade) {
+        this.applyRunMapRewards(state, this.getCurrentNodeRewards(state));
+        const player = state.players.find((p) => p.status === "alive");
+        if (player) {
+          const legendaryUpgrades = getRandomUpgrades(3, "legendary");
+          this.openUpgradePrompt(
+            player.id,
+            legendaryUpgrades.map((option) => ({
+              ...option,
+              id: uuidv4(),
+              source: "levelUp" as const,
+            })),
+          );
+          this.returnToMapAfterUpgrade = true;
+        } else {
+          this.enterMapSelection(state);
+        }
       }
       return;
     }
 
-    // Don't update timer if waiting for hellhound round
-    if (!state.waitingForHellhoundRound) {
-      this.waveTimer += delta;
-      state.waveTimer = this.waveTimer; // Sync to game state for UI
+    if (state.currentEncounterType !== "combat") {
+      return;
     }
 
-    if (this.waveTimer >= WAVE_DURATION && !state.waitingForHellhoundRound) {
-      // Check if NEXT wave would be a hellhound round
-      const nextWave = state.wave + 1;
-      const isNextWaveHellhound =
-        nextWave >= HELLHOUND_ROUND_START &&
-        (nextWave - HELLHOUND_ROUND_START) % HELLHOUND_ROUND_INTERVAL === 0;
+    this.waveTimer += delta;
+    state.waveTimer = this.waveTimer;
 
-      // Check if NEXT wave would be a boss wave
-      const bossType = getBossForWave(nextWave);
-
-      if (bossType) {
-        // Pre-boss shop: enter shop first, then spawn boss when leaving.
-        this.waveTimer = 0;
-        state.waveTimer = 0;
-        this.startShopRound(state, bossType);
-        return;
-      } else if (isNextWaveHellhound) {
-        // Hellhound round - wait for enemies to clear before incrementing
-        state.waitingForHellhoundRound = true;
-        // Pause the timer
-        this.waveTimer = WAVE_DURATION;
-        state.waveTimer = WAVE_DURATION;
-      } else {
-        // Normal wave - increment immediately
-        state.wave++;
-        this.waveTimer = 0;
-        state.waveTimer = 0;
-      }
+    if (this.waveTimer >= WAVE_DURATION) {
+      this.applyRunMapRewards(state, this.getCurrentNodeRewards(state));
+      this.enterMapSelection(state);
     }
   }
 
@@ -3733,7 +4661,8 @@ export class LocalGameEngine {
 
     // Save stats when game ends
     if (
-      (previousStatus === "playing" || previousStatus === "bossDefeated") &&
+      previousStatus !== "gameOver" &&
+      previousStatus !== "won" &&
       (state.status === "gameOver" || state.status === "won")
     ) {
       this.saveGameStats(state);
@@ -3857,17 +4786,24 @@ export class LocalGameEngine {
 
     // Check if boss is defeated
     if (boss.health <= 0) {
+      const currentNode = this.getCurrentMapNode(state);
       this.enemiesKilledCount++;
       incrementBossDefeats();
       state.boss = null;
-      state.status = "bossDefeated";
-      state.bossDefeatedRewardClaimed = false;
-      // Spawn teleporter at center
-      state.teleporter = {
-        id: "teleporter",
-        position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
-        radius: 50,
-      };
+      if (state.currentEncounterType === "boss" && currentNode?.depth === 10) {
+        state.currentEncounterType = null;
+        state.status = "won";
+        this.saveGameStats(state);
+      } else {
+        state.status = "bossDefeated";
+        state.bossDefeatedRewardClaimed = false;
+        // Spawn teleporter at center
+        state.teleporter = {
+          id: "teleporter",
+          position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+          radius: 50,
+        };
+      }
     }
   }
 

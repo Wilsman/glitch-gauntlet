@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import { useGameStore } from "@/hooks/useGameStore";
 import GameCanvas from "@/components/GameCanvas";
 import type {
@@ -26,6 +27,7 @@ import { toast } from "@/components/ui/sonner";
 import { getCharacter } from "@shared/characterConfig";
 import { submitLeaderboardScore } from "@/lib/leaderboardApi";
 import { getPlayerName, getLastRunStats } from "@/lib/progressionStorage";
+import RunMapOverlay from "@/components/RunMapOverlay";
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -284,6 +286,38 @@ export default function GamePage() {
     isLocalMode,
   ]);
 
+  useEffect(() => {
+    if (!isLocalMode) return;
+
+    (window as typeof window & {
+      advanceTime?: (ms: number) => Promise<void>;
+      render_game_to_text?: () => string;
+    }).advanceTime = async (ms: number) => {
+      if (!localEngineRef.current) return;
+      localEngineRef.current.advanceTime(ms);
+      setGameState(localEngineRef.current.getGameState(), true);
+    };
+
+    (window as typeof window & {
+      advanceTime?: (ms: number) => Promise<void>;
+      render_game_to_text?: () => string;
+    }).render_game_to_text = () => {
+      if (!localEngineRef.current) return JSON.stringify({ mode: "loading" });
+      return localEngineRef.current.renderGameToText();
+    };
+
+    return () => {
+      delete (window as typeof window & {
+        advanceTime?: (ms: number) => Promise<void>;
+        render_game_to_text?: () => string;
+      }).advanceTime;
+      delete (window as typeof window & {
+        advanceTime?: (ms: number) => Promise<void>;
+        render_game_to_text?: () => string;
+      }).render_game_to_text;
+    };
+  }, [isLocalMode, setGameState]);
+
   const handleSelectUpgrade = async (upgradeId: string) => {
     if (!gameId || !localPlayerId) return;
 
@@ -337,6 +371,13 @@ export default function GamePage() {
     // Player chose to continue fighting
     if (isLocalMode && localEngineRef.current) {
       localEngineRef.current.continueAfterBoss();
+      setGameState(localEngineRef.current.getGameState(), true);
+    }
+  };
+
+  const handleSelectMapNode = (nodeId: string) => {
+    if (isLocalMode && localEngineRef.current) {
+      localEngineRef.current.selectMapNode(nodeId);
       setGameState(localEngineRef.current.getGameState(), true);
     }
   };
@@ -421,6 +462,21 @@ export default function GamePage() {
           localPlayerPet={localPlayerPet}
         />
       )}
+
+      <AnimatePresence mode="wait">
+        {isLocalMode &&
+          activeGameState?.status === "mapSelection" &&
+          activeGameState.runMap && (
+            <RunMapOverlay
+              key={`run-map-${activeGameState.mapDepth || 0}-${activeGameState.runMap.currentNodeId || "root"}`}
+              runMap={activeGameState.runMap}
+              currentDepth={activeGameState.mapDepth || 0}
+              threatTier={activeGameState.wave || 0}
+              onSelectNode={handleSelectMapNode}
+            />
+          )}
+      </AnimatePresence>
+
       <PlayerListPanel players={players} localPlayerId={localPlayerId || ""} />
 
       {isPaused && !isLocalPlayerLevelingUp && (

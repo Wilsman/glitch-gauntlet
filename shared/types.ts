@@ -624,7 +624,45 @@ export interface ScreenShake {
   startTime: number;
 }
 
-export type GameStatus = 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
+export type RunMapEncounterType = 'combat' | 'hellhound' | 'shop' | 'boss';
+export type RunMapRewardType =
+  | 'coins'
+  | 'heal'
+  | 'shopDiscount'
+  | 'shopStock'
+  | 'damageBoost';
+
+export interface RunMapReward {
+  type: RunMapRewardType;
+  value: number;
+  label: string;
+  description: string;
+  durationWaves?: number;
+}
+
+export interface RunMapNode {
+  id: string;
+  depth: number;
+  lane: number;
+  x: number;
+  y: number;
+  encounterType: RunMapEncounterType;
+  title?: string;
+  bossType?: BossType;
+  rewards?: RunMapReward[];
+  nextNodeIds: string[];
+}
+
+export interface RunMapState {
+  floorIndex: number;
+  nodes: RunMapNode[];
+  currentNodeId: string | null;
+  reachableNodeIds: string[];
+  revealedNodeIds: string[];
+  visitedNodeIds: string[];
+}
+
+export type GameStatus = 'mapSelection' | 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
 
 export interface LeaderboardEntry {
   id: number;
@@ -660,6 +698,9 @@ export interface LeaderboardResponse {
 export interface GameState {
   gameId: string;
   status: GameStatus;
+  runMap?: RunMapState | null;
+  currentEncounterType?: RunMapEncounterType | null;
+  mapDepth?: number;
   players: Player[];
   enemies: Enemy[];
   projectiles: Projectile[];
