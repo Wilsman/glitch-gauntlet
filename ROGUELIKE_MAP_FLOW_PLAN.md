@@ -1,286 +1,385 @@
 # Roguelike Map Flow Plan
 
-## Goal
+## Direction
 
-Replace the current auto-advancing wave ladder with a Slay-the-Spire-style route map that still uses the existing combat arena, neon HUD language, shops, hellhound rounds, and boss fights.
+Pivot the current route map away from a left-to-right lane graph and into a radial run map:
 
-The target run shape for the first pass:
+- the current character sits in a circular core at the center
+- 4 outward routes extend from that core
+- each route leads to its own boss
+- each route has internal split/rejoin decisions
+- routes stay distinct instead of collapsing into one shared late-game lane
 
-- One run floor = 10 map nodes.
-- Nodes 1-9 are route choices.
-- Node 10 is a single converged boss node.
-- Shop nodes are explicit path choices instead of guaranteed cadence breaks.
-- Hellhound nodes become explicit path choices around the middle of the floor instead of a fixed timer insertion.
+This is the recommended v1 shape because it gives the run map its own identity while still fitting the current local-mode engine and encounter systems.
 
-## Current Constraints
+## V1 Shape
 
-The live game does not have a separate encounter-map model yet. Progression is driven by:
+- 4 boss routes
+- 1 center hub
+- 6 rings from center to boss
+- 1 boss per route
+- 2 branch/rejoin moments inside each route
+- 1 guaranteed special pressure node per route
+- no cross-route bridge nodes in v1
 
-- `GameState.wave`
-- `status`
-- `isShopRound`
-- `isHellhoundRound`
-- `waitingForHellhoundRound`
-- `shopPendingBossType`
+Use the cardinal layout:
+
+- north route
+- east route
+- south route
+- west route
+
+Each route should read as a commitment to a boss destiny, not a loose network web.
+
+## Core Loop
+
+1. Run starts on the radial map.
+2. The center core shows the current character/run state.
+3. Player picks one of the 4 route-entry nodes.
+4. The run advances outward along that route.
+5. Internal route forks offer local tactical choices.
+6. The final boss node ends that route and the floor.
+
+The key difference from the current graph:
+
+- the important first choice is which boss route to pursue
+- later choices shape how that route plays
+- route identity is preserved all the way to the boss
+
+## Ring Structure
+
+### Ring 0: center core
+
+- large circular hub
+- contains current character portrait or full-body image
+- shows run status and route selection origin
+- not normally selectable after the run starts
+
+### Ring 1: route entry
+
+One node per route:
+
+- north-entry
+- east-entry
+- south-entry
+- west-entry
+
+Purpose:
+
+- early commitment to a boss path
+- clear read of the 4 available destinies
+
+Recommended node type:
+
+- `combat`
+
+### Ring 2: first fork
+
+Each route splits into two choices.
+
+Purpose:
+
+- establish local variation early
+- make route selection more than a straight line
+
+Recommended node mix:
+
+- `combat`
+- `combat` or `shop`
+
+### Ring 3: first pressure point
+
+The route rejoins or narrows into a single route-specific node.
+
+Purpose:
+
+- define the route's main identity
+- insert the route's guaranteed special node
+
+Recommended node mix by route:
+
+- one route gets `shop`
+- one route gets `hellhound`
+- one route gets `combat` with recovery rewards
+- one route gets `combat` with power rewards
+
+### Ring 4: second fork
+
+Each route splits again into two choices.
+
+Purpose:
+
+- give the player one more way to shape the route
+- let the route hint at boss preparation
+
+Recommended node mix:
+
+- `combat`
+- `shop` or `combat`
+
+### Ring 5: pre-boss prep
+
+The route narrows back into one node before the boss.
+
+Purpose:
+
+- final readable prep step
+- communicate "boss next"
+
+Recommended node mix:
+
+- `combat`
+- occasionally `shop` on economy-leaning routes
+
+### Ring 6: boss
+
+One boss node per route:
+
+- north-boss
+- east-boss
+- south-boss
+- west-boss
+
+Purpose:
+
+- every route has a known destination
+- the boss is visible from the start
+
+Recommended node type:
+
 - `boss`
 
-The main hardcoded progression logic lives in `src/lib/LocalGameEngine.ts`:
+## Route Identities
 
-- `startShopRound()` / `endShopRound()`
-- `updateWaves()`
-- boss defeat -> `bossDefeated`
-- `continueAfterBoss()` / `extract()`
+Each route needs mechanical identity, not just a different boss at the end.
 
-This means the rework is not just UI. The engine currently decides the next encounter from timer math, not from a chosen node.
+### North route: economy/control
 
-## Recommended Structure
+- higher chance of shop access
+- reward bias toward coins, discounts, and stock
+- boss should feel methodical or control-heavy
 
-### 1. Separate map depth from combat difficulty
+### East route: aggression/power
 
-This is the main architecture choice.
+- higher pressure combat nodes
+- reward bias toward damage and tempo
+- boss should feel berserker or brute-force oriented
 
-Recommended:
+### South route: sustain/recovery
 
-- `mapDepth`: 1-10, counts every node on the route, including shop nodes.
-- `combatTier`: counts only combat encounters and boss escalation.
+- safer node pattern
+- reward bias toward healing and survival
+- boss should feel attritional or endurance-based
 
-Why:
+### West route: hellhound/high risk
 
-- The user-visible map should treat shop nodes as real path nodes.
-- Enemy and boss scaling should not increase just because the player visited a shop.
-- Existing unlocks and progression storage are tied to `wave`/highest-wave semantics, so we should keep one hidden difficulty counter instead of overloading map depth.
+- guaranteed hellhound pressure point
+- reward bias toward high-value power payouts
+- boss should feel volatile or punishing
 
-Practical first-pass mapping:
+These route identities are important because they make the map itself part of the build and survival strategy.
 
-- Keep `wave` as the hidden combat tier for scaling/unlocks.
-- Add `mapDepth` for route position and UI.
+## Boss Assignment Rule
 
-### 2. Add an explicit run-map state
+In v1, each route owns exactly one boss.
 
-Add a small run-map model to `GameState`, something like:
+Recommended approach:
 
-- `mapState`
-- `mapDepth`
-- `currentNodeId`
-- `availableNextNodeIds`
-- `selectedNodeId`
-- `currentEncounterType`
-- `floorIndex`
+- preassign one boss to each route when the floor is generated
+- show the boss icon and name from the start
+- keep boss assignment fixed for the entire run
 
-Add a new game status:
+Good v2 extension:
 
-- `mapSelection`
+- rotate route-to-boss pairings between floors/acts
 
-Flow:
+## Node Type Rules
 
-1. Run starts on the map.
-2. Player selects a reachable node.
-3. Engine resolves that node into combat/shop/hellhound/boss.
-4. On completion, return to `mapSelection` unless the run is over.
-
-## Node Types
-
-MVP node types:
+Keep the node type set small in v1:
 
 - `combat`
 - `hellhound`
 - `shop`
 - `boss`
 
-Good v2 candidates once the core loop works:
-
-- `treasure`
-- `rest`
-- `elite`
-- `event`
-
-Recommendation for the first playable version: do not add rest/treasure yet. The current game already has enough moving parts; combat/shop/hellhound/boss is enough to prove the map loop.
-
-## Floor Layout Proposal
-
-### Shape
-
-- 3 start nodes at depth 1.
-- 3-4 active lanes across depths 2-9.
-- Frequent merges and splits so route choice matters without creating dead space.
-- All lanes converge into one boss node at depth 10.
-
-### Encounter distribution
-
-Suggested guarantees for one 10-node floor:
-
-- Depths 1-4: mostly combat.
-- Depth 5: hellhound pressure point on most routes.
-- Depths 6-8: mixed combat and shop access.
-- Depth 9: final prep node, usually combat or shop.
-- Depth 10: boss.
-
-Concrete first-pass rule set:
-
-- Exactly 1 boss node at depth 10.
-- At least 1 shop node somewhere in depths 6-9.
-- Prefer 2 shop nodes total across the graph, but do not guarantee access to both.
-- At depth 5, generate 2 hellhound nodes and 1 standard combat node when possible.
-- Guarantee at least one safe route that skips hellhound.
-- Guarantee at least one high-risk route that can hit hellhound and a later shop.
-
-This gives the player actual routing tension:
-
-- safer route
-- richer route
-- risk-then-recover route
-
-## Visual Direction
-
-Do not copy the parchment look directly. Keep this repo's neon/glitch identity.
-
-Recommended presentation:
-
-- Dark holographic network map over the existing black/neon palette.
-- Nodes as glowing chips with strong icon silhouettes.
-- Dashed connection lines with scanline flicker and small routing pulses.
-- Unknown future nodes can stay partially obfuscated until reachable.
-- The boss node should look oversized and unstable, like a corrupted system core.
-
-Node icon language:
-
-- `combat`: crossed reticle / enemy glyph
-- `hellhound`: red canine/skull mark
-- `shop`: coin or stand icon
-- `boss`: oversized hazard/core icon
-
-## UX Flow
-
-### Between encounters
-
-After an encounter ends:
-
-- freeze arena action
-- open map overlay
-- highlight reachable next nodes only
-- allow mouse hover + click
-- allow gamepad/keyboard selection
-
-### Shops
-
-Keep the existing in-arena stand shop for now.
+Do not add event/rest/treasure nodes yet.
 
 Reason:
 
-- the game already has working world-space shop stands
-- the shop node can feel distinct without inventing a second shop UI system
-- this keeps scope under control
+- the encounter systems already exist for combat/shop/hellhound/boss
+- route shape is the new feature we need to prove first
+- extra node classes would add content debt before the new map loop is stable
 
-So the player chooses a `shop` node on the map, then loads into the existing shop-round stand scene.
+## Generator Rules
 
-### Hellhound nodes
+The current map generator thinks in left-to-right `depth` plus lane positions.
 
-Treat them as explicit encounter cards on the map, not surprise timer events.
+The radial version should think in:
 
-That means:
+- `arm`
+- `ring`
+- `slot`
 
-- no `waitingForHellhoundRound`
-- no fixed every-10-wave hellhound scheduler
-- hellhound route value is legible before the player commits
+Recommended mental model:
 
-## Engine Refactor Plan
+- `arm`: north, east, south, west
+- `ring`: 1 through 6
+- `slot`: inner branch position within a ring for split nodes
 
-### Phase 1: state model
+Keep the shared `RunMapNode` model for v1, but generate radial coordinates instead of ladder coordinates.
 
-- Add map-related types to `shared/types.ts`.
-- Add `mapSelection` status.
-- Generate one floor graph at run start.
-- Track `mapDepth` and selected node.
+Practical implementation:
 
-### Phase 2: encounter resolution
+- keep `depth` as the logical outward progression step
+- reinterpret `depth` as ring index for the overlay
+- keep `nextNodeIds` exactly as they work now
+- replace lane-based coordinate generation with polar coordinate generation
 
-- Replace `updateWaves()` as the source of "what comes next".
-- Keep wave timer only inside active combat encounters.
-- Start encounters from node type:
-  - combat -> normal enemy wave
-  - hellhound -> hellhound encounter
-  - shop -> existing shop round
-  - boss -> boss encounter
+So the engine contract stays mostly the same while the visual topology changes completely.
 
-### Phase 3: completion handling
+## Recommended Route Topology
 
-- Combat complete -> return to map.
-- Hellhound complete -> return to map, optionally with legendary reward.
-- Shop leave -> return to map, not auto-spawn boss unless the chosen node was boss.
-- Boss complete -> floor clear or extraction choice.
+Each route should follow this pattern:
 
-### Phase 4: UI
+- ring 1: single entry node
+- ring 2: two-node split
+- ring 3: one-node rejoin
+- ring 4: two-node split
+- ring 5: one-node pre-boss rejoin
+- ring 6: boss
 
-- Add `MapOverlay` or `RunMapOverlay`.
-- Update HUD to show both:
-  - floor depth (`NODE 4/10`)
-  - combat tier/wave (`THREAT 3`)
-- Remove assumptions that the next state is always "another timed wave".
+That gives 8 nodes per route including the boss.
 
-## Systems That Need Attention
+Across 4 routes plus the center core, the map reads as:
 
-### 1. Difficulty scaling
+- 1 center core
+- 4 route entries
+- 8 ring-2 split nodes
+- 4 ring-3 special nodes
+- 8 ring-4 split nodes
+- 4 ring-5 prep nodes
+- 4 bosses
 
-Current scaling depends on `wave`.
+Total visible structure:
 
-Recommendation:
+- 33 map elements if the center core is counted visually
 
-- Keep `wave` as combat difficulty for MVP.
-- Only increment it on combat and boss nodes.
-- Do not increment it on shop nodes.
+This is dense enough to feel interesting, but still readable.
 
-### 2. Unlocks and meta progression
+## UI Layout Rules
 
-Current progression storage tracks:
+### Center core
 
-- `highestWaveReached`
-- unlocks keyed off wave thresholds
+- oversized circular frame
+- player portrait or standing character in the center
+- subtle motion or ambient energy pulse
+- route sockets around the edge of the circle
 
-Recommendation:
+### Routes
 
-- Leave this intact in MVP by keeping `wave` as the hidden combat tier.
-- Add map-depth tracking later if we want new unlocks tied to route progress.
+- routes radiate evenly from the center
+- each route has its own subtle color accent
+- route lines should highlight continuously from hovered node back to the center and forward toward the boss
 
-### 3. Boss flow
+### Nodes
 
-Current boss flow assumes:
+- small icon-first nodes
+- hoverable even when not currently reachable
+- full details shown in the side panel
+- reachable nodes brighter and more reactive
+- bosses visibly larger than regular nodes
 
-- boss defeat -> teleporter -> extract or continue
+### Side panel
 
-For the map version:
+Keep the current inspect panel concept.
 
-- depth-10 boss clears the floor
-- if we only have one floor for MVP, boss defeat can still end in extract/win
-- if we want multi-floor runs later, `continue` should advance to the next generated floor instead of `wave++`
+It should show:
 
-## MVP Recommendation
+- node type
+- route name
+- boss destination
+- ring index
+- rewards
 
-Build the smallest convincing version first:
+### Animation
 
-1. One 10-node floor.
-2. Node types limited to combat, hellhound, shop, boss.
-3. Existing arena combat unchanged.
-4. Existing shop stands reused.
-5. Boss at node 10 ends the run for v1.
+Recommended motion:
 
-This gets the routing fantasy into the game fast without rewriting every system at once.
+- map opens with the center core first
+- routes extend outward from the center
+- hovering a route brightens that whole arm
+- selecting a node sends a pulse from the center into that route
 
-## Open Decisions
+## UX Rules
 
-These are the main design calls still worth settling before implementation:
+### Readability
 
-1. Should every run guarantee at least one shop path and one no-shop greedy path?
-2. Should hellhound nodes always appear at depth 5, or be allowed at depths 4-6 with weighted generation?
-3. After the depth-10 boss, do we want:
-   - immediate win/extract only, or
-   - a second floor/act option?
-4. Do we want node types to be fully visible from the start, or should non-adjacent nodes stay unknown?
+The player should immediately understand:
 
-## Suggested Build Order
+- where they are
+- which route leads to which boss
+- which nodes are reachable now
+- what kind of risk/reward identity each route has
 
-1. Add map state/types and a static generated 10-node floor.
-2. Add a simple route-select overlay with placeholder nodes.
-3. Route selected nodes into existing combat/shop/boss engine flows.
-4. Remove hardcoded auto-advance cadence from `updateWaves()`.
-5. Rework HUD text from wave-only to map-depth + threat-tier.
-6. Tune graph generation and rewards after the loop is playable.
+### Interactivity
+
+- all nodes inspectable on hover
+- only reachable nodes selectable
+- route highlight should make hover state obvious
+- boss destination should be visible from every node on that route
+
+## Implementation Plan
+
+### Phase 1: plan the radial topology
+
+- lock the 4 route identities
+- lock boss assignments
+- define exact node patterns for each ring
+
+### Phase 2: update generator
+
+- replace the current lane graph template with 4 radial route templates
+- generate `x/y` positions from polar coordinates
+- preserve `nextNodeIds`-based traversal
+
+### Phase 3: update overlay
+
+- render center core separately from normal nodes
+- draw radial routes from the core to each arm
+- update hover highlighting so whole arms light up
+
+### Phase 4: route identity polish
+
+- add route labels or route summary text
+- bias rewards by route identity
+- bias special-node placement by route identity
+
+## Explicit V1 Decisions
+
+- use 4 routes, not 5
+- no bridge nodes between routes in v1
+- 1 boss per route
+- all bosses visible from the start
+- all node types visible from the start
+- center hub is visual and informational, not a repeat-select node
+- boss defeat ends the run for v1
+
+## V2 Candidates
+
+Once the radial map is stable, good next additions are:
+
+- neighbor-route bridge nodes between rings 3 and 4
+- second floor/act after boss clear
+- route-specific event nodes
+- route-specific mini-elites
+- dynamic route corruption or map hazards
+
+## Success Criteria
+
+The radial pivot is successful if:
+
+- the map no longer reads like a generic horizontal graph
+- the player can choose a boss route intentionally at a glance
+- each route feels mechanically distinct
+- the route still contains meaningful local choices
+- the existing combat/shop/hellhound/boss systems plug into it without a full engine rewrite

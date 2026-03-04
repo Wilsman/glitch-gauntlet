@@ -625,6 +625,7 @@ export interface ScreenShake {
 }
 
 export type RunMapEncounterType = 'combat' | 'hellhound' | 'shop' | 'boss';
+export type RunMapRouteId = 'north' | 'east' | 'south' | 'west';
 export type RunMapRewardType =
   | 'coins'
   | 'heal'
@@ -644,6 +645,7 @@ export interface RunMapNode {
   id: string;
   depth: number;
   lane: number;
+  routeId: RunMapRouteId;
   x: number;
   y: number;
   encounterType: RunMapEncounterType;

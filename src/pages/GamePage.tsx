@@ -473,6 +473,8 @@ export default function GamePage() {
               currentDepth={activeGameState.mapDepth || 0}
               threatTier={activeGameState.wave || 0}
               onSelectNode={handleSelectMapNode}
+              localPlayerName={localPlayer?.name || null}
+              localPlayerCharacterType={localPlayer?.characterType || null}
             />
           )}
       </AnimatePresence>

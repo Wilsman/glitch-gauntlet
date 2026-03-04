@@ -1,21 +1,14 @@
-import {
-  BaseEdge,
-  Position,
-  ReactFlow,
-  getSmoothStepPath,
-  type Edge,
-  type EdgeProps,
-  type Node,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
 import { motion } from "framer-motion";
 import { Crown, Crosshair, PawPrint, ShoppingBag } from "lucide-react";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { getCharacter } from "@shared/characterConfig";
 import type {
   BossType,
+  CharacterType,
   RunMapEncounterType,
   RunMapNode,
   RunMapReward,
+  RunMapRouteId,
   RunMapState,
 } from "@shared/types";
 
@@ -24,10 +17,48 @@ interface RunMapOverlayProps {
   currentDepth: number;
   threatTier: number;
   onSelectNode: (nodeId: string) => void;
+  localPlayerName?: string | null;
+  localPlayerCharacterType?: CharacterType | null;
 }
 
-type MapEdgeData = {
-  active: boolean;
+type RouteMeta = {
+  label: string;
+  tag: string;
+  glow: string;
+  stroke: string;
+  coreGlow: string;
+};
+
+const ROUTE_ORDER: RunMapRouteId[] = ["north", "east", "south", "west"];
+const ROUTE_META: Record<RunMapRouteId, RouteMeta> = {
+  north: {
+    label: "Broker Spoke",
+    tag: "NORTH",
+    glow: "rgba(250,204,21,0.38)",
+    stroke: "rgba(250,204,21,0.8)",
+    coreGlow: "shadow-[0_0_34px_rgba(250,204,21,0.18)]",
+  },
+  east: {
+    label: "War Spoke",
+    tag: "EAST",
+    glow: "rgba(34,211,238,0.38)",
+    stroke: "rgba(34,211,238,0.8)",
+    coreGlow: "shadow-[0_0_34px_rgba(34,211,238,0.18)]",
+  },
+  south: {
+    label: "Recovery Spoke",
+    tag: "SOUTH",
+    glow: "rgba(52,211,153,0.36)",
+    stroke: "rgba(52,211,153,0.8)",
+    coreGlow: "shadow-[0_0_34px_rgba(52,211,153,0.16)]",
+  },
+  west: {
+    label: "Hunt Spoke",
+    tag: "WEST",
+    glow: "rgba(248,113,113,0.36)",
+    stroke: "rgba(248,113,113,0.82)",
+    coreGlow: "shadow-[0_0_34px_rgba(248,113,113,0.16)]",
+  },
 };
 
 const ENCOUNTER_STYLES: Record<
@@ -45,7 +76,7 @@ const ENCOUNTER_STYLES: Record<
     Icon: Crosshair,
     label: "COMBAT",
     ring: "border-cyan-400/70 bg-cyan-500/12",
-    glow: "shadow-[0_0_26px_rgba(34,211,238,0.22)]",
+    glow: "shadow-[0_0_22px_rgba(34,211,238,0.18)]",
     text: "text-cyan-200",
     chip: "border-cyan-400/45 bg-cyan-500/10 text-cyan-100",
   },
@@ -53,7 +84,7 @@ const ENCOUNTER_STYLES: Record<
     Icon: PawPrint,
     label: "HELLHOUND",
     ring: "border-red-400/80 bg-red-500/12",
-    glow: "shadow-[0_0_28px_rgba(248,113,113,0.24)]",
+    glow: "shadow-[0_0_24px_rgba(248,113,113,0.2)]",
     text: "text-red-200",
     chip: "border-red-400/45 bg-red-500/10 text-red-100",
   },
@@ -61,7 +92,7 @@ const ENCOUNTER_STYLES: Record<
     Icon: ShoppingBag,
     label: "SHOP",
     ring: "border-yellow-300/80 bg-yellow-400/12",
-    glow: "shadow-[0_0_28px_rgba(250,204,21,0.24)]",
+    glow: "shadow-[0_0_24px_rgba(250,204,21,0.2)]",
     text: "text-yellow-100",
     chip: "border-yellow-300/40 bg-yellow-400/10 text-yellow-100",
   },
@@ -69,7 +100,7 @@ const ENCOUNTER_STYLES: Record<
     Icon: Crown,
     label: "BOSS",
     ring: "border-fuchsia-400/85 bg-fuchsia-500/14",
-    glow: "shadow-[0_0_30px_rgba(217,70,239,0.28)]",
+    glow: "shadow-[0_0_28px_rgba(217,70,239,0.22)]",
     text: "text-fuchsia-100",
     chip: "border-fuchsia-400/45 bg-fuchsia-500/10 text-fuchsia-100",
   },
@@ -102,7 +133,10 @@ function getNodeStyle(node: RunMapNode) {
 function getBossChoices(nodes: RunMapNode[]) {
   return nodes
     .filter((node) => node.encounterType === "boss" && node.bossType)
-    .sort((a, b) => a.y - b.y);
+    .sort(
+      (a, b) =>
+        ROUTE_ORDER.indexOf(a.routeId) - ROUTE_ORDER.indexOf(b.routeId),
+    );
 }
 
 function renderRewardChip(reward: RunMapReward) {
@@ -118,29 +152,43 @@ function renderRewardChip(reward: RunMapReward) {
   );
 }
 
+function buildCurvePath(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  center: { x: number; y: number },
+) {
+  const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+  const pull = 0.14;
+  const control = {
+    x: midpoint.x + (center.x - midpoint.x) * pull,
+    y: midpoint.y + (center.y - midpoint.y) * pull,
+  };
+  return `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
+}
+
 function renderMapNodeButton({
   runNode,
   selectable,
   visited,
   current,
-  onSelectNode,
-  onHoverNode,
   left,
   top,
+  onSelectNode,
+  onHoverNode,
 }: {
   runNode: RunMapNode;
   selectable: boolean;
   visited: boolean;
   current: boolean;
-  onSelectNode: (nodeId: string) => void;
-  onHoverNode: (nodeId: string | null) => void;
   left: number;
   top: number;
+  onSelectNode: (nodeId: string) => void;
+  onHoverNode: (nodeId: string | null) => void;
 }) {
   const style = getNodeStyle(runNode);
-  const isBoss = runNode.encounterType === "boss";
   const Icon = style.Icon;
-  const size = isBoss ? 86 : 74;
+  const isBoss = runNode.encounterType === "boss";
+  const size = isBoss ? 82 : 62;
 
   return (
     <button
@@ -152,25 +200,25 @@ function renderMapNodeButton({
         if (!selectable) return;
         onSelectNode(runNode.id);
       }}
-      data-map-node-id={runNode.id}
-      data-map-node-depth={runNode.depth}
-      data-map-node-type={runNode.encounterType}
-      data-map-node-selectable={selectable ? "true" : "false"}
-      data-map-node-rewards={(runNode.rewards || []).map((reward) => reward.type).join(",")}
       onMouseEnter={() => onHoverNode(runNode.id)}
       onMouseLeave={() => onHoverNode(null)}
       onFocus={() => onHoverNode(runNode.id)}
       onBlur={() => onHoverNode(null)}
+      data-map-node-id={runNode.id}
+      data-map-node-depth={runNode.depth}
+      data-map-node-type={runNode.encounterType}
+      data-map-node-route={runNode.routeId}
+      data-map-node-selectable={selectable ? "true" : "false"}
       className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border transition-all duration-200 ${
         style.ring
       } ${style.glow} ${
         selectable
-          ? "cursor-pointer hover:scale-[1.05] hover:border-white/80 hover:bg-white/10"
+          ? "cursor-pointer hover:scale-[1.06] hover:border-white/80 hover:bg-white/10"
           : visited
             ? "cursor-help opacity-95 hover:scale-[1.03] hover:border-white/45 hover:bg-white/6"
-            : "cursor-help opacity-70 hover:scale-[1.03] hover:border-white/45 hover:bg-white/6"
+            : "cursor-help opacity-72 hover:scale-[1.03] hover:border-white/45 hover:bg-white/6"
       } ${current ? "ring-2 ring-yellow-300/80 ring-offset-2 ring-offset-transparent" : ""} ${
-        isBoss ? "rounded-[26px]" : ""
+        isBoss ? "rounded-[24px]" : ""
       }`}
       style={{
         left,
@@ -180,87 +228,39 @@ function renderMapNodeButton({
       }}
     >
       <div className="flex h-full w-full flex-col items-center justify-center">
-        <Icon className={`h-7 w-7 ${style.text}`} strokeWidth={2.1} />
-        <div className="mt-2 font-press-start text-[9px] tracking-[0.18em] text-white/72">
-          {isBoss ? "BOSS" : `D${runNode.depth}`}
+        <Icon className={`h-6 w-6 ${style.text}`} strokeWidth={2.1} />
+        <div className="mt-1 font-press-start text-[8px] tracking-[0.16em] text-white/68">
+          {isBoss ? "BOSS" : `R${runNode.depth}`}
         </div>
       </div>
     </button>
   );
 }
 
-function MapRouteEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  data,
-}: EdgeProps<Edge<MapEdgeData>>) {
-  const [edgePath] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 22,
-    offset: 18,
-  });
-  const active = !!data?.active;
-
-  return (
-    <>
-      <path
-        d={edgePath}
-        fill="none"
-        stroke={active ? "rgba(140,245,255,0.14)" : "rgba(90,130,160,0.08)"}
-        strokeWidth={active ? 4 : 2.5}
-        strokeLinecap="round"
-      />
-      <BaseEdge
-        id={id}
-        path={edgePath}
-        style={{
-          stroke: active ? "rgba(142,245,255,0.88)" : "rgba(106,154,194,0.5)",
-          strokeWidth: active ? 2.1 : 1.6,
-          strokeLinecap: "round",
-          strokeDasharray: active ? "1 8" : "1 10",
-        }}
-      />
-    </>
-  );
-}
-
-const edgeTypes = {
-  routeEdge: MapRouteEdge,
-};
-
 export default function RunMapOverlay({
   runMap,
   currentDepth,
   threatTier,
   onSelectNode,
+  localPlayerName = null,
+  localPlayerCharacterType = null,
 }: RunMapOverlayProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const nodesById = new Map(runMap.nodes.map((node) => [node.id, node]));
+  const nodesById = useMemo(
+    () => new Map(runMap.nodes.map((node) => [node.id, node])),
+    [runMap.nodes],
+  );
   const reachableNodeIds = new Set(runMap.reachableNodeIds);
   const visitedNodeIds = new Set(runMap.visitedNodeIds);
+  const reachableRouteIds = new Set(
+    runMap.nodes
+      .filter((node) => reachableNodeIds.has(node.id))
+      .map((node) => node.routeId),
+  );
   const currentNode = runMap.currentNodeId
     ? nodesById.get(runMap.currentNodeId) || null
     : null;
   const hoveredNode = hoveredNodeId ? nodesById.get(hoveredNodeId) || null : null;
-  const maxDepth = runMap.nodes.reduce((max, node) => Math.max(max, node.depth), 0);
-  const bossChoices = getBossChoices(runMap.nodes);
-  const bossSummary = bossChoices
-    .map((bossNode, index) =>
-      `${index === 0 ? "Upper" : "Lower"} boss: ${
-        bossNode.bossType ? formatBossType(bossNode.bossType) : bossNode.title
-      }`,
-    )
-    .join("   |   ");
   const highlightedNode =
     hoveredNode ||
     currentNode ||
@@ -268,6 +268,29 @@ export default function RunMapOverlay({
     runMap.nodes[0] ||
     null;
   const activeLegendType = hoveredNode?.encounterType || null;
+  const emphasizedRouteId = hoveredNode?.routeId || null;
+  const maxDepth = runMap.nodes.reduce((max, node) => Math.max(max, node.depth), 0);
+  const bossChoices = getBossChoices(runMap.nodes);
+  const routeBossById = new Map(
+    bossChoices.map((node) => [node.routeId, node]),
+  );
+  const bossSummary = bossChoices
+    .map((bossNode) => {
+      const routeMeta = ROUTE_META[bossNode.routeId];
+      return `${routeMeta.tag}: ${
+        bossNode.bossType ? formatBossType(bossNode.bossType) : bossNode.title
+      }`;
+    })
+    .join("   |   ");
+  const highlightedRouteMeta = highlightedNode
+    ? ROUTE_META[highlightedNode.routeId]
+    : null;
+  const highlightedBoss = highlightedNode
+    ? routeBossById.get(highlightedNode.routeId) || null
+    : null;
+  const character = localPlayerCharacterType
+    ? getCharacter(localPlayerCharacterType)
+    : null;
 
   useEffect(() => {
     if (hoveredNodeId && !nodesById.has(hoveredNodeId)) {
@@ -275,66 +298,61 @@ export default function RunMapOverlay({
     }
   }, [hoveredNodeId, nodesById]);
 
-  const nodeXValues = runMap.nodes.map((node) => node.x);
-  const nodeYValues = runMap.nodes.map((node) => node.y);
-  const minX = Math.min(...nodeXValues);
-  const maxX = Math.max(...nodeXValues);
-  const minY = Math.min(...nodeYValues);
-  const maxY = Math.max(...nodeYValues);
-  const graphLeftInset = 210;
-  const graphWidth = 980;
-  const normalizeX = (value: number) => {
-    if (maxX === minX) return graphLeftInset + graphWidth / 2;
-    return graphLeftInset + ((value - minX) / (maxX - minX)) * graphWidth;
-  };
-  const normalizeY = (value: number) => {
-    if (maxY === minY) return 290;
-    return 110 + ((value - minY) / (maxY - minY)) * 430;
-  };
-
-  const flowNodes: Node[] = runMap.nodes.map((node) => ({
-    id: node.id,
-    position: {
-      x: normalizeX(node.x),
-      y: normalizeY(node.y),
-    },
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
-    draggable: false,
-    selectable: false,
-    style: {
-      width: 1,
-      height: 1,
-      opacity: 0,
-      pointerEvents: "none",
-      background: "transparent",
-      border: "none",
-    },
-  }));
-
-  const flowEdges: Edge<MapEdgeData>[] = runMap.nodes.flatMap((node) =>
-    node.nextNodeIds
-      .map((nextNodeId) => {
-        const nextNode = nodesById.get(nextNodeId);
-        if (!nextNode) return null;
-
-        const isRouteActive =
-          reachableNodeIds.has(nextNode.id) ||
-          (currentNode?.id === node.id && nextNode.depth === node.depth + 1);
-
-        return {
-          id: `${node.id}-${nextNode.id}`,
-          source: node.id,
-          target: nextNode.id,
-          type: "routeEdge",
-          selectable: false,
-          data: {
-            active: isRouteActive,
-          },
-        } satisfies Edge<MapEdgeData>;
-      })
-      .filter((edge): edge is Edge<MapEdgeData> => edge !== null),
+  const maxAbsX = Math.max(
+    1,
+    ...runMap.nodes.map((node) => Math.abs(node.x)),
   );
+  const maxAbsY = Math.max(
+    1,
+    ...runMap.nodes.map((node) => Math.abs(node.y)),
+  );
+  // center the graphCenter screenwidth/2, screenheight/2
+  const graphCenter = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  const graphHalfWidth = window.innerWidth * 0.35;
+  const graphHalfHeight = window.innerHeight * 0.35;
+  const normalizePoint = (x: number, y: number) => ({
+    x: graphCenter.x + (x / maxAbsX) * graphHalfWidth,
+    y: graphCenter.y + (y / maxAbsY) * graphHalfHeight,
+  });
+
+  const nodeScreenPositions = new Map(
+    runMap.nodes.map((node) => [
+      node.id,
+      normalizePoint(node.x, node.y),
+    ]),
+  );
+  const entryNodes = runMap.nodes.filter((node) => node.depth === 1);
+  const edgeSegments = [
+    ...entryNodes.map((node) => ({
+      id: `core-${node.id}`,
+      routeId: node.routeId,
+      source: graphCenter,
+      target: nodeScreenPositions.get(node.id) || graphCenter,
+    })),
+    ...runMap.nodes.flatMap((node) =>
+      node.nextNodeIds
+        .map((nextNodeId) => {
+          const targetNode = nodesById.get(nextNodeId);
+          if (!targetNode) return null;
+          return {
+            id: `${node.id}-${targetNode.id}`,
+            routeId: node.routeId,
+            source: nodeScreenPositions.get(node.id) || graphCenter,
+            target: nodeScreenPositions.get(targetNode.id) || graphCenter,
+          };
+        })
+        .filter(
+          (
+            edge,
+          ): edge is {
+            id: string;
+            routeId: RunMapRouteId;
+            source: { x: number; y: number };
+            target: { x: number; y: number };
+          } => edge !== null,
+        ),
+    ),
+  ];
 
   return (
     <motion.div
@@ -364,13 +382,13 @@ export default function RunMapOverlay({
         exit={{ opacity: 0, y: -14 }}
         transition={{ duration: 0.28, delay: 0.04 }}
       >
-        <div className="max-w-[54%]">
+        <div className="max-w-[58%]">
           <div className="font-press-start text-[18px] text-white">SYSTEM ROUTE MAP</div>
           <div className="mt-2 font-vt323 text-[22px] uppercase tracking-[0.24em] text-cyan-200/90">
-            Choose the next node
+            Choose a boss arm
           </div>
           <div className="mt-2 font-vt323 text-[18px] text-white/60">
-            Commit early, merge for pressure or recovery, then route into the boss you want.
+            Commit from the core, fork inside the route, then break the boss at the edge.
           </div>
           {bossSummary && (
             <div className="mt-2 font-vt323 text-[18px] text-fuchsia-100/75">
@@ -378,13 +396,13 @@ export default function RunMapOverlay({
             </div>
           )}
           <div className="mt-2 font-vt323 text-[18px] text-cyan-100/55">
-            Floor rolls, reward tags, and boss prep sequences are seeded per run.
+            Every arm is visible from the start. Hover any node to inspect its entire route.
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 text-right">
           <div className="rounded-xl border border-cyan-400/35 bg-black/45 px-4 py-3">
-            <div className="font-press-start text-[10px] text-cyan-300/80">NODE</div>
+            <div className="font-press-start text-[10px] text-cyan-300/80">RING</div>
             <div className="mt-2 font-press-start text-[18px] text-white">
               {currentDepth}/{maxDepth}
             </div>
@@ -405,45 +423,90 @@ export default function RunMapOverlay({
         exit={{ opacity: 0, y: 10 }}
         transition={{ duration: 0.32, delay: 0.08 }}
       >
-        <div className="absolute inset-0 pr-[270px] [&_.react-flow]:bg-transparent [&_.react-flow__attribution]:hidden [&_.react-flow__edge-path]:transition-all [&_.react-flow__node]:pointer-events-none [&_.react-flow__nodes]:pointer-events-none [&_.react-flow__pane]:hidden [&_.react-flow__viewport]:pointer-events-none">
-          <ReactFlow
-            nodes={flowNodes}
-            edges={flowEdges}
-            edgeTypes={edgeTypes}
-            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-            minZoom={1}
-            maxZoom={1}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable={false}
-            panOnDrag={false}
-            panOnScroll={false}
-            zoomOnScroll={false}
-            zoomOnDoubleClick={false}
-            zoomOnPinch={false}
-            preventScrolling={false}
-            edgesFocusable={false}
-            nodesFocusable={false}
-            proOptions={{ hideAttribution: true }}
-          />
-        </div>
+        <svg className="absolute inset-0 z-[1] pr-[270px]" width="100%" height="100%">
+          {edgeSegments.map((edge) => {
+            const routeMeta = ROUTE_META[edge.routeId];
+            const isEmphasized = emphasizedRouteId === edge.routeId;
+            const isReachableRoute = reachableRouteIds.has(edge.routeId);
+            const isCurrentRoute = currentNode?.routeId === edge.routeId;
+            const active = isEmphasized || isCurrentRoute;
+            const path = buildCurvePath(edge.source, edge.target, graphCenter);
+
+            return (
+              <g key={edge.id}>
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={active ? routeMeta.glow : "rgba(90,130,160,0.08)"}
+                  strokeWidth={active ? 10 : isReachableRoute ? 6 : 4}
+                  strokeLinecap="round"
+                />
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={
+                    active
+                      ? routeMeta.stroke
+                      : isReachableRoute
+                        ? "rgba(142,245,255,0.72)"
+                        : "rgba(106,154,194,0.42)"
+                  }
+                  strokeWidth={active ? 2.7 : isReachableRoute ? 2.1 : 1.5}
+                  strokeLinecap="round"
+                  strokeDasharray={active ? "2 8" : "1 10"}
+                />
+              </g>
+            );
+          })}
+        </svg>
 
         <div className="absolute inset-0 z-[2] pr-[270px]">
-          {runMap.nodes.map((node) =>
-            renderMapNodeButton({
+          <motion.div
+            className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/35 bg-black/70 p-3 text-center ${highlightedRouteMeta?.coreGlow || "shadow-[0_0_28px_rgba(34,211,238,0.12)]"}`}
+            style={{
+              left: graphCenter.x,
+              top: graphCenter.y,
+              width: 170,
+              height: 170,
+            }}
+            animate={{
+              boxShadow:
+                emphasizedRouteId && highlightedRouteMeta
+                  ? `0 0 42px ${ROUTE_META[emphasizedRouteId].glow}`
+                  : "0 0 28px rgba(34,211,238,0.12)",
+            }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+          >
+            <div className="flex h-full flex-col items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.08),transparent_60%)]">
+              <div className="text-[30px] leading-none">{character?.emoji || "O"}</div>
+              <div className="mt-3 font-press-start text-[10px] tracking-[0.16em] text-white/70">
+                RUN CORE
+              </div>
+              <div className="mt-2 font-vt323 text-[20px] leading-none text-white">
+                {localPlayerName || character?.name || "Operator"}
+              </div>
+              <div className="mt-2 font-vt323 text-[16px] text-white/48">
+                Select an outward route
+              </div>
+            </div>
+          </motion.div>
+
+          {runMap.nodes.map((node) => {
+            const point = nodeScreenPositions.get(node.id) || graphCenter;
+            return renderMapNodeButton({
               runNode: node,
               selectable: reachableNodeIds.has(node.id),
               visited: visitedNodeIds.has(node.id),
               current: currentNode?.id === node.id,
+              left: point.x,
+              top: point.y,
               onSelectNode,
               onHoverNode: setHoveredNodeId,
-              left: normalizeX(node.x),
-              top: normalizeY(node.y),
-            }),
-          )}
+            });
+          })}
         </div>
 
-        <div className="absolute right-5 top-5 z-[2] w-[250px] rounded-[24px] border border-cyan-400/22 bg-black/55 p-4 shadow-[0_0_24px_rgba(0,0,0,0.3)] backdrop-blur-sm">
+        <div className="absolute right-5 top-5 z-[3] w-[250px] rounded-[24px] border border-cyan-400/22 bg-black/55 p-4 shadow-[0_0_24px_rgba(0,0,0,0.3)] backdrop-blur-sm">
           {highlightedNode ? (
             <>
               <div className="font-press-start text-[11px] text-cyan-200/80">
@@ -452,15 +515,26 @@ export default function RunMapOverlay({
               <div className="mt-3 font-vt323 text-[28px] leading-none text-white">
                 {highlightedNode.bossType
                   ? formatBossType(highlightedNode.bossType)
-                  : highlightedNode.title || `Depth ${highlightedNode.depth}`}
+                  : highlightedNode.title || `Ring ${highlightedNode.depth}`}
               </div>
               <div className="mt-2 font-vt323 text-[18px] text-white/55">
-                Depth {highlightedNode.depth}
+                {ROUTE_META[highlightedNode.routeId].tag}  |  Ring {highlightedNode.depth}
                 {reachableNodeIds.has(highlightedNode.id)
                   ? "  |  Reachable"
                   : visitedNodeIds.has(highlightedNode.id)
                     ? "  |  Cleared"
                     : ""}
+              </div>
+              <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+                <div className="font-press-start text-[10px] text-white/42">ROUTE</div>
+                <div className="mt-2 font-vt323 text-[22px] leading-none text-white">
+                  {ROUTE_META[highlightedNode.routeId].label}
+                </div>
+                {highlightedBoss?.bossType && (
+                  <div className="mt-2 font-vt323 text-[18px] text-fuchsia-100/70">
+                    Boss target: {formatBossType(highlightedBoss.bossType)}
+                  </div>
+                )}
               </div>
               {(highlightedNode.rewards || []).length > 0 && (
                 <div className="mt-4">
@@ -523,14 +597,14 @@ export default function RunMapOverlay({
         </div>
 
         <motion.div
-          className="absolute bottom-5 left-5 z-[2] flex flex-wrap gap-3"
+          className="absolute bottom-5 left-5 z-[3] flex flex-wrap gap-3"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.25, delay: 0.12 }}
         >
           <div className="rounded-full border border-white/12 bg-black/40 px-4 py-2 font-vt323 text-[18px] text-white/62">
-            Hover nodes to inspect rewards and boss routes.
+            Inspect every node. Reachable nodes are the only selectable sockets.
           </div>
         </motion.div>
       </motion.div>

@@ -30,6 +30,7 @@ import type {
   HazardType,
   EnemyType,
   BossType,
+  RunMapRouteId,
   UpgradeType,
   ShopOffer,
   ShopStand,
@@ -222,12 +223,41 @@ function hashString(value: string) {
   return hash;
 }
 
-const BOSS_ROUTE_PAIRINGS: Array<[BossType, BossType]> = [
-  ["berserker", "magnetic-magnus"],
-  ["glitch-golem", "neon-reaper"],
-  ["architect", "viral-swarm"],
-  ["summoner", "overclocker"],
-  ["core-destroyer", "berserker"],
+const RADIAL_ROUTE_ORDER: RunMapRouteId[] = ["north", "east", "south", "west"];
+const RADIAL_ROUTE_ANGLES: Record<RunMapRouteId, number> = {
+  north: -Math.PI / 2,
+  east: 0,
+  south: Math.PI / 2,
+  west: Math.PI,
+};
+const RADIAL_ROUTE_BIASES: Record<RunMapRouteId, RewardBias> = {
+  north: "economy",
+  east: "power",
+  south: "recovery",
+  west: "power",
+};
+const RADIAL_ROUTE_SPECIALS: Record<RunMapRouteId, RunMapEncounterType> = {
+  north: "shop",
+  east: "combat",
+  south: "combat",
+  west: "hellhound",
+};
+const RADIAL_ROUTE_NAMES: Record<RunMapRouteId, string> = {
+  north: "Broker Spoke",
+  east: "War Spoke",
+  south: "Recovery Spoke",
+  west: "Hunt Spoke",
+};
+const RADIAL_BOSS_POOL: BossType[] = [
+  "berserker",
+  "summoner",
+  "architect",
+  "glitch-golem",
+  "viral-swarm",
+  "overclocker",
+  "magnetic-magnus",
+  "neon-reaper",
+  "core-destroyer",
 ];
 
 type RewardBias = "economy" | "recovery" | "power";
@@ -236,8 +266,9 @@ type ProceduralRunMapNode = {
   id: string;
   depth: number;
   lane: number;
-  yMin: number;
-  yMax: number;
+  routeId: RunMapRouteId;
+  x: number;
+  y: number;
   encounterType: RunMapEncounterType;
   nextNodeIds: string[];
   title?: string;
@@ -328,22 +359,6 @@ function createDamageBoostReward(value: number, durationWaves: number): RunMapRe
   };
 }
 
-const START_TITLES = {
-  upper: ["Signal Spire", "Skyline Breach", "Antenna Ruin", "Gridline Gate"],
-  middle: ["Crossfeed Hub", "Switchboard", "Transit Relay", "Forked Signal"],
-  lower: ["Drain Tunnel", "Subgrid Leak", "Basement Cut", "Power Duct"],
-};
-
-const COMMIT_TITLES = {
-  upper: ["Upper Push", "Skywire Run", "Aerial Surge", "Static Ladder"],
-  lower: ["Lower Push", "Basement Sweep", "Drainline Rush", "Ground Loop"],
-};
-
-const PRESSURE_TITLES = {
-  upper: ["Upper Pressure", "Voltage Crush", "Spire Lock", "Signal Clamp"],
-  lower: ["Lower Pressure", "Drain Clamp", "Rust Funnel", "Sump Lock"],
-};
-
 const COMBAT_ROUTE_TITLES = [
   "Signal Clash",
   "Packet Raid",
@@ -362,8 +377,31 @@ const SHOP_ROUTE_TITLES = [
   "Ghost Vendor",
 ];
 
-const GATE_TITLES = ["Boss Threshold", "Core Door", "Override Gate", "Kill Gate"];
 const HELLHOUND_TITLES = ["Hellhound Pack", "Dog Gauntlet", "Rabid Kennels"];
+const ROUTE_ENTRY_TITLES: Record<RunMapRouteId, string[]> = {
+  north: ["Ledger Gate", "Broker Relay", "Credit Junction"],
+  east: ["Breaker Lane", "Kill Corridor", "Aggressor Gate"],
+  south: ["Patch Relay", "Recovery Bay", "Pulse Shelter"],
+  west: ["Kennel Break", "Predator Track", "Hunt Relay"],
+};
+const ROUTE_FORK_TITLES: Record<RunMapRouteId, string[]> = {
+  north: ["Discount Route", "Stock Route", "Broker Split", "Market Vein"],
+  east: ["Kill Route", "Breach Route", "War Split", "Spike Line"],
+  south: ["Med Route", "Shield Route", "Recovery Split", "Safe Vein"],
+  west: ["Claw Route", "Snare Route", "Dog Split", "Rabid Lane"],
+};
+const ROUTE_SPECIAL_TITLES: Record<RunMapRouteId, string[]> = {
+  north: SHOP_ROUTE_TITLES,
+  east: ["Overdrive Route", "Damage Corridor", "War Engine"],
+  south: ["Repair Lattice", "Patch Node", "Recovery Grid"],
+  west: HELLHOUND_TITLES,
+};
+const ROUTE_PREP_TITLES: Record<RunMapRouteId, string[]> = {
+  north: ["Broker Threshold", "Vault Door", "Final Purchase"],
+  east: ["War Threshold", "Kill Gate", "Pressure Door"],
+  south: ["Recovery Threshold", "Safety Lock", "Final Patch"],
+  west: ["Hunt Threshold", "Kennel Gate", "Predator Door"],
+};
 
 function createCombatRewards(
   random: () => number,
@@ -425,34 +463,47 @@ function createShopRewards(
 
 function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
   const random = createSeededRandom(hashString(seed) || Date.now());
-  const bossPair =
-    BOSS_ROUTE_PAIRINGS[randomInt(random, 0, BOSS_ROUTE_PAIRINGS.length - 1)];
-  const [upperBoss, lowerBoss] = bossPair;
-  const biasOrder = shuffle<RewardBias>(random, ["economy", "recovery", "power"]);
-  const upperBias = biasOrder[0];
-  const lowerBias = biasOrder[1];
-  const upperBossBias = biasOrder[2];
-  const lowerBossBias = biasOrder[0] === "economy" ? "power" : "economy";
-  const topSpecialType: RunMapEncounterType = random() > 0.5 ? "shop" : "hellhound";
-  const bottomSpecialType: RunMapEncounterType =
-    topSpecialType === "shop" ? "hellhound" : "shop";
-  const upperShopDepth = pickOne(random, [7, 9]);
-  const lowerShopDepth = pickOne(random, [7, 9]);
+  const shuffledBosses = shuffle(random, RADIAL_BOSS_POOL);
+  const routeBosses = new Map<RunMapRouteId, BossType>(
+    RADIAL_ROUTE_ORDER.map((routeId, index) => [
+      routeId,
+      shuffledBosses[index],
+    ]),
+  );
+  const ringRadiusByDepth: Record<number, number> = {
+    1: 220,
+    2: 390,
+    3: 560,
+    4: 720,
+    5: 870,
+    6: 1010,
+  };
 
-  const createCombatTitle = (lane: "upper" | "lower", depth: number) => {
-    if (depth <= 2) return pickOne(random, COMMIT_TITLES[lane]);
-    if (depth <= 4) return pickOne(random, PRESSURE_TITLES[lane]);
-    if (depth === 6) return lane === "upper" ? `${formatBossRouteLabel(upperBoss)} Route` : `${formatBossRouteLabel(lowerBoss)} Route`;
-    if (depth >= 9) return pickOne(random, GATE_TITLES);
-    return pickOne(random, COMBAT_ROUTE_TITLES);
+  const createPolarPoint = (
+    routeId: RunMapRouteId,
+    depth: number,
+    tangentOffset = 0,
+  ) => {
+    const angle = RADIAL_ROUTE_ANGLES[routeId];
+    const radiusBase = ringRadiusByDepth[depth];
+    const radialJitter = depth === 6 ? 0 : randomInt(random, -14, 14);
+    const tangentJitter = tangentOffset === 0 ? 0 : randomInt(random, -18, 18);
+    const tangentAngle = angle + Math.PI / 2;
+    const radius = radiusBase + radialJitter;
+    const tangent = tangentOffset + tangentJitter;
+
+    return {
+      x: Math.cos(angle) * radius + Math.cos(tangentAngle) * tangent,
+      y: Math.sin(angle) * radius + Math.sin(tangentAngle) * tangent,
+    };
   };
 
   const createNode = ({
     id,
+    routeId,
     depth,
     lane,
-    yMin,
-    yMax,
+    tangentOffset,
     encounterType,
     nextNodeIds,
     bias,
@@ -460,346 +511,160 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
     bossType,
   }: {
     id: string;
+    routeId: RunMapRouteId;
     depth: number;
     lane: number;
-    yMin: number;
-    yMax: number;
+    tangentOffset?: number;
     encounterType: RunMapEncounterType;
     nextNodeIds: string[];
     bias: RewardBias;
     title?: string;
     bossType?: BossType;
-  }): ProceduralRunMapNode => ({
-    id,
-    depth,
-    lane,
-    yMin,
-    yMax,
-    encounterType,
-    nextNodeIds,
-    title:
-      title ||
-      (encounterType === "shop"
-        ? pickOne(random, SHOP_ROUTE_TITLES)
-        : encounterType === "hellhound"
-          ? pickOne(random, HELLHOUND_TITLES)
-          : encounterType === "boss"
-            ? bossType
-              ? formatBossRouteLabel(bossType)
-              : "Boss"
-            : createCombatTitle(lane <= 2 ? "upper" : "lower", depth)),
-    bossType,
-    rewards:
-      encounterType === "boss"
-        ? []
-        : encounterType === "shop"
-          ? createShopRewards(random, depth, bias)
+  }): ProceduralRunMapNode => {
+    const point = createPolarPoint(routeId, depth, tangentOffset || 0);
+    return {
+      id,
+      depth,
+      lane,
+      routeId,
+      x: point.x,
+      y: point.y,
+      encounterType,
+      nextNodeIds,
+      title:
+        title ||
+        (encounterType === "shop"
+          ? pickOne(random, SHOP_ROUTE_TITLES)
           : encounterType === "hellhound"
-            ? createHellhoundRewards(random, depth, bias)
-            : createCombatRewards(random, depth, bias),
+            ? pickOne(random, HELLHOUND_TITLES)
+            : encounterType === "boss"
+              ? bossType
+                ? formatBossRouteLabel(bossType)
+                : "Boss"
+              : pickOne(random, COMBAT_ROUTE_TITLES)),
+      bossType,
+      rewards:
+        encounterType === "boss"
+          ? []
+          : encounterType === "shop"
+            ? createShopRewards(random, depth, bias)
+            : encounterType === "hellhound"
+              ? createHellhoundRewards(random, depth, bias)
+              : createCombatRewards(random, depth, bias),
+    };
+  };
+
+  return RADIAL_ROUTE_ORDER.flatMap((routeId, routeIndex) => {
+    const bias = RADIAL_ROUTE_BIASES[routeId];
+    const bossType = routeBosses.get(routeId) || "berserker";
+    const specialType = RADIAL_ROUTE_SPECIALS[routeId];
+    const shopBranchAtRingFour = routeId === "north" || routeId === "south";
+    const shopOnPositiveBranch = random() > 0.5;
+    const positiveOffsetRingTwo = 116;
+    const negativeOffsetRingTwo = -116;
+    const positiveOffsetRingFour = 136;
+    const negativeOffsetRingFour = -136;
+
+    return [
+      createNode({
+        id: `${routeId}-entry`,
+        routeId,
+        depth: 1,
+        lane: routeIndex,
+        encounterType: "combat",
+        nextNodeIds: [`${routeId}-fork-a`, `${routeId}-fork-b`],
+        bias,
+        title: pickOne(random, ROUTE_ENTRY_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-fork-a`,
+        routeId,
+        depth: 2,
+        lane: routeIndex,
+        tangentOffset: negativeOffsetRingTwo,
+        encounterType: "combat",
+        nextNodeIds: [`${routeId}-special`],
+        bias,
+        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-fork-b`,
+        routeId,
+        depth: 2,
+        lane: routeIndex,
+        tangentOffset: positiveOffsetRingTwo,
+        encounterType: "combat",
+        nextNodeIds: [`${routeId}-special`],
+        bias,
+        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-special`,
+        routeId,
+        depth: 3,
+        lane: routeIndex,
+        encounterType: specialType,
+        nextNodeIds: [`${routeId}-branch-a`, `${routeId}-branch-b`],
+        bias,
+        title: pickOne(random, ROUTE_SPECIAL_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-branch-a`,
+        routeId,
+        depth: 4,
+        lane: routeIndex,
+        tangentOffset: negativeOffsetRingFour,
+        encounterType:
+          shopBranchAtRingFour && !shopOnPositiveBranch ? "shop" : "combat",
+        nextNodeIds: [`${routeId}-prep`],
+        bias,
+        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-branch-b`,
+        routeId,
+        depth: 4,
+        lane: routeIndex,
+        tangentOffset: positiveOffsetRingFour,
+        encounterType:
+          shopBranchAtRingFour && shopOnPositiveBranch ? "shop" : "combat",
+        nextNodeIds: [`${routeId}-prep`],
+        bias,
+        title: pickOne(random, ROUTE_FORK_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-prep`,
+        routeId,
+        depth: 5,
+        lane: routeIndex,
+        encounterType: "combat",
+        nextNodeIds: [`${routeId}-boss`],
+        bias,
+        title: pickOne(random, ROUTE_PREP_TITLES[routeId]),
+      }),
+      createNode({
+        id: `${routeId}-boss`,
+        routeId,
+        depth: 6,
+        lane: routeIndex,
+        encounterType: "boss",
+        nextNodeIds: [],
+        bias,
+        bossType,
+        title: `${RADIAL_ROUTE_NAMES[routeId]} | ${formatBossRouteLabel(bossType)}`,
+      }),
+    ];
   });
-
-  return [
-    createNode({
-      id: "start-top",
-      depth: 1,
-      lane: 0,
-      yMin: 108,
-      yMax: 128,
-      encounterType: "combat",
-      nextNodeIds: ["upper-commit"],
-      bias: upperBias,
-      title: pickOne(random, START_TITLES.upper),
-    }),
-    createNode({
-      id: "start-mid",
-      depth: 1,
-      lane: 2,
-      yMin: 248,
-      yMax: 272,
-      encounterType: "combat",
-      nextNodeIds: ["upper-commit", "lower-commit"],
-      bias: pickOne(random, [upperBias, lowerBias]),
-      title: pickOne(random, START_TITLES.middle),
-    }),
-    createNode({
-      id: "start-bot",
-      depth: 1,
-      lane: 4,
-      yMin: 398,
-      yMax: 422,
-      encounterType: "combat",
-      nextNodeIds: ["lower-commit"],
-      bias: lowerBias,
-      title: pickOne(random, START_TITLES.lower),
-    }),
-
-    createNode({
-      id: "upper-commit",
-      depth: 2,
-      lane: 1,
-      yMin: 148,
-      yMax: 176,
-      encounterType: "combat",
-      nextNodeIds: ["upper-split-a", "upper-split-b"],
-      bias: upperBias,
-    }),
-    createNode({
-      id: "lower-commit",
-      depth: 2,
-      lane: 3,
-      yMin: 356,
-      yMax: 384,
-      encounterType: "combat",
-      nextNodeIds: ["lower-split-a", "lower-split-b"],
-      bias: lowerBias,
-    }),
-
-    createNode({
-      id: "upper-split-a",
-      depth: 3,
-      lane: 0,
-      yMin: 96,
-      yMax: 122,
-      encounterType: "combat",
-      nextNodeIds: ["upper-merge"],
-      bias: upperBias,
-    }),
-    createNode({
-      id: "upper-split-b",
-      depth: 3,
-      lane: 2,
-      yMin: 206,
-      yMax: 236,
-      encounterType: "combat",
-      nextNodeIds: ["upper-merge"],
-      bias: upperBias,
-    }),
-    createNode({
-      id: "lower-split-a",
-      depth: 3,
-      lane: 2,
-      yMin: 300,
-      yMax: 330,
-      encounterType: "combat",
-      nextNodeIds: ["lower-merge"],
-      bias: lowerBias,
-    }),
-    createNode({
-      id: "lower-split-b",
-      depth: 3,
-      lane: 4,
-      yMin: 446,
-      yMax: 474,
-      encounterType: "combat",
-      nextNodeIds: ["lower-merge"],
-      bias: lowerBias,
-    }),
-
-    createNode({
-      id: "upper-merge",
-      depth: 4,
-      lane: 1,
-      yMin: 164,
-      yMax: 194,
-      encounterType: "combat",
-      nextNodeIds: ["upper-special"],
-      bias: upperBias,
-    }),
-    createNode({
-      id: "lower-merge",
-      depth: 4,
-      lane: 3,
-      yMin: 348,
-      yMax: 378,
-      encounterType: "combat",
-      nextNodeIds: ["lower-special"],
-      bias: lowerBias,
-    }),
-
-    createNode({
-      id: "upper-special",
-      depth: 5,
-      lane: 1,
-      yMin: 144,
-      yMax: 174,
-      encounterType: topSpecialType,
-      nextNodeIds: ["upper-route-entry"],
-      bias: topSpecialType === "shop" ? "economy" : upperBossBias,
-    }),
-    createNode({
-      id: "lower-special",
-      depth: 5,
-      lane: 3,
-      yMin: 366,
-      yMax: 396,
-      encounterType: bottomSpecialType,
-      nextNodeIds: ["lower-route-entry"],
-      bias: bottomSpecialType === "shop" ? "economy" : lowerBossBias,
-    }),
-
-    createNode({
-      id: "upper-route-entry",
-      depth: 6,
-      lane: 1,
-      yMin: 126,
-      yMax: 156,
-      encounterType: "combat",
-      nextNodeIds: ["upper-fork-a", "upper-fork-b"],
-      bias: upperBossBias,
-      title: `${formatBossRouteLabel(upperBoss)} Route`,
-    }),
-    createNode({
-      id: "lower-route-entry",
-      depth: 6,
-      lane: 3,
-      yMin: 384,
-      yMax: 414,
-      encounterType: "combat",
-      nextNodeIds: ["lower-fork-a", "lower-fork-b"],
-      bias: lowerBossBias,
-      title: `${formatBossRouteLabel(lowerBoss)} Route`,
-    }),
-
-    createNode({
-      id: "upper-fork-a",
-      depth: 7,
-      lane: 0,
-      yMin: 92,
-      yMax: 118,
-      encounterType: upperShopDepth === 7 ? "shop" : "combat",
-      nextNodeIds: ["upper-rejoin"],
-      bias: upperBossBias,
-    }),
-    createNode({
-      id: "upper-fork-b",
-      depth: 7,
-      lane: 2,
-      yMin: 198,
-      yMax: 226,
-      encounterType: upperShopDepth === 7 ? "combat" : "shop",
-      nextNodeIds: ["upper-rejoin"],
-      bias: upperBossBias,
-    }),
-    createNode({
-      id: "lower-fork-a",
-      depth: 7,
-      lane: 2,
-      yMin: 316,
-      yMax: 344,
-      encounterType: lowerShopDepth === 7 ? "shop" : "combat",
-      nextNodeIds: ["lower-rejoin"],
-      bias: lowerBossBias,
-    }),
-    createNode({
-      id: "lower-fork-b",
-      depth: 7,
-      lane: 4,
-      yMin: 454,
-      yMax: 482,
-      encounterType: lowerShopDepth === 7 ? "combat" : "shop",
-      nextNodeIds: ["lower-rejoin"],
-      bias: lowerBossBias,
-    }),
-
-    createNode({
-      id: "upper-rejoin",
-      depth: 8,
-      lane: 1,
-      yMin: 146,
-      yMax: 174,
-      encounterType: "combat",
-      nextNodeIds: ["upper-preboss-a", "upper-preboss-b"],
-      bias: upperBossBias,
-    }),
-    createNode({
-      id: "lower-rejoin",
-      depth: 8,
-      lane: 3,
-      yMin: 360,
-      yMax: 390,
-      encounterType: "combat",
-      nextNodeIds: ["lower-preboss-a", "lower-preboss-b"],
-      bias: lowerBossBias,
-    }),
-
-    createNode({
-      id: "upper-preboss-a",
-      depth: 9,
-      lane: 0,
-      yMin: 106,
-      yMax: 132,
-      encounterType: upperShopDepth === 9 ? "shop" : "combat",
-      nextNodeIds: ["boss-upper"],
-      bias: upperBossBias,
-    }),
-    createNode({
-      id: "upper-preboss-b",
-      depth: 9,
-      lane: 2,
-      yMin: 206,
-      yMax: 234,
-      encounterType: upperShopDepth === 9 ? "combat" : "shop",
-      nextNodeIds: ["boss-upper"],
-      bias: upperBossBias,
-    }),
-    createNode({
-      id: "lower-preboss-a",
-      depth: 9,
-      lane: 2,
-      yMin: 308,
-      yMax: 336,
-      encounterType: lowerShopDepth === 9 ? "shop" : "combat",
-      nextNodeIds: ["boss-lower"],
-      bias: lowerBossBias,
-    }),
-    createNode({
-      id: "lower-preboss-b",
-      depth: 9,
-      lane: 4,
-      yMin: 442,
-      yMax: 470,
-      encounterType: lowerShopDepth === 9 ? "combat" : "shop",
-      nextNodeIds: ["boss-lower"],
-      bias: lowerBossBias,
-    }),
-
-    createNode({
-      id: "boss-upper",
-      depth: 10,
-      lane: 1,
-      yMin: 156,
-      yMax: 184,
-      encounterType: "boss",
-      nextNodeIds: [],
-      bias: upperBossBias,
-      bossType: upperBoss,
-    }),
-    createNode({
-      id: "boss-lower",
-      depth: 10,
-      lane: 3,
-      yMin: 382,
-      yMax: 410,
-      encounterType: "boss",
-      nextNodeIds: [],
-      bias: lowerBossBias,
-      bossType: lowerBoss,
-    }),
-  ];
 }
 
 function createInitialRunMap(seed: string): RunMapState {
-  const random = createSeededRandom(hashString(seed) || Date.now());
   const nodes: RunMapNode[] = createRunMapNodes(seed).map((node) => ({
     id: node.id,
     depth: node.depth,
     lane: node.lane,
-    x:
-      118 +
-      (node.depth - 1) * 103 +
-      (node.depth === 1 || node.depth === 10 ? 0 : randomInt(random, -10, 12)),
-    y: randomInt(random, node.yMin, node.yMax),
+    routeId: node.routeId,
+    x: node.x,
+    y: node.y,
     encounterType: node.encounterType,
     title: node.title,
     bossType: node.bossType,
@@ -2062,13 +1927,14 @@ export class LocalGameEngine {
       reachableNodes:
         runMap?.reachableNodeIds.map((nodeId) => {
           const node = runMap.nodes.find((candidate) => candidate.id === nodeId);
-          return node
-            ? {
-                id: node.id,
-                depth: node.depth,
-                type: node.encounterType,
-                title: node.title || null,
-                bossType: node.bossType || null,
+              return node
+                ? {
+                    id: node.id,
+                    routeId: node.routeId,
+                    depth: node.depth,
+                    type: node.encounterType,
+                    title: node.title || null,
+                    bossType: node.bossType || null,
                 rewards: (node.rewards || []).map((reward) => ({
                   type: reward.type,
                   label: reward.label,
@@ -2083,6 +1949,7 @@ export class LocalGameEngine {
           .filter((node) => node.encounterType === "boss")
           .map((node) => ({
             id: node.id,
+            routeId: node.routeId,
             title: node.title || null,
             bossType: node.bossType || null,
             rewards: (node.rewards || []).map((reward) => ({
