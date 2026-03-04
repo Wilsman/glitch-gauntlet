@@ -164,26 +164,34 @@ function renderRewardChip(reward: RunMapReward) {
 function buildCurvePath(
   start: { x: number; y: number },
   end: { x: number; y: number },
-  center: { x: number; y: number },
+  _center: { x: number; y: number },
 ) {
-  const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-  const pull = 0.14;
-  const control = {
-    x: midpoint.x + (center.x - midpoint.x) * pull,
-    y: midpoint.y + (center.y - midpoint.y) * pull,
-  };
-  return `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const perpX = -dy / len;
+  const perpY = dx / len;
+  const lateralShift = (end.y - start.y) * 0.08 - (end.x - start.x) * 0.04;
+  const mx = (start.x + end.x) / 2 + perpX * lateralShift;
+  const my = (start.y + end.y) / 2 + perpY * lateralShift;
+  return `M ${start.x} ${start.y} Q ${mx} ${my} ${end.x} ${end.y}`;
 }
 
 function clampValue(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function nodeHash(id: string, salt: number) {
+  let h = salt;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (h % 1000) / 1000;
+}
+
 const MAP_LAYOUT_PADDING = {
-  top: 84,
+  top: 48,
   right: 300,
-  bottom: 84,
-  left: 92,
+  bottom: 48,
+  left: 48,
 };
 const DEFAULT_VIEWPORT_SIZE = { width: 1280, height: 720 };
 const HUB_DEPTHS = new Set([3, 6, 10, 14]);
@@ -470,11 +478,6 @@ export default function RunMapOverlay({
     y: MAP_LAYOUT_PADDING.top + usableHeight / 2,
   };
   const nodeScreenPositions = useMemo(() => {
-    const minBoundX = MAP_LAYOUT_PADDING.left + 20;
-    const maxBoundX = MAP_LAYOUT_PADDING.left + usableWidth - 20;
-    const minBoundY = MAP_LAYOUT_PADDING.top + 20;
-    const maxBoundY = MAP_LAYOUT_PADDING.top + usableHeight - 20;
-
     const ROUTE_BASE_ANGLES: Record<RunMapRouteId, number> = {
       north: -Math.PI / 2,
       east: 0,
@@ -486,37 +489,40 @@ export default function RunMapOverlay({
       (m, n) => Math.max(m, n.depth),
       0,
     );
-    const maxReach = Math.min(usableWidth, usableHeight) / 2 - 30;
-    const minRing = 105;
-    const ringStep =
-      localMaxDepth > 1 ? (maxReach - minRing) / localMaxDepth : 0;
-    const sectorHalf = Math.PI / 4.4;
-
-    const nodesByRouteDepth = new Map<string, typeof runMap.nodes>();
-    runMap.nodes.forEach((node) => {
-      const key = `${node.routeId}-${node.depth}`;
-      if (!nodesByRouteDepth.has(key)) nodesByRouteDepth.set(key, []);
-      nodesByRouteDepth.get(key)!.push(node);
-    });
+    const LANE_COUNT = 5;
+    const middleLane = (LANE_COUNT - 1) / 2;
+    const minRing = 110;
+    const fullReach = usableWidth / 2;
+    const bossExtra = 50;
+    const innerReach = fullReach - bossExtra;
+    const depthStep =
+      localMaxDepth > 1 ? (innerReach - minRing) / (localMaxDepth - 1) : 0;
+    const laneSpacing = 54;
 
     const points = runMap.nodes.map((node) => {
       const baseAngle = ROUTE_BASE_ANGLES[node.routeId];
-      const ringRadius = minRing + node.depth * ringStep;
+      const isBoss = node.encounterType === "boss";
+      const ringRadius = isBoss ? fullReach : minRing + node.depth * depthStep;
 
-      const siblings =
-        nodesByRouteDepth.get(`${node.routeId}-${node.depth}`) || [];
-      const sibIndex = siblings.indexOf(node);
-      const sibCount = siblings.length;
+      const radialX = Math.cos(baseAngle);
+      const radialY = Math.sin(baseAngle);
+      const tangentX = -radialY;
+      const tangentY = radialX;
 
-      let angleOffset = 0;
-      if (sibCount > 1) {
-        const spread = sectorHalf * Math.min(1, 0.4 + sibCount * 0.2);
-        angleOffset = -spread + (2 * spread * sibIndex) / (sibCount - 1);
-      }
+      const laneOffset = (node.lane - middleLane) * laneSpacing;
 
-      const angle = baseAngle + angleOffset;
-      const x = graphCenter.x + Math.cos(angle) * ringRadius;
-      const y = graphCenter.y + Math.sin(angle) * ringRadius;
+      const jitter = isBoss || node.depth <= 1 ? 0 : depthStep * 0.18;
+      const radialJitter = (nodeHash(node.id, 1) - 0.5) * jitter;
+      const tangentJitter = (nodeHash(node.id, 2) - 0.5) * laneSpacing * 0.25;
+
+      const x =
+        graphCenter.x +
+        radialX * (ringRadius + radialJitter) +
+        tangentX * (laneOffset + tangentJitter);
+      const y =
+        graphCenter.y +
+        radialY * (ringRadius + radialJitter) +
+        tangentY * (laneOffset + tangentJitter);
 
       return {
         id: node.id,
@@ -535,24 +541,11 @@ export default function RunMapOverlay({
       };
     });
 
-    for (let iteration = 0; iteration < 60; iteration++) {
+    // Light overlap resolution
+    for (let iteration = 0; iteration < 30; iteration++) {
       for (const point of points) {
-        point.x += (point.anchorX - point.x) * 0.12;
-        point.y += (point.anchorY - point.y) * 0.12;
-      }
-
-      for (const point of points) {
-        const corePadding =
-          point.radius > 30 ? 28 : point.radius > 20 ? 18 : 12;
-        const minCoreDistance = 100 + point.radius + corePadding;
-        const dx = point.x - graphCenter.x;
-        const dy = point.y - graphCenter.y;
-        const dist = Math.hypot(dx, dy) || 0.001;
-        if (dist < minCoreDistance) {
-          const push = minCoreDistance - dist;
-          point.x += (dx / dist) * push;
-          point.y += (dy / dist) * push;
-        }
+        point.x += (point.anchorX - point.x) * 0.2;
+        point.y += (point.anchorY - point.y) * 0.2;
       }
 
       for (let i = 0; i < points.length; i++) {
@@ -562,9 +555,9 @@ export default function RunMapOverlay({
           const dx = b.x - a.x;
           const dy = b.y - a.y;
           const dist = Math.hypot(dx, dy) || 0.001;
-          const minDist = a.radius + b.radius + 12;
+          const minDist = a.radius + b.radius + 8;
           if (dist >= minDist) continue;
-          const push = ((minDist - dist) / 2) * 0.9;
+          const push = ((minDist - dist) / 2) * 0.8;
           const nx = dx / dist;
           const ny = dy / dist;
           a.x -= nx * push;
@@ -572,11 +565,6 @@ export default function RunMapOverlay({
           b.x += nx * push;
           b.y += ny * push;
         }
-      }
-
-      for (const point of points) {
-        point.x = clampValue(point.x, minBoundX, maxBoundX);
-        point.y = clampValue(point.y, minBoundY, maxBoundY);
       }
     }
 
@@ -698,7 +686,7 @@ export default function RunMapOverlay({
 
   return (
     <motion.div
-      className="absolute inset-0 z-[70] overflow-hidden bg-[radial-gradient(circle_at_20%_15%,rgba(34,211,238,0.12),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(217,70,239,0.12),transparent_26%),linear-gradient(180deg,rgba(2,6,23,0.76),rgba(2,6,23,0.92))] backdrop-blur-[2px]"
+      className="absolute inset-0 z-[70] overflow-hidden bg-[radial-gradient(circle_at_20%_15%,rgba(34,211,238,0.06),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(217,70,239,0.06),transparent_26%),linear-gradient(180deg,rgb(2,6,23),rgb(2,6,23))] backdrop-blur-sm"
       initial={{ opacity: 0, scale: 1.03, filter: "blur(10px)" }}
       animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
       exit={{ opacity: 0, scale: 0.985, filter: "blur(10px)" }}
@@ -714,8 +702,7 @@ export default function RunMapOverlay({
         animate={{ x: [0, -26, 0], y: [0, 10, 0] }}
         transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
       />
-      <div className="absolute inset-0 bg-[linear-gradient(transparent_96%,rgba(56,189,248,0.04)_100%),linear-gradient(90deg,transparent_96%,rgba(217,70,239,0.04)_100%)] bg-[size:100%_24px,24px_100%] opacity-35" />
-      <div className="absolute inset-x-0 top-0 h-36 bg-[linear-gradient(180deg,rgba(6,11,24,0.96),rgba(6,11,24,0.4),transparent)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(transparent_96%,rgba(56,189,248,0.03)_100%),linear-gradient(90deg,transparent_96%,rgba(217,70,239,0.03)_100%)] bg-[size:100%_24px,24px_100%] opacity-20" />
 
       <motion.div
         className="absolute left-6 top-6 right-6 z-[2] flex items-start justify-between gap-6"
@@ -725,49 +712,33 @@ export default function RunMapOverlay({
         transition={{ duration: 0.28, delay: 0.04 }}
       >
         <div className="max-w-[58%]">
-          <div className="font-press-start text-[18px] text-white">
-            SYSTEM ROUTE MAP
-          </div>
-          <div className="mt-2 font-vt323 text-[22px] uppercase tracking-[0.24em] text-cyan-200/90">
-            Choose a boss arm
-          </div>
-          <div className="mt-2 font-vt323 text-[18px] text-white/60">
-            Commit from the core, fork inside the route, then break the boss at
-            the edge.
+          <div className="flex items-baseline gap-3">
+            <div className="font-press-start text-[13px] tracking-[0.12em] text-white/90">
+              ROUTE MAP
+            </div>
+            <div className="font-vt323 text-[18px] tracking-[0.16em] text-cyan-300/50">
+              DEPTH {currentDepth}/{maxDepth}
+            </div>
           </div>
           {bossSummary && (
-            <div className="mt-2 font-vt323 text-[18px] text-fuchsia-100/75">
+            <div className="mt-1.5 font-vt323 text-[15px] text-white/40 truncate">
               {bossSummary}
             </div>
           )}
-          <div className="mt-2 font-vt323 text-[18px] text-cyan-100/55">
-            Every arm is visible from the start. Hover any node to inspect its
-            entire route.
-          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-right">
-          <div className="rounded-xl border border-cyan-400/35 bg-black/45 px-4 py-3">
-            <div className="font-press-start text-[10px] text-cyan-300/80">
-              RING
-            </div>
-            <div className="mt-2 font-press-start text-[18px] text-white">
-              {currentDepth}/{maxDepth}
-            </div>
-          </div>
-          <div className="rounded-xl border border-fuchsia-400/35 bg-black/45 px-4 py-3">
-            <div className="font-press-start text-[10px] text-fuchsia-300/80">
-              THREAT
-            </div>
-            <div className="mt-2 font-press-start text-[18px] text-white">
+        <div className="flex items-center gap-4">
+          <div className="font-press-start text-[9px] text-fuchsia-300/60">
+            THREAT{" "}
+            <span className="text-white/80 text-[13px] ml-1">
               {Math.max(0, threatTier)}
-            </div>
+            </span>
           </div>
         </div>
       </motion.div>
 
       <motion.div
-        className="absolute inset-x-6 bottom-6 top-28 overflow-hidden rounded-[28px] border border-cyan-400/20 bg-black/34 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.05),0_0_40px_rgba(0,0,0,0.25)]"
+        className="absolute inset-x-6 bottom-6 top-14 overflow-hidden rounded-[20px] border border-white/[0.06] bg-white/[0.02] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02),0_0_40px_rgba(0,0,0,0.25)]"
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 10 }}
@@ -790,7 +761,10 @@ export default function RunMapOverlay({
               transformOrigin: "0 0",
             }}
           >
-            <svg className="absolute inset-0 z-[1]" width="100%" height="100%">
+            <svg
+              className="absolute inset-0 z-[1]"
+              style={{ width: "100%", height: "100%", overflow: "visible" }}
+            >
               <defs>
                 <filter
                   id="edgeGlow"
@@ -891,7 +865,7 @@ export default function RunMapOverlay({
                       strokeLinecap="round"
                       filter={active ? "url(#edgeGlow)" : undefined}
                     />
-                    {/* Medium core stroke */}
+                    {/* Medium core stroke - dashed */}
                     <path
                       d={path}
                       fill="none"
@@ -904,6 +878,9 @@ export default function RunMapOverlay({
                       }
                       strokeWidth={active ? 3 : isReachableRoute ? 2 : 1}
                       strokeLinecap="round"
+                      strokeDasharray={
+                        active ? "8 6" : isReachableRoute ? "6 8" : "4 10"
+                      }
                     />
                     {/* Thin bright animated dash */}
                     <path
@@ -978,7 +955,7 @@ export default function RunMapOverlay({
           </div>
         </div>
 
-        <div className="absolute right-5 top-5 z-[3] w-[250px] rounded-[24px] border border-cyan-400/22 bg-black/55 p-4 shadow-[0_0_24px_rgba(0,0,0,0.3)] backdrop-blur-sm">
+        <div className="absolute right-5 top-5 z-[3] w-[240px] rounded-2xl border border-white/[0.08] bg-black/60 p-4 backdrop-blur-sm">
           {highlightedNode ? (
             <>
               <div className="font-press-start text-[11px] text-cyan-200/80">
@@ -1086,10 +1063,7 @@ export default function RunMapOverlay({
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.25, delay: 0.12 }}
         >
-          <div className="rounded-full border border-white/12 bg-black/40 px-4 py-2 font-vt323 text-[18px] text-white/62">
-            Inspect every node. Reachable nodes are the only selectable sockets.
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/28 bg-black/45 px-3 py-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/50 px-3 py-2">
             <button
               type="button"
               onClick={() => handleZoomChange(zoom * 0.88)}
