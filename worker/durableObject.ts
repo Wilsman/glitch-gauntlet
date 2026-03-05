@@ -104,7 +104,7 @@ export class GlobalDurableObject extends DurableObject {
         const choices = this.upgradeChoices.get(playerId);
         const choice = choices?.find(c => c.id === upgradeId);
         if (!player || !choice) return;
-        applyUpgradeEffect(player, choice.type);
+        applyUpgradeEffect(player, choice);
 
         // Spawn pet if pet upgrade selected
         if (choice.type === 'pet' && gameState) {
@@ -708,6 +708,7 @@ export class GlobalDurableObject extends DurableObject {
                     if (Math.hypot(proj.position.x - enemy.position.x, proj.position.y - enemy.position.y) < (radius + 10)) {
                         // Calculate final damage with berserker bonus
                         let finalDamage = proj.damage;
+                        const creditPlayerId = owner?.id || state.pets?.find((pet) => pet.id === proj.ownerId)?.ownerId;
                         if (owner && owner.armor) {
                             // Armor is already applied to player, not enemy
                         }
@@ -720,6 +721,9 @@ export class GlobalDurableObject extends DurableObject {
                             finalDamage = enemy.health;
                         }
                         enemy.health -= finalDamage;
+                        if (creditPlayerId) {
+                            enemy.lastDamagedByPlayerId = creditPlayerId;
+                        }
                         // Knockback
                         if (owner && owner.knockbackForce && owner.knockbackForce > 0) {
                             const angle = Math.atan2(enemy.position.y - proj.position.y, enemy.position.x - proj.position.x);
@@ -773,6 +777,9 @@ export class GlobalDurableObject extends DurableObject {
 
                                 // Deal chain damage
                                 nextTarget.health -= chainDamage;
+                                if (creditPlayerId) {
+                                    nextTarget.lastDamagedByPlayerId = creditPlayerId;
+                                }
                                 nextTarget.lastHitTimestamp = now;
                                 if (!nextTarget.damageNumbers) nextTarget.damageNumbers = [];
                                 nextTarget.damageNumbers.push({
@@ -862,16 +869,24 @@ export class GlobalDurableObject extends DurableObject {
             }
 
             // Create explosion if owner has explosion upgrade
-            const killer = state.players.find(p => state.projectiles.some(proj => proj.ownerId === p.id));
+            const killer = state.players.find(p => p.id === dead.lastDamagedByPlayerId);
             if (killer && killer.explosionDamage && killer.explosionDamage > 0) {
+                const voidStacks = killer.voidImplosionStacks || 0;
+                const isVoidImplosion = voidStacks > 0;
+                const radius = isVoidImplosion ? Math.min(188, 104 + voidStacks * 20) : 80;
                 if (!state.explosions) state.explosions = [];
                 state.explosions.push({
                     id: uuidv4(),
                     position: { ...dead.position },
-                    radius: 80,
+                    radius,
                     timestamp: now,
                     damage: dead.maxHealth * killer.explosionDamage,
-                    ownerId: killer.id
+                    ownerId: killer.id,
+                    type: isVoidImplosion ? 'void' : 'normal',
+                    durationMs: isVoidImplosion ? Math.min(1400, 850 + voidStacks * 140) : 500,
+                    pullRadius: isVoidImplosion ? Math.max(220, radius * 1.9) : undefined,
+                    pullStrength: isVoidImplosion ? 8 + voidStacks * 1.8 : undefined,
+                    damagedEnemyIds: []
                 });
             }
         });
@@ -901,16 +916,36 @@ export class GlobalDurableObject extends DurableObject {
     updateExplosions(state: GameState, now: number) {
         if (!state.explosions) return;
         state.explosions.forEach(explosion => {
+            if (explosion.type === 'void') {
+                const pullRadius = explosion.pullRadius || explosion.radius * 2;
+                const pullStrength = explosion.pullStrength || 5;
+                state.enemies.forEach(enemy => {
+                    const dx = explosion.position.x - enemy.position.x;
+                    const dy = explosion.position.y - enemy.position.y;
+                    const dist = Math.hypot(dx, dy) || 1;
+                    if (dist < pullRadius) {
+                        const pullForce = (1 - dist / pullRadius) * pullStrength;
+                        enemy.position.x += (dx / dist) * pullForce;
+                        enemy.position.y += (dy / dist) * pullForce;
+                    }
+                });
+            }
             state.enemies.forEach(enemy => {
+                if (explosion.damagedEnemyIds?.includes(enemy.id)) return;
                 const dist = Math.hypot(enemy.position.x - explosion.position.x, enemy.position.y - explosion.position.y);
                 if (dist < explosion.radius) {
                     enemy.health -= explosion.damage;
+                    if (state.players.some((player) => player.id === explosion.ownerId)) {
+                        enemy.lastDamagedByPlayerId = explosion.ownerId;
+                    }
                     enemy.lastHitTimestamp = now;
+                    if (!explosion.damagedEnemyIds) explosion.damagedEnemyIds = [];
+                    explosion.damagedEnemyIds.push(enemy.id);
                 }
             });
         });
-        // Clean up old explosions (after 500ms)
-        state.explosions = state.explosions.filter(exp => (now - exp.timestamp) < 500);
+        // Clean up expired explosions
+        state.explosions = state.explosions.filter(exp => (now - exp.timestamp) < (exp.durationMs || 500));
     }
     updateChainLightning(state: GameState, now: number) {
         if (!state.chainLightning) return;

@@ -1765,7 +1765,7 @@ export class LocalGameEngine {
   }
 
   private applyUpgradeChoice(player: Player, choice: UpgradeOption) {
-    applyUpgradeEffect(player, choice.type);
+    applyUpgradeEffect(player, choice);
 
     // Spawn pet if pet upgrade selected
     if (choice.type === "pet") {
@@ -2219,10 +2219,6 @@ export class LocalGameEngine {
     const player = this.gameState.players[0];
     if (!player) return;
     const type = typeof upgrade === "string" ? upgrade : upgrade.type;
-    applyUpgradeEffect(player, type);
-
-    // Track collected upgrade visually
-    if (!player.collectedUpgrades) player.collectedUpgrades = [];
     const matchingUpgrades = ALL_UPGRADES.filter((u) => u.type === type);
     const chosenVisual =
       typeof upgrade === "string"
@@ -2232,6 +2228,11 @@ export class LocalGameEngine {
             ]
           : null
         : upgrade;
+
+    applyUpgradeEffect(player, chosenVisual || type);
+
+    // Track collected upgrade visually
+    if (!player.collectedUpgrades) player.collectedUpgrades = [];
     const existing = player.collectedUpgrades.find((u) => u.type === type);
     if (existing) {
       existing.count++;
@@ -2383,6 +2384,7 @@ export class LocalGameEngine {
     const state = this.gameState;
     const localPlayer = state.players[0];
     const runMap = state.runMap;
+    const now = Date.now();
 
     return JSON.stringify({
       mode: state.status,
@@ -2439,6 +2441,7 @@ export class LocalGameEngine {
             health: Math.round(localPlayer.health),
             level: localPlayer.level,
             coins: Math.floor(localPlayer.coins || 0),
+            voidImplosionStacks: localPlayer.voidImplosionStacks || 0,
           }
         : null,
       enemies: state.enemies.map((enemy) => ({
@@ -2447,6 +2450,17 @@ export class LocalGameEngine {
         y: Math.round(enemy.position.y),
         health: Math.round(enemy.health),
       })),
+      explosions:
+        state.explosions?.map((explosion) => ({
+          type: explosion.type || "normal",
+          x: Math.round(explosion.position.x),
+          y: Math.round(explosion.position.y),
+          radius: Math.round(explosion.radius),
+          remainingMs: Math.max(
+            0,
+            (explosion.durationMs || 500) - (now - explosion.timestamp),
+          ),
+        })) || [],
       isShopRound: !!state.isShopRound,
       isHellhoundRound: !!state.isHellhoundRound,
       combatEncounter:
@@ -2880,6 +2894,7 @@ export class LocalGameEngine {
 
           if (nearest) {
             nearest.health -= 20 + p.level * 2;
+            this.markEnemyDamagedBySource(state, nearest, p.id);
             if (!state.chainLightning) state.chainLightning = [];
             state.chainLightning.push({
               id: uuidv4(),
@@ -2902,6 +2917,7 @@ export class LocalGameEngine {
           state.enemies.forEach((enemy) => {
             if (Math.hypot(enemy.position.x - ox, enemy.position.y - oy) < 20) {
               enemy.health -= 15 + p.level;
+              this.markEnemyDamagedBySource(state, enemy, p.id);
               enemy.lastHitTimestamp = now;
               this.spawnParticles({ x: ox, y: oy }, orb.color, 5, "pixel", 5);
             }
@@ -2932,6 +2948,7 @@ export class LocalGameEngine {
         if (dist <= drainRadius) {
           const actualDamage = Math.min(drainDamage, enemy.health);
           enemy.health -= actualDamage;
+          this.markEnemyDamagedBySource(state, enemy, p.id);
           totalDrained += actualDamage;
           enemy.lastHitTimestamp = now;
         }
@@ -4530,6 +4547,7 @@ export class LocalGameEngine {
               finalDamage = enemy.health;
             }
             enemy.health -= finalDamage;
+            this.markEnemyDamagedBySource(state, enemy, proj.ownerId);
 
             // Glitch Patch heal chance
             if (owner && owner.hasGlitchPatch && Math.random() < 0.2) {
@@ -4556,6 +4574,8 @@ export class LocalGameEngine {
                 timestamp: now,
                 damage: finalDamage * 0.5,
                 ownerId: owner.id,
+                type: "normal",
+                damagedEnemyIds: [],
               });
             }
             if (owner && owner.knockbackForce && owner.knockbackForce > 0) {
@@ -4671,6 +4691,7 @@ export class LocalGameEngine {
                 if (!nextTarget) break;
 
                 nextTarget.health -= chainDamage;
+                this.markEnemyDamagedBySource(state, nextTarget, proj.ownerId);
                 nextTarget.lastHitTimestamp = now;
                 addDamageNumber(
                   nextTarget,
@@ -4820,20 +4841,7 @@ export class LocalGameEngine {
         }
       }
 
-      const killer = state.players.find((p) =>
-        state.projectiles.some((proj) => proj.ownerId === p.id),
-      );
-      if (killer && killer.explosionDamage && killer.explosionDamage > 0) {
-        if (!state.explosions) state.explosions = [];
-        state.explosions.push({
-          id: uuidv4(),
-          position: { ...dead.position },
-          radius: 80,
-          timestamp: now,
-          damage: dead.maxHealth * killer.explosionDamage,
-          ownerId: killer.id,
-        });
-      }
+      this.spawnEnemyDeathExplosion(state, dead, now);
 
       // Binary Rain
       if (
@@ -4862,6 +4870,69 @@ export class LocalGameEngine {
     }
   }
 
+  private resolvePlayerOwnerId(
+    state: GameState,
+    sourceOwnerId?: string,
+  ): string | null {
+    if (!sourceOwnerId) return null;
+    if (state.players.some((player) => player.id === sourceOwnerId)) {
+      return sourceOwnerId;
+    }
+    const petOwnerId = state.pets?.find(
+      (pet) => pet.id === sourceOwnerId,
+    )?.ownerId;
+    return petOwnerId || null;
+  }
+
+  private markEnemyDamagedBySource(
+    state: GameState,
+    enemy: Enemy,
+    sourceOwnerId?: string,
+  ) {
+    const playerOwnerId = this.resolvePlayerOwnerId(state, sourceOwnerId);
+    if (playerOwnerId) {
+      enemy.lastDamagedByPlayerId = playerOwnerId;
+    }
+  }
+
+  private spawnEnemyDeathExplosion(
+    state: GameState,
+    dead: Enemy,
+    now: number,
+  ) {
+    const killerId = dead.lastDamagedByPlayerId;
+    if (!killerId) return;
+
+    const killer = state.players.find((player) => player.id === killerId);
+    if (!killer || !killer.explosionDamage || killer.explosionDamage <= 0) {
+      return;
+    }
+
+    const voidStacks = killer.voidImplosionStacks || 0;
+    const isVoidImplosion = voidStacks > 0;
+    const radius = isVoidImplosion
+      ? Math.min(188, 104 + voidStacks * 20)
+      : 80;
+    const durationMs = isVoidImplosion
+      ? Math.min(1400, 850 + voidStacks * 140)
+      : 500;
+
+    if (!state.explosions) state.explosions = [];
+    state.explosions.push({
+      id: uuidv4(),
+      position: { ...dead.position },
+      radius,
+      timestamp: now,
+      damage: dead.maxHealth * killer.explosionDamage,
+      ownerId: killer.id,
+      type: isVoidImplosion ? "void" : "normal",
+      durationMs,
+      pullRadius: isVoidImplosion ? Math.max(220, radius * 1.9) : undefined,
+      pullStrength: isVoidImplosion ? 8 + voidStacks * 1.8 : undefined,
+      damagedEnemyIds: [],
+    });
+  }
+
   private updateStatusEffects(state: GameState, delta: number) {
     state.enemies.forEach((enemy) => {
       if (!enemy.statusEffects || enemy.statusEffects.length === 0) return;
@@ -4883,13 +4954,15 @@ export class LocalGameEngine {
     state.explosions.forEach((explosion) => {
       // Pull effect for Void Implosion
       if (explosion.type === "void") {
+        const pullRadius = explosion.pullRadius || explosion.radius * 2;
+        const pullStrength = explosion.pullStrength || 5;
         state.enemies.forEach((enemy) => {
           const dx = explosion.position.x - enemy.position.x;
           const dy = explosion.position.y - enemy.position.y;
           const dist = Math.hypot(dx, dy) || 1;
-          if (dist < explosion.radius * 2) {
+          if (dist < pullRadius) {
             const pullForce =
-              (1 - dist / (explosion.radius * 2)) * 5 * timeFactor;
+              (1 - dist / pullRadius) * pullStrength * timeFactor;
             enemy.position.x += (dx / dist) * pullForce;
             enemy.position.y += (dy / dist) * pullForce;
           }
@@ -4897,18 +4970,22 @@ export class LocalGameEngine {
       }
 
       state.enemies.forEach((enemy) => {
+        if (explosion.damagedEnemyIds?.includes(enemy.id)) return;
         const dist = Math.hypot(
           enemy.position.x - explosion.position.x,
           enemy.position.y - explosion.position.y,
         );
         if (dist < explosion.radius) {
           enemy.health -= explosion.damage;
+          this.markEnemyDamagedBySource(state, enemy, explosion.ownerId);
           enemy.lastHitTimestamp = now;
+          if (!explosion.damagedEnemyIds) explosion.damagedEnemyIds = [];
+          explosion.damagedEnemyIds.push(enemy.id);
         }
       });
     });
     state.explosions = state.explosions.filter(
-      (exp) => now - exp.timestamp < 500,
+      (exp) => now - exp.timestamp < (exp.durationMs || 500),
     );
   }
 
@@ -4965,6 +5042,7 @@ export class LocalGameEngine {
         if (dist < 20) {
           // Skull hitbox radius
           enemy.health -= skull.damage;
+          this.markEnemyDamagedBySource(state, enemy, owner.id);
           enemy.lastHitTimestamp = now;
 
           // Apply burning status effect from skulls
@@ -5012,6 +5090,7 @@ export class LocalGameEngine {
           if (timeSinceSpawn % FIRE_TRAIL_DAMAGE_INTERVAL < 50) {
             // Small window for damage tick
             enemy.health -= trail.damage * (delta / 1000);
+            this.markEnemyDamagedBySource(state, enemy, trail.ownerId);
             enemy.lastHitTimestamp = now;
 
             // Apply burning status
