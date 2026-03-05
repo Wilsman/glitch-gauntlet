@@ -17,6 +17,7 @@ export type InputState = {
   right: boolean;
   analogX?: number; // -1 to 1
   analogY?: number; // -1 to 1
+  interact?: boolean;
   blink?: boolean;
   ability?: boolean;
   shake?: boolean;
@@ -113,6 +114,9 @@ export interface Player {
   level: number;
   xp: number;
   xpToNextLevel: number;
+  coins?: number; // Currency used in shop rounds
+  temporaryDamageMultiplier?: number;
+  temporaryDamageExpiresWave?: number;
   lastInput?: InputState;
   color: string;
   attackCooldown: number;
@@ -211,6 +215,9 @@ export interface Player {
     requiredShakes: number;
   };
   wasShakePressed?: boolean;
+  lastInteractTriggered?: boolean;
+  lastBlinkTriggered?: boolean;
+  lastAbilityTriggered?: boolean;
 }
 export interface DamageNumber {
   id: string;
@@ -228,7 +235,10 @@ export interface StatusEffect {
 
 export type EnemyType = 'grunt' | 'slugger' | 'hellhound' | 'splitter' | 'mini-splitter' | "neon-pulse"
   | "glitch-spider"
-  | "tank-bot";
+  | "tank-bot"
+  | "leech-beacon"
+  | "bomber"
+  | "orbit-drone";
 
 export interface Enemy {
   id: string;
@@ -250,6 +260,28 @@ export interface Enemy {
   attackCooldown?: number;
   attackSpeed?: number;
   projectileSpeed?: number;
+  preferredRange?: number;
+  strafeDirection?: -1 | 1;
+  nextStrafeSwapAt?: number;
+  pulseCooldown?: number;
+  pulseRadius?: number;
+  pulseTelegraphUntil?: number;
+  chargeCooldown?: number;
+  chargeTelegraphUntil?: number;
+  chargeUntil?: number;
+  chargeDirection?: Vector2D;
+  chargeHitPlayerIds?: string[];
+  isPackAlpha?: boolean;
+  packLeaderId?: string;
+  packMarkPlayerId?: string;
+  packMarkUntil?: number;
+  supportCooldown?: number;
+  supportRadius?: number;
+  supportLinkUntil?: number;
+  supportTargetIds?: string[];
+  supportBuffUntil?: number;
+  explodeTelegraphUntil?: number;
+  explodeRadius?: number;
   // Visual history
   history?: Vector2D[];
 }
@@ -287,6 +319,7 @@ export interface XpOrb {
   id: string;
   position: Vector2D;
   value: number;
+  kind?: 'xp' | 'coin';
   isDoubled?: boolean; // Visual indicator for lucky upgrade
 }
 export type UpgradeRarity = 'common' | 'uncommon' | 'legendary' | 'boss' | 'lunar' | 'void';
@@ -353,6 +386,32 @@ export interface UpgradeOption {
   description: string;
   rarity: UpgradeRarity;
   emoji: string;
+  cost?: number;
+  source?: 'levelUp' | 'shop';
+  isSkipOption?: boolean;
+}
+
+export type ShopOfferType = "upgrade" | "heal" | "temporary" | "leave";
+
+export interface ShopOffer {
+  id: string;
+  type: ShopOfferType;
+  title: string;
+  description: string;
+  emoji: string;
+  cost: number;
+  rarity?: UpgradeRarity;
+  upgradeType?: UpgradeType;
+  healAmount?: number;
+  tempDamageMultiplier?: number;
+  tempDurationWaves?: number;
+  purchased?: boolean;
+}
+
+export interface ShopStand {
+  id: string;
+  position: Vector2D;
+  offer: ShopOffer;
 }
 
 export interface CollectedUpgrade {
@@ -450,7 +509,7 @@ export interface Clone {
   opacity: number; // for fade-in/fade-out effect
 }
 
-export type HazardType = 'explosive-barrel' | 'freeze-barrel' | 'spike-trap';
+export type HazardType = 'explosive-barrel' | 'freeze-barrel' | 'spike-trap' | 'pulse-zone';
 
 export interface Hazard {
   id: string;
@@ -474,7 +533,7 @@ export interface Hazard {
 export type BossType = 'berserker' | 'summoner' | 'architect' | 'glitch-golem' | 'viral-swarm' | 'overclocker' | 'magnetic-magnus' | 'neon-reaper' | 'core-destroyer';
 
 export interface BossAttack {
-  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard' | 'glitch-zone' | 'viral-dash' | 'clock-burst' | 'magnetic-flux' | 'reaper-dash' | 'decoy-spawn' | 'satellite-beam' | 'void-well' | 'magnetic-storm' | 'system-collapse' | 'time-slow' | 'shotgun-burst' | 'radial-burst' | 'projectile-bomb';
+  type: 'charge' | 'slam' | 'summon' | 'teleport' | 'beam' | 'laser-grid' | 'floor-hazard' | 'glitch-zone' | 'builder-drop' | 'viral-dash' | 'clock-burst' | 'magnetic-flux' | 'reaper-dash' | 'decoy-spawn' | 'satellite-beam' | 'void-well' | 'magnetic-storm' | 'system-collapse' | 'time-slow' | 'shotgun-burst' | 'radial-burst' | 'projectile-bomb';
   telegraphStartTime: number;
   telegraphDuration: number;
   executeTime?: number;
@@ -565,7 +624,47 @@ export interface ScreenShake {
   startTime: number;
 }
 
-export type GameStatus = 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
+export type RunMapEncounterType = 'combat' | 'hellhound' | 'shop' | 'boss';
+export type RunMapRouteId = 'north' | 'east' | 'south' | 'west';
+export type RunMapRewardType =
+  | 'coins'
+  | 'heal'
+  | 'shopDiscount'
+  | 'shopStock'
+  | 'damageBoost';
+
+export interface RunMapReward {
+  type: RunMapRewardType;
+  value: number;
+  label: string;
+  description: string;
+  durationWaves?: number;
+}
+
+export interface RunMapNode {
+  id: string;
+  depth: number;
+  lane: number;
+  routeId: RunMapRouteId;
+  x: number;
+  y: number;
+  encounterType: RunMapEncounterType;
+  title?: string;
+  bossType?: BossType;
+  rewards?: RunMapReward[];
+  nextNodeIds: string[];
+}
+
+export interface RunMapState {
+  floorIndex: number;
+  nodes: RunMapNode[];
+  currentNodeId: string | null;
+  reachableNodeIds: string[];
+  revealedNodeIds: string[];
+  visitedNodeIds: string[];
+}
+
+export type GameStatus = 'mapSelection' | 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
 
 export interface LeaderboardEntry {
   id: number;
@@ -598,14 +697,25 @@ export interface LeaderboardResponse {
   entries: LeaderboardEntry[];
   total?: number;
 }
+
+export type CombatEncounterPhase = 'spawning' | 'clearing' | 'intermission';
+
 export interface GameState {
   gameId: string;
   status: GameStatus;
+  runMap?: RunMapState | null;
+  currentEncounterType?: RunMapEncounterType | null;
+  mapDepth?: number;
   players: Player[];
   enemies: Enemy[];
   projectiles: Projectile[];
   xpOrbs: XpOrb[];
   levelingUpPlayerId?: string | null;
+  upgradePromptType?: 'levelUp' | 'shop' | null;
+  isShopRound?: boolean;
+  shopStands?: ShopStand[];
+  shopPrompt?: string | null;
+  shopPendingBossType?: BossType | null;
   wave: number;
   teleporter: Teleporter | null;
   explosions?: Explosion[];
@@ -623,6 +733,12 @@ export interface GameState {
   hellhoundsKilled?: number;
   hellhoundSpawnTimer?: number;
   waveTimer?: number; // Current wave elapsed time in ms
+  encounterWave?: number;
+  encounterWavesTotal?: number;
+  encounterPhase?: CombatEncounterPhase | null;
+  encounterEnemiesRemaining?: number;
+  encounterEnemiesTotal?: number;
+  encounterIntermissionMs?: number;
   boss?: Boss | null;
   shockwaveRings?: ShockwaveRing[];
   bossProjectiles?: BossProjectile[];

@@ -36,8 +36,13 @@ data/
 .agents/
 .claude/
 .windsurf/
+output/
+.tmp/
 
 # Local scratch content
 /input-prompts/
 /progress.md
 /COLLECTED_PANEL_TODO.md
+
+# Localflare generated files
+.localflare/

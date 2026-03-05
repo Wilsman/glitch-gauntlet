@@ -1,311 +1,363 @@
-import React, { useState } from "react";
-import type { GameState, Player } from "@shared/types";
-import { Star, Skull, Shield, Zap, Target, Sparkles } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import type { CollectedUpgrade, GameState, Pet, Player } from "@shared/types";
+import { Coins, Heart, Shield, Sparkles, Star } from "lucide-react";
 import { getCharacter } from "@shared/characterConfig";
+import { SPRITE_MAP } from "@/lib/spriteMap";
 
 interface UnifiedHUDProps {
   gameState: GameState;
   localPlayer: Player;
+  localPlayerPet?: Pet | null;
 }
 
-const WAVE_DURATION = 20000; // 20 seconds (sync with engine)
+const HEALTH_SLOTS = 5;
+const SHIELD_SLOTS = 3;
+
+function createSegmentFills(current: number, max: number, slots: number): number[] {
+  const normalizedMax = Math.max(1, max);
+  const totalFilled = Math.max(0, Math.min(slots, (current / normalizedMax) * slots));
+  return Array.from({ length: slots }, (_, index) =>
+    Math.max(0, Math.min(1, totalFilled - index))
+  );
+}
+
+function formatUpgradeType(type: string): string {
+  return type
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
 export default function UnifiedHUD({
   gameState,
   localPlayer,
+  localPlayerPet = null,
 }: UnifiedHUDProps) {
-  const [showTooltip, setShowTooltip] = useState(false);
+  const [avatarFrame, setAvatarFrame] = useState(0);
   const {
     wave,
-    waveTimer,
+    mapDepth = 0,
+    runMap = null,
+    currentEncounterType = null,
+    encounterWave = 0,
+    encounterWavesTotal = 0,
+    encounterPhase = null,
+    encounterEnemiesRemaining = 0,
+    encounterEnemiesTotal = 0,
+    encounterIntermissionMs = 0,
     isHellhoundRound,
     hellhoundsKilled,
     totalHellhoundsInRound,
     status,
+    isShopRound = false,
   } = gameState;
 
-  const character = getCharacter(localPlayer.characterType || "spray-n-pray");
-  const abilityCooldown = localPlayer.abilityCooldown || 0;
-  const isAbilityReady = abilityCooldown <= 0;
-  const cooldownPercentage = Math.max(
-    0,
-    Math.min(100, (abilityCooldown / character.baseAbilityCooldown) * 100)
-  );
+  const characterType = localPlayer.characterType || "spray-n-pray";
+  const character = getCharacter(characterType);
+  const spriteConfig = SPRITE_MAP.characters[characterType as keyof typeof SPRITE_MAP.characters];
 
-  const xpPercentage = (localPlayer.xp / localPlayer.xpToNextLevel) * 100;
+  useEffect(() => {
+    if (!spriteConfig?.frames || spriteConfig.frames <= 1) return;
+    const interval = setInterval(() => {
+      setAvatarFrame((prev) => (prev + 1) % spriteConfig.frames!);
+    }, spriteConfig.animationSpeed || 110);
+    return () => clearInterval(interval);
+  }, [spriteConfig]);
+
+  const avatarSrc = spriteConfig?.framePath
+    ? spriteConfig.framePath.replace("{i}", avatarFrame.toString())
+    : spriteConfig?.url;
+
+  const xpPercentage = Math.max(
+    0,
+    Math.min(100, (localPlayer.xp / localPlayer.xpToNextLevel) * 100)
+  );
+  const xpToNextUpgrade = Math.max(0, Math.ceil(localPlayer.xpToNextLevel - localPlayer.xp));
   const healthPercentage = (localPlayer.health / localPlayer.maxHealth) * 100;
-  const shieldPercentage = localPlayer.maxShield
-    ? ((localPlayer.shield || 0) / localPlayer.maxShield) * 100
-    : 0;
+  const hasShield = !!localPlayer.maxShield && localPlayer.maxShield > 0;
+  const healthSlots = createSegmentFills(localPlayer.health, localPlayer.maxHealth, HEALTH_SLOTS);
+  const shieldSlots = hasShield
+    ? createSegmentFills(localPlayer.shield || 0, localPlayer.maxShield || 1, SHIELD_SLOTS)
+    : [];
 
   const isDead = localPlayer.status === "dead";
-  const remainingTime = Math.max(
-    0,
-    Math.ceil((WAVE_DURATION - (waveTimer || 0)) / 1000)
-  );
-  const timerPercentage = Math.min(
-    100,
-    ((waveTimer || 0) / WAVE_DURATION) * 100
-  );
-  return (
-    <div className="fixed inset-0 pointer-events-none z-50 flex flex-col justify-between p-4 font-press-start">
-      {/* Top Header - Wave Info */}
-      <div className="w-full flex flex-col items-center">
-        <div className="relative w-full max-w-2xl px-8 py-2 bg-black/60 backdrop-blur-md border-b-2 border-x-2 border-neon-cyan/50 rounded-b-2xl shadow-[0_4px_20px_rgba(0,255,255,0.2)]">
-          <div className="flex justify-between items-center mb-2">
-            <div className="flex flex-col">
-              <span className="text-[10px] text-neon-cyan/80">WAVE</span>
-              <span className="text-2xl text-neon-yellow drop-shadow-[0_0_8px_rgba(255,255,0,0.8)]">
-                {wave}
-              </span>
-            </div>
+  const totalMapDepth = runMap?.nodes.reduce((max, node) => Math.max(max, node.depth), 10) || 10;
+  const statusText = status === "mapSelection"
+    ? "CHOOSE PATH"
+    : isShopRound
+      ? "SHOP ROUND"
+      : status === "bossFight"
+        ? "BOSS FIGHT"
+        : isHellhoundRound
+          ? "HELLHOUND NODE"
+          : currentEncounterType === "combat"
+            ? "CLEAR THE PACKS"
+            : "SURVIVE";
+  const showCombatProgress =
+    currentEncounterType === "combat" && status === "playing" && !isHellhoundRound;
+  const combatProgressPercentage =
+    encounterEnemiesTotal > 0
+      ? Math.min(
+          100,
+          ((encounterEnemiesTotal - encounterEnemiesRemaining) / encounterEnemiesTotal) * 100,
+        )
+      : 0;
+  const intermissionSeconds = Math.max(0, Math.ceil((encounterIntermissionMs || 0) / 1000));
+  const combatPackLabel =
+    showCombatProgress && encounterWavesTotal > 0
+      ? `PACK ${Math.max(1, encounterWave)}/${encounterWavesTotal}`
+      : "SELECT A REACHABLE NODE";
+  const petDps = localPlayerPet
+    ? (localPlayerPet.damage / Math.max(0.001, localPlayerPet.attackSpeed / 1000)).toFixed(1)
+    : null;
 
-            <div className="flex flex-col items-center">
-              {isHellhoundRound ? (
-                <div className="animate-pulse">
-                  <span className="text-sm text-red-500">
-                    🐺 HELLHOUND ROUND 🐺
-                  </span>
-                  <div className="text-[10px] text-white mt-1">
-                    {hellhoundsKilled} / {totalHellhoundsInRound} KILLED
-                  </div>
-                </div>
+  const collectedUpgrades = (localPlayer.collectedUpgrades || []) as CollectedUpgrade[];
+  const totalUpgradePicks = collectedUpgrades.reduce((sum, upgrade) => sum + upgrade.count, 0);
+  const topUpgrades = [...collectedUpgrades]
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
+    .slice(0, 8);
+
+  return (
+    <div className="fixed inset-0 pointer-events-none z-50 p-4 font-press-start">
+      <div className="absolute left-3 top-3 w-[min(420px,calc(100vw-1.5rem))]">
+        <div className="rounded-2xl border border-neon-cyan/55 bg-black/78 p-3.5 backdrop-blur-md shadow-[0_0_30px_rgba(0,255,255,0.22)]">
+          <div className="flex items-center gap-3.5">
+            <div className="relative h-20 w-20 overflow-hidden rounded-lg border border-neon-cyan/50 bg-black/70">
+              {avatarSrc ? (
+                <img
+                  src={avatarSrc}
+                  alt={character.name}
+                  className="h-full w-full object-contain"
+                  style={{ imageRendering: "pixelated" }}
+                />
               ) : (
-                <>
-                  <span className="text-xl text-white font-vt323 tracking-widest">
-                    {remainingTime}s
-                  </span>
-                  <div className="w-64 h-2 bg-gray-800 rounded-full mt-1 overflow-hidden border border-white/20">
-                    <div
-                      className="h-full bg-neon-cyan shadow-[0_0_10px_#00FFFF] transition-all duration-1000 ease-linear"
-                      style={{ width: `${100 - timerPercentage}%` }}
-                    />
-                  </div>
-                </>
+                <div className="flex h-full w-full items-center justify-center text-3xl">
+                  {character.emoji}
+                </div>
               )}
             </div>
 
-            <div className="flex flex-col items-end">
-              <span className="text-[10px] text-neon-cyan/80">STATUS</span>
-              <span
-                className={`text-sm ${
-                  status === "bossFight"
-                    ? "text-red-500 animate-pulse"
-                    : "text-green-400"
-                }`}
-              >
-                {status === "bossFight" ? "BOSS INCOMING!" : "SURVIVE"}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <span className={`truncate pt-0.5 text-[13px] ${isDead ? "text-gray-400" : "text-white"}`}>
+                  {localPlayer.name || "PLAYER_LOCAL"}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-md border border-neon-yellow/35 bg-neon-yellow/15 px-2 py-1 text-[10px] text-neon-yellow">
+                  <Star className="h-3 w-3 fill-neon-yellow text-neon-yellow" />
+                  LVL {localPlayer.level}
+                </span>
+              </div>
+              <div className="mt-1.5 text-[10px]">
+                <span className="truncate text-neon-cyan/80">{character.name}</span>
+              </div>
+              <div className="mt-2.5 inline-flex items-center gap-1 rounded-md border border-yellow-300/35 bg-yellow-500/10 px-2.5 py-1.5 text-[11px] text-yellow-200">
+                <Coins className="h-3.5 w-3.5 text-yellow-300" />
+                {Math.floor(localPlayer.coins || 0)}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3.5 space-y-2">
+            <div className="rounded-lg border border-red-500/45 bg-red-950/25 px-2.5 py-2">
+              <div className="flex items-center justify-between text-[10px]">
+                <span className="text-red-300">HEALTH</span>
+                <span className="text-white">
+                  {Math.ceil(localPlayer.health)} / {localPlayer.maxHealth}
+                </span>
+              </div>
+              <div className={`mt-1.5 flex items-center gap-1.5 ${healthPercentage < 30 ? "animate-pulse" : ""}`}>
+                {healthSlots.map((fill, index) => (
+                  <div key={`health-${index}`} className="relative h-5 w-5">
+                    <Heart className="h-5 w-5 fill-red-950 text-red-950" />
+                    <div className="absolute inset-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
+                      <Heart className="h-5 w-5 fill-red-500 text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.8)]" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {hasShield && (
+              <div className="rounded-lg border border-cyan-400/45 bg-cyan-950/30 px-2.5 py-2">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-cyan-200">SHIELD</span>
+                  <span className="text-cyan-100">
+                    {Math.ceil(localPlayer.shield || 0)} / {localPlayer.maxShield}
+                  </span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  {shieldSlots.map((fill, index) => (
+                    <div key={`shield-${index}`} className="relative h-5 w-5">
+                      <Shield className="h-5 w-5 fill-cyan-950 text-cyan-900" />
+                      <div className="absolute inset-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
+                        <Shield className="h-5 w-5 fill-cyan-400 text-cyan-300 drop-shadow-[0_0_6px_rgba(103,232,249,0.9)]" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-lg border border-purple-400/45 bg-purple-950/30 px-2.5 py-2">
+              <div className="mb-1 flex items-center justify-between text-[10px]">
+                <span className="inline-flex items-center gap-1 text-purple-200">
+                  <Sparkles className="h-3 w-3 text-purple-300" />
+                  XP
+                </span>
+                <span className="text-white">
+                  {Math.floor(localPlayer.xp)} / {localPlayer.xpToNextLevel}
+                </span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full border border-purple-500/40 bg-purple-950/70">
+                <div
+                  className="h-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all duration-300"
+                  style={{ width: `${xpPercentage}%` }}
+                />
+              </div>
+              <div className="mt-1 text-[9px] text-purple-200/90">
+                NEXT UPGRADE IN {xpToNextUpgrade} XP
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {localPlayerPet && (
+          <div className="-mt-px rounded-b-xl border border-t-0 border-neon-cyan/45 bg-black/72 px-3 py-2.5 shadow-[0_0_20px_rgba(0,255,255,0.14)]">
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1 text-[10px] text-pink-300">
+                <span className="text-sm leading-none">{localPlayerPet.emoji}</span>
+                PET
               </span>
+              <span className="text-[10px] text-pink-200">LVL {localPlayerPet.level}</span>
+            </div>
+            <div className="mt-1.5 h-2 overflow-hidden rounded-full border border-pink-400/40 bg-pink-950/50">
+              <div
+                className="h-full bg-gradient-to-r from-pink-600 to-pink-400 transition-all duration-300"
+                style={{
+                  width: `${Math.max(
+                    0,
+                    Math.min(100, (localPlayerPet.health / Math.max(1, localPlayerPet.maxHealth)) * 100)
+                  )}%`,
+                }}
+              />
+            </div>
+            <div className="mt-1.5 flex items-center justify-between text-[9px] text-pink-100/95">
+              <span>HP {Math.round(localPlayerPet.health)}/{localPlayerPet.maxHealth}</span>
+              <span>DPS {petDps}</span>
+              <span>DMG {localPlayerPet.damage}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="group pointer-events-auto -mt-px">
+          <div className="rounded-b-xl border border-t-0 border-neon-cyan/45 bg-black/74 px-3 py-2 shadow-[0_0_20px_rgba(0,255,255,0.12)] transition-colors group-hover:border-neon-cyan/65">
+            <div className="flex items-center justify-between text-[10px] text-neon-cyan">
+              <span>ITEMS</span>
+              <span className="text-neon-yellow">{totalUpgradePicks} PICKS</span>
+            </div>
+            <div className="mt-0.5 text-[8px] text-neon-cyan/70">
+              {collectedUpgrades.length} UNIQUE · HOVER TO EXPAND
+            </div>
+          </div>
+          <div className="max-h-0 overflow-hidden rounded-b-xl border border-t-0 border-neon-cyan/45 bg-black/76 px-3 transition-all duration-300 ease-out group-hover:max-h-72">
+            <div className="space-y-1 py-2.5">
+              {topUpgrades.length === 0 ? (
+                <div className="text-[9px] text-gray-400">No upgrades collected yet.</div>
+              ) : (
+                topUpgrades.map((upgrade) => (
+                  <div
+                    key={`${upgrade.type}-${upgrade.title}`}
+                    className="flex items-center justify-between rounded-md border border-neon-cyan/20 bg-black/40 px-2 py-1.5"
+                  >
+                    <span className="truncate text-[9px] text-gray-100">
+                      <span className="mr-1">{upgrade.emoji}</span>
+                      {upgrade.title || formatUpgradeType(upgrade.type)}
+                    </span>
+                    <span className="ml-2 shrink-0 text-[9px] text-neon-yellow">x{upgrade.count}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="w-full flex justify-center">
-        <div className="relative w-full max-w-4xl p-4 bg-black/80 backdrop-blur-xl border-2 border-neon-cyan/50 rounded-t-3xl shadow-[0_-10px_30px_rgba(0,255,255,0.15)]">
-          {/* Decorative scanline-like effect */}
-          <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-neon-cyan to-transparent opacity-50" />
-
-          <div className="flex flex-col gap-4">
-            {/* Top row: Name, Level, and Core Stats */}
-            <div className="flex justify-between items-end px-2">
-              <div className="flex items-center gap-4">
-                <div className="flex flex-col">
-                  <span className="text-[10px] text-neon-cyan mb-1">
-                    UNIT IDENTIFIER
-                  </span>
-                  <span
-                    className={`text-lg ${
-                      isDead ? "text-gray-500" : "text-white"
-                    }`}
-                  >
-                    {localPlayer.name || "PLAYER_LOCAL"}{" "}
-                    <span className="text-neon-cyan/60 hidden md:inline">
-                      [{localPlayer.characterType?.toUpperCase()}]
-                    </span>
-                  </span>
-                </div>
-                <div className="h-10 w-[2px] bg-neon-cyan/20" />
-                <div className="flex items-center gap-2 px-3 py-1 bg-neon-yellow/10 border border-neon-yellow/30 rounded-lg">
-                  <Star className="w-4 h-4 text-neon-yellow fill-neon-yellow" />
-                  <span className="text-lg text-neon-yellow">
-                    LVL {localPlayer.level}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex gap-6 text-[10px]">
-                <div className="flex flex-col items-center">
-                  <Zap className="w-4 h-4 text-neon-pink mb-1" />
-                  <span className="text-neon-pink/70">SPEED</span>
-                  <span className="text-white">
-                    {localPlayer.speed.toFixed(1)}
-                  </span>
-                </div>
-                <div className="flex flex-col items-center">
-                  <Target className="w-4 h-4 text-neon-yellow mb-1" />
-                  <span className="text-neon-yellow/70">ATK_SPD</span>
-                  <span className="text-white">
-                    {(1000 / localPlayer.attackSpeed).toFixed(1)}/s
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Middle row: Large Resource Bars and Ultimate */}
-            <div className="flex flex-col md:flex-row gap-6 items-center">
-              {/* Health Group */}
-              <div className="flex-1 w-full flex flex-col gap-1">
-                <div className="flex justify-between items-center px-1">
-                  <div className="flex items-center gap-2">
-                    <Skull
-                      className={`w-3 h-3 ${
-                        isDead ? "text-gray-500" : "text-red-500"
-                      }`}
-                    />
-                    <span className="text-[10px] text-red-400">
-                      VITALS_STATUS
-                    </span>
-                  </div>
-                  <span className="text-xs text-white">
-                    {Math.ceil(localPlayer.health)}{" "}
-                    <span className="text-gray-500">
-                      / {localPlayer.maxHealth}
-                    </span>
-                  </span>
-                </div>
-                <div
-                  className={`flex flex-col gap-1 ${
-                    healthPercentage < 30 ? "animate-bounce" : ""
-                  }`}
-                  style={{
-                    animation:
-                      healthPercentage < 30 ? "jiggle 0.1s infinite" : "none",
-                  }}
-                >
-                  <div className="relative h-6 bg-red-950/40 border-2 border-red-500/50 rounded-sm overflow-hidden group">
-                    <div
-                      className="h-full bg-gradient-to-r from-red-600 to-red-400 transition-all duration-300 relative"
-                      style={{ width: `${healthPercentage}%` }}
-                    >
-                      <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:20px_20px] animate-[pulse_2s_infinite]" />
-                    </div>
-                  </div>
-                  {/* Shield Bar - Independent and visible */}
-                  {localPlayer.maxShield && localPlayer.maxShield > 0 && (
-                    <div className="relative h-2 bg-cyan-950/40 border border-neon-cyan/50 rounded-sm overflow-hidden">
-                      <div
-                        className="h-full bg-neon-cyan shadow-[0_0_10px_#00FFFF] transition-all duration-300"
-                        style={{ width: `${shieldPercentage}%` }}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Ultimate Indicator */}
-              <div className="flex-shrink-0 relative">
-                <div
-                  key={isAbilityReady ? "ready" : "not-ready"}
-                  className={`
-                    w-16 h-16 rounded-xl border-2 flex items-center justify-center cursor-help pointer-events-auto
-                    transition-all duration-300 relative group
-                    ${
-                      isAbilityReady
-                        ? "border-neon-cyan bg-neon-cyan/20 shadow-glow-cyan animate-ready"
-                        : "border-gray-700 bg-black/40 grayscale"
-                    }
-                  `}
-                  onMouseEnter={() => setShowTooltip(true)}
-                  onMouseLeave={() => setShowTooltip(false)}
-                >
-                  {/* Icon */}
-                  <div className="flex flex-col items-center">
-                    <Sparkles
-                      className={`w-6 h-6 ${
-                        isAbilityReady ? "text-neon-cyan" : "text-gray-500"
-                      }`}
-                    />
-                    <span
-                      className={`text-[8px] mt-1 ${
-                        isAbilityReady ? "text-white" : "text-gray-600"
-                      }`}
-                    >
-                      ULT
-                    </span>
-                  </div>
-
-                  {/* Cooldown Overlay */}
-                  {!isAbilityReady && (
-                    <div className="absolute inset-0 bg-black/60 rounded-lg overflow-hidden flex items-end">
-                      <div
-                        className="w-full bg-neon-cyan/40 transition-all duration-500"
-                        style={{ height: `${100 - cooldownPercentage}%` }}
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs text-white font-press-start">
-                          {Math.ceil(abilityCooldown / 1000)}s
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Tooltip */}
-                  {showTooltip && (
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-64 z-50 pointer-events-none animate-in fade-in slide-in-from-bottom-2">
-                      <div className="bg-black/95 border-2 border-neon-cyan p-4 rounded-xl shadow-[0_0_20px_rgba(0,255,255,0.3)] backdrop-blur-md">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-2 h-2 bg-neon-cyan rounded-full animate-pulse" />
-                          <span className="text-[10px] text-neon-cyan uppercase tracking-tighter">
-                            ULTIMATE ABILITY [SPACE]
-                          </span>
-                        </div>
-                        <h4 className="text-sm text-neon-yellow mb-1 uppercase">
-                          {character.abilityName}
-                        </h4>
-                        <p className="font-vt323 text-base text-gray-300 leading-tight">
-                          {character.abilityDescription}
-                        </p>
-                        <div className="mt-3 pt-2 border-t border-white/10 flex justify-between items-center text-[8px]">
-                          <span className="text-gray-500 uppercase">
-                            COOLDOWN
-                          </span>
-                          <span className="text-neon-pink">
-                            {(character.baseAbilityCooldown / 1000).toFixed(0)}{" "}
-                            SECONDS
-                          </span>
-                        </div>
-                      </div>
-                      {/* Tooltip Arrow */}
-                      <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-[2px] border-8 border-transparent border-t-neon-cyan" />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* XP Group */}
-              <div className="flex-1 w-full flex flex-col gap-1">
-                <div className="flex justify-between items-center px-1">
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-3 h-3 text-purple-500" />
-                    <span className="text-[10px] text-purple-400">XP</span>
-                  </div>
-                  <span className="text-xs text-white">
-                    {localPlayer.xp}{" "}
-                    <span className="text-gray-500">
-                      / {localPlayer.xpToNextLevel}
-                    </span>
-                  </span>
-                </div>
-                <div className="h-6 bg-purple-950/40 border-2 border-purple-500/50 rounded-sm overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-600 to-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.5)] transition-all duration-500"
-                    style={{ width: `${xpPercentage}%` }}
-                  />
-                </div>
-              </div>
-            </div>
+      <div className="absolute left-1/2 top-4 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2">
+        <div className="rounded-xl border border-neon-cyan/45 bg-black/65 px-4 py-2 backdrop-blur-md shadow-[0_0_18px_rgba(0,255,255,0.15)]">
+          <div className="flex items-center justify-between gap-3 text-[10px]">
+            <span className="text-neon-cyan/90">
+              NODE <span className="text-neon-yellow">{mapDepth}</span>
+              <span className="text-white/50">/{totalMapDepth}</span>
+            </span>
+            <span
+              className={`${
+                status === "mapSelection"
+                  ? "text-cyan-200"
+                  : currentEncounterType === "hellhound"
+                    ? "text-red-300"
+                    : currentEncounterType === "shop"
+                      ? "text-yellow-300"
+                      : currentEncounterType === "boss"
+                        ? "text-fuchsia-300"
+                        : "text-green-400"
+              }`}
+            >
+              {statusText}
+            </span>
+            <span className="text-white/75">
+              THREAT <span className="text-neon-pink">{Math.max(0, wave)}</span>
+            </span>
           </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-[10px]">
+            <span className="text-white/65">
+              {showCombatProgress
+                ? combatPackLabel
+                : currentEncounterType
+                  ? `NEXT TYPE: ${currentEncounterType.toUpperCase()}`
+                  : "SELECT A REACHABLE NODE"}
+            </span>
+            <span
+              className={`${
+                isShopRound
+                  ? "text-yellow-300"
+                  : isHellhoundRound
+                    ? "text-red-300"
+                    : showCombatProgress
+                      ? encounterPhase === "intermission"
+                        ? "text-neon-cyan"
+                        : encounterEnemiesRemaining > 0
+                          ? "text-white"
+                          : "text-green-300"
+                      : "text-white/65"
+              }`}
+            >
+              {isHellhoundRound ? (
+                <>
+                {hellhoundsKilled || 0}/{totalHellhoundsInRound || 0} HELLHOUNDS
+                </>
+              ) : showCombatProgress ? (
+                encounterPhase === "intermission" ? (
+                  <>NEXT PACK IN {intermissionSeconds}s</>
+                ) : (
+                  <>{encounterEnemiesRemaining} HOSTILES</>
+                )
+              ) : status === "mapSelection" ? (
+                <>ROUTE PLANNING</>
+              ) : status === "bossFight" ? (
+                <>FINAL PUSH</>
+              ) : (
+                <>SAFE ROOM</>
+              )}
+            </span>
+          </div>
+          {showCombatProgress && (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full border border-white/10 bg-black/40">
+              <div
+                className="h-full bg-neon-cyan transition-all duration-1000 ease-linear"
+                style={{ width: `${combatProgressPercentage}%` }}
+              />
+            </div>
+          )}
         </div>
       </div>
     </div>

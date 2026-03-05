@@ -1,99 +1,108 @@
-# Enemy Stats by Wave
+# Enemy Stats Table
 
-## Grunt Stats Progression
+## Base Roster Stats
 
-| Wave | Health | Damage | Speed | XP | Notes |
-|------|--------|--------|-------|-----|-------|
-| 1 | 20 | 5 | 2.00 | 5 | Base stats |
-| 2 | 26 | 6 | 2.10 | 6 | +30% health |
-| 3 | 34 | 7 | 2.21 | 7 | Noticeable speed increase |
-| 4 | 44 | 9 | 2.32 | 8 | Damage becomes threatening |
-| 5 | 57 | 10 | 2.43 | 9 | Final wave before teleporter |
-| 10 | 206 | 26 | 2.89 | 15 | Extreme difficulty |
+| Enemy | Unlock | Base HP | Base Damage | Base Speed | Base XP | Spawn Weight | Signature |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `grunt` | Wave 1 | 20 | 5 | 2.0 | 5 | 1.0 | Simple melee chase |
+| `slugger` | Wave 1 | 30 | 3 | 1.0 | 8 | 0.45 | Strafes while holding ranged standoff |
+| `hellhound` | Special round only | 40 | 8 | 4.0 | 15 | 0.0 | Alpha-led pack rushes |
+| `splitter` | Wave 6 | 35 | 6 | 1.5 | 12 | 0.4 | Splits into 2-3 minis on death |
+| `mini-splitter` | Spawned only | 10 | 3 | 1.8 | 2 | 0.0 | Fast cleanup swarm |
+| `glitch-spider` | Wave 4 | 15 | 4 | 3.5 | 6 | 0.5 | Latches onto players |
+| `bomber` | Wave 7 | 24 | 12 | 2.6 | 10 | 0.28 | Fuse telegraph into self-destruct blast |
+| `neon-pulse` | Wave 8 | 50 | 10 | 1.2 | 20 | 0.3 | Pulse telegraph plus unsafe ground |
+| `leech-beacon` | Wave 9 | 42 | 2 | 1.15 | 14 | 0.24 | Heals and speeds nearby enemies |
+| `orbit-drone` | Wave 11 | 28 | 4 | 1.4 | 12 | 0.22 | Wide orbiting ranged pressure |
+| `tank-bot` | Wave 13 | 120 | 15 | 0.8 | 30 | 0.2 | Telegraphs and charges through players |
 
-## Slugger Stats Progression
+## Scaling Multipliers
 
-| Wave | Health | Damage | Speed | XP | Attack Speed (ms) | Proj Speed | Notes |
-|------|--------|--------|-------|-----|-------------------|------------|-------|
-| 1 | 30 | 3 | 1.20 | 8 | 2500 | 4.00 | Base stats |
-| 2 | 42 | 3 | 1.24 | 10 | 2375 | 4.00 | Shoots faster |
-| 3 | 59 | 4 | 1.27 | 12 | 2256 | 4.00 | Health scaling kicks in |
-| 4 | 82 | 4 | 1.31 | 14 | 2143 | 4.00 | Tankier ranged threat |
-| 5 | 115 | 5 | 1.35 | 17 | 2036 | 4.00 | Final wave |
-| 10 | 510 | 7 | 1.51 | 33 | 1547 | 4.00 | Very tanky, rapid fire |
+| Enemy | Health | Damage | Speed | XP | Extra Scaling |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `grunt` | 1.30 | 1.20 | 1.05 | 1.15 | None |
+| `slugger` | 1.40 | 1.15 | 1.03 | 1.20 | Attack speed `0.95x` per wave |
+| `hellhound` | 1.15 | 1.10 | 1.02 | 1.30 | Pack behavior, no normal-wave spawn |
+| `splitter` | 1.35 | 1.20 | 1.04 | 1.25 | Death split count stays `2-3` |
+| `mini-splitter` | 1.35 | 1.20 | 1.04 | 1.25 | Inherits parent scaling |
+| `glitch-spider` | 1.20 | 1.20 | 1.08 | 1.20 | Latch mechanic is the real threat |
+| `bomber` | 1.26 | 1.22 | 1.05 | 1.18 | Explosion is the actual kill check |
+| `neon-pulse` | 1.40 | 1.30 | 1.05 | 1.30 | Attack speed `0.90x` per wave |
+| `leech-beacon` | 1.32 | 1.12 | 1.04 | 1.24 | Support pulse heals and adds a short speed buff |
+| `orbit-drone` | 1.34 | 1.18 | 1.05 | 1.22 | Attack speed `0.95x` per wave |
+| `tank-bot` | 1.60 | 1.40 | 1.02 | 1.50 | Charge pattern does the displacement work |
 
-## Key Observations
+## Behavior Timings
 
-### Grunt (Melee)
-- **Strengths**: Fast movement, decent damage scaling
-- **Weaknesses**: Must get close to deal damage
-- **Threat Level**: Increases with wave due to speed + damage combo
-- **Counter Strategy**: Kiting, knockback, ice slow
+| Enemy | Timing | Value |
+| --- | --- | --- |
+| `slugger` | Strafe swap | `1250-2200ms` |
+| `slugger` | Preferred range | `245px` |
+| `slugger` | Base shot cooldown | `2500ms` |
+| `bomber` | Explosion telegraph | `750ms` |
+| `bomber` | Explosion radius | `130px` |
+| `neon-pulse` | Preferred range | `230px` |
+| `neon-pulse` | Base shot cooldown | `3000ms` |
+| `neon-pulse` | Pulse telegraph | `900ms` |
+| `neon-pulse` | Pulse zone duration | `2600ms` |
+| `leech-beacon` | Preferred range | `255px` |
+| `leech-beacon` | Support radius | `220px` |
+| `leech-beacon` | Initial support cooldown | `1600-2100ms` |
+| `leech-beacon` | Repeat support cooldown | `2600-3300ms` |
+| `leech-beacon` | Support buff duration | `1800ms` |
+| `orbit-drone` | Preferred range | `315px` |
+| `orbit-drone` | Strafe swap | `1800-2700ms` |
+| `orbit-drone` | Base shot cooldown | `2200ms` |
+| `tank-bot` | Charge telegraph | `700ms` |
+| `tank-bot` | Charge duration | `650ms` |
+| `tank-bot` | Charge speed floor | `7.5` |
+| `hellhound` | Pack spawn size | `3-5` |
+| `hellhound` | Pack speed boost | `1.35x` |
 
-### Slugger (Ranged)
-- **Strengths**: High health, ranged attacks, doesn't need to close distance
-- **Weaknesses**: Slow movement, lower damage per hit
-- **Threat Level**: Becomes very dangerous in groups at higher waves
-- **Counter Strategy**: Dodge, armor, shield, focus fire
+## Wave Snapshots
 
-## Spawn Rates
+### Grunt
 
-With spawn weights:
-- **Grunt**: 1.0 (62.5% of spawns)
-- **Slugger**: 0.6 (37.5% of spawns)
+| Wave | HP | Damage | Speed | XP |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 20 | 5 | 2.00 | 5 |
+| 3 | 34 | 7 | 2.21 | 7 |
+| 5 | 57 | 10 | 2.43 | 9 |
+| 10 | 206 | 26 | 3.10 | 18 |
 
-Expected composition in a typical wave:
-- 10 enemies: ~6 Grunts, ~4 Sluggers
-- 20 enemies: ~13 Grunts, ~7 Sluggers
+### Slugger
 
-## Damage Per Second (DPS) Comparison
+| Wave | HP | Damage | Speed | XP | Attack CD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | 30 | 3 | 1.00 | 8 | 2500ms |
+| 3 | 59 | 4 | 1.06 | 12 | 2256ms |
+| 5 | 115 | 5 | 1.13 | 17 | 2036ms |
+| 8 | 316 | 8 | 1.23 | 29 | 1746ms |
 
-### Wave 1
-- **Grunt**: 5 DPS (contact damage)
-- **Slugger**: 1.2 DPS (3 damage every 2.5s)
+## Threat Notes
 
-### Wave 5
-- **Grunt**: 10 DPS (contact damage)
-- **Slugger**: 2.5 DPS (5 damage every 2.0s)
+- `grunt`: cheapest pressure unit; makes every other enemy matter by occupying space.
+- `slugger`: now creates side-angle projectile pressure instead of only frontal pressure.
+- `hellhound`: strongest when the alpha survives long enough for flanking angles to form.
+- `splitter`: effective HP is higher than the table suggests because death creates more bodies.
+- `glitch-spider`: real danger is the attachment, not its listed damage.
+- `bomber`: low listed HP is offset by how hard it punishes greedy close-range play.
+- `neon-pulse`: area denial makes the arena state part of the fight.
+- `leech-beacon`: support value spikes sharply when mixed into already-threatening packs.
+- `orbit-drone`: more dangerous when combined with ground pressure that limits dodge lanes.
+- `tank-bot`: displacement is usually more dangerous than the damage value.
 
-### Wave 10
-- **Grunt**: 26 DPS (contact damage)
-- **Slugger**: 4.5 DPS (7 damage every 1.5s)
+## Reading Late Unlocks
 
-**Note**: Grunt DPS assumes constant contact, which is unrealistic. Sluggers can maintain DPS from range, making them more consistent threats.
+Late enemies look extreme if you plug their unlock wave into the scaling formula directly. That is intentional: they are not meant to feel like sidegrades when they first appear.
 
-## Effective Health Pool (EHP)
+The roster escalation is:
 
-Considering player needs to deal this much damage to kill:
-
-### Wave 1
-- **Grunt**: 20 HP
-- **Slugger**: 30 HP (+50% more)
-
-### Wave 5
-- **Grunt**: 57 HP
-- **Slugger**: 115 HP (+102% more)
-
-### Wave 10
-- **Grunt**: 206 HP
-- **Slugger**: 510 HP (+148% more)
-
-Sluggers become significantly tankier at higher waves due to their higher health scaling (1.4x vs 1.3x).
-
-## Recommended Player Upgrades by Wave
-
-### Early Game (Waves 1-2)
-- Attack Speed
-- Projectile Damage
-- Movement Speed
-
-### Mid Game (Waves 3-4)
-- Multi-shot (handle multiple enemies)
-- Pierce (deal with groups)
-- Armor/Dodge (survive slugger projectiles)
-
-### Late Game (Wave 5+)
-- Crit Chance + Crit Damage
-- Life Steal
-- Explosion/Chain (AoE damage)
-- Shield (absorb slugger projectiles)
+- early waves: `grunt`, `slugger`
+- first disruption layer: `glitch-spider`
+- kill-order pressure: `splitter`
+- greed punishment: `bomber`
+- arena-control pressure: `neon-pulse`
+- support pressure: `leech-beacon`
+- orbiting ranged pressure: `orbit-drone`
+- positional punishment: `tank-bot`

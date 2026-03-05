@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import { useGameStore } from "@/hooks/useGameStore";
 import GameCanvas from "@/components/GameCanvas";
 import type {
@@ -18,8 +19,6 @@ import UpgradeModal from "@/components/UpgradeModal";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import StatsPanel from "@/components/StatsPanel";
 import PlayerListPanel from "@/components/PlayerListPanel";
-import CollectedUpgradesPanel from "@/components/CollectedUpgradesPanel";
-import PetStatsPanel from "@/components/PetStatsPanel";
 import BossDefeatedModal from "@/components/BossDefeatedModal";
 import UnifiedHUD from "@/components/UnifiedHUD";
 import { LocalGameEngine } from "@/lib/LocalGameEngine";
@@ -28,6 +27,7 @@ import { toast } from "@/components/ui/sonner";
 import { getCharacter } from "@shared/characterConfig";
 import { submitLeaderboardScore } from "@/lib/leaderboardApi";
 import { getPlayerName, getLastRunStats } from "@/lib/progressionStorage";
+import RunMapOverlay from "@/components/RunMapOverlay";
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -38,12 +38,15 @@ export default function GamePage() {
   const isLocalMode = gameId === "local";
 
   const setGameState = useGameStore((state) => state.setGameState);
-  const localPlayerId = useGameStore((state) => state.localPlayerId);
+  const storeLocalPlayerId = useGameStore((state) => state.localPlayerId);
+  const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const closeUpgradeModal = useGameStore((state) => state.closeUpgradeModal);
   const openUpgradeModal = useGameStore((state) => state.openUpgradeModal);
   const isUpgradeModalOpen = useGameStore((state) => state.isUpgradeModalOpen);
   const [isTestingArenaOpen, setIsTestingArenaOpen] = useState(false);
   const rawGameState = useGameStore((state) => state.gameState);
+  const urlPlayerId = isLocalMode ? searchParams.get("playerId") : null;
+  const localPlayerId = storeLocalPlayerId || urlPlayerId;
 
   const activeGameState = useMemo(() => {
     if (!rawGameState || !gameId) return null;
@@ -54,6 +57,7 @@ export default function GamePage() {
 
   const players = activeGameState?.players ?? EMPTY_PLAYERS;
   const levelingUpPlayerId = activeGameState?.levelingUpPlayerId ?? null;
+  const upgradePromptType = activeGameState?.upgradePromptType ?? null;
   const gameStatus = activeGameState?.status ?? null;
   const wave = activeGameState?.wave ?? 0;
 
@@ -161,6 +165,9 @@ export default function GamePage() {
         setIsLoading(false);
         return;
       }
+      if (!storeLocalPlayerId) {
+        setLocalPlayerId(playerIdFromUrl);
+      }
 
       const characterFromUrl = searchParams.get(
         "character"
@@ -215,6 +222,8 @@ export default function GamePage() {
     gameId,
     setGameState,
     localPlayerId,
+    storeLocalPlayerId,
+    setLocalPlayerId,
     navigate,
     isLocalMode,
     searchParams,
@@ -277,6 +286,38 @@ export default function GamePage() {
     isLocalMode,
   ]);
 
+  useEffect(() => {
+    if (!isLocalMode) return;
+
+    (window as typeof window & {
+      advanceTime?: (ms: number) => Promise<void>;
+      render_game_to_text?: () => string;
+    }).advanceTime = async (ms: number) => {
+      if (!localEngineRef.current) return;
+      localEngineRef.current.advanceTime(ms);
+      setGameState(localEngineRef.current.getGameState(), true);
+    };
+
+    (window as typeof window & {
+      advanceTime?: (ms: number) => Promise<void>;
+      render_game_to_text?: () => string;
+    }).render_game_to_text = () => {
+      if (!localEngineRef.current) return JSON.stringify({ mode: "loading" });
+      return localEngineRef.current.renderGameToText();
+    };
+
+    return () => {
+      delete (window as typeof window & {
+        advanceTime?: (ms: number) => Promise<void>;
+        render_game_to_text?: () => string;
+      }).advanceTime;
+      delete (window as typeof window & {
+        advanceTime?: (ms: number) => Promise<void>;
+        render_game_to_text?: () => string;
+      }).render_game_to_text;
+    };
+  }, [isLocalMode, setGameState]);
+
   const handleSelectUpgrade = async (upgradeId: string) => {
     if (!gameId || !localPlayerId) return;
 
@@ -330,6 +371,13 @@ export default function GamePage() {
     // Player chose to continue fighting
     if (isLocalMode && localEngineRef.current) {
       localEngineRef.current.continueAfterBoss();
+      setGameState(localEngineRef.current.getGameState(), true);
+    }
+  };
+
+  const handleSelectMapNode = (nodeId: string) => {
+    if (isLocalMode && localEngineRef.current) {
+      localEngineRef.current.selectMapNode(nodeId);
       setGameState(localEngineRef.current.getGameState(), true);
     }
   };
@@ -405,28 +453,40 @@ export default function GamePage() {
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
       <GameCanvas />
       {localPlayer && <StatsPanel player={localPlayer} />}
-      {localPlayerPet && (
-        <div className="fixed left-4 bottom-[200px] z-30">
-          <PetStatsPanel pet={localPlayerPet} />
-        </div>
-      )}
       <SettingsPanel className="fixed right-4 top-1 z-40" />
 
       {activeGameState && localPlayer && (
-        <UnifiedHUD gameState={activeGameState} localPlayer={localPlayer} />
-      )}
-
-      {localPlayer && (
-        <CollectedUpgradesPanel
-          upgrades={localPlayer.collectedUpgrades || []}
+        <UnifiedHUD
+          gameState={activeGameState}
+          localPlayer={localPlayer}
+          localPlayerPet={localPlayerPet}
         />
       )}
+
+      <AnimatePresence mode="wait">
+        {isLocalMode &&
+          activeGameState?.status === "mapSelection" &&
+          activeGameState.runMap && (
+            <RunMapOverlay
+              key={`run-map-${activeGameState.mapDepth || 0}-${activeGameState.runMap.currentNodeId || "root"}`}
+              runMap={activeGameState.runMap}
+              currentDepth={activeGameState.mapDepth || 0}
+              threatTier={activeGameState.wave || 0}
+              onSelectNode={handleSelectMapNode}
+              localPlayerName={localPlayer?.name || null}
+              localPlayerCharacterType={localPlayer?.characterType || null}
+            />
+          )}
+      </AnimatePresence>
+
       <PlayerListPanel players={players} localPlayerId={localPlayerId || ""} />
 
       {isPaused && !isLocalPlayerLevelingUp && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-40">
           <p className="font-press-start text-3xl text-white">
-            Another player is choosing an upgrade...
+            {upgradePromptType === "shop"
+              ? "Another player is shopping..."
+              : "Another player is choosing an upgrade..."}
           </p>
         </div>
       )}

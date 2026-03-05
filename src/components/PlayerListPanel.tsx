@@ -91,7 +91,7 @@ export default function PlayerListPanel({
                     XP
                   </span>
                   <span className="font-vt323 text-[10px] text-white">
-                    {player.xp}/{player.xpToNextLevel}
+                    {Math.floor(player.xp)}/{player.xpToNextLevel}
                   </span>
                 </div>
                 <div className="w-full h-2 bg-purple-900/50 border border-purple-500">
@@ -99,6 +99,9 @@ export default function PlayerListPanel({
                     className="h-full bg-purple-500 transition-all duration-300"
                     style={{ width: `${xpPercentage}%` }}
                   />
+                </div>
+                <div className="mt-1 text-right font-vt323 text-[10px] text-yellow-300">
+                  ${Math.floor(player.coins || 0)}
                 </div>
               </div>
             </div>

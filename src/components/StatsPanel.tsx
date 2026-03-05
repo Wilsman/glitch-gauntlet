@@ -179,8 +179,13 @@ export default function StatsPanel({ player }: StatsPanelProps) {
           />
           <StatRow
             label="XP"
-            value={`${player.xp}/${player.xpToNextLevel}`}
+            value={`${Math.floor(player.xp)}/${player.xpToNextLevel}`}
             color="text-purple-400"
+          />
+          <StatRow
+            label="Coins"
+            value={`${Math.floor(player.coins || 0)}`}
+            color="text-yellow-300"
           />
         </div>
       </div>
