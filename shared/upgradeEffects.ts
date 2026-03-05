@@ -1,6 +1,20 @@
-import type { Player, UpgradeType } from '@shared/types';
+import type { Player, UpgradeOption, UpgradeType } from '@shared/types';
 
-export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): void {
+type UpgradeEffectInput =
+  | UpgradeType
+  | Pick<UpgradeOption, 'type' | 'rarity' | 'title'>;
+
+function isVoidImplosionUpgrade(upgrade: UpgradeEffectInput): boolean {
+  return (
+    typeof upgrade !== 'string' &&
+    upgrade.type === 'explosion' &&
+    (upgrade.rarity === 'void' || upgrade.title === 'Void Implosion')
+  );
+}
+
+export function applyUpgradeEffect(player: Player, upgrade: UpgradeEffectInput): void {
+  const upgradeType = typeof upgrade === 'string' ? upgrade : upgrade.type;
+
   switch (upgradeType) {
     // ===== BASIC STATS =====
     case 'attackSpeed':
@@ -89,6 +103,12 @@ export function applyUpgradeEffect(player: Player, upgradeType: UpgradeType): vo
       break;
     case 'explosion':
       player.explosionDamage = (player.explosionDamage || 0) + 2.0; // 200% AoE damage
+      if (isVoidImplosionUpgrade(upgrade)) {
+        player.voidImplosionStacks = Math.min(
+          5,
+          (player.voidImplosionStacks || 0) + 1,
+        );
+      }
       break;
 
     // ===== SPECIAL =====

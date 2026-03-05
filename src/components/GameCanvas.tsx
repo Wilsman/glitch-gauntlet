@@ -76,6 +76,88 @@ function getShopOfferFooter(offer: ShopOffer): string {
   return "PERMANENT RUN UPGRADE";
 }
 
+function quantizePixel(value: number, grid: number): number {
+  return Math.round(value / grid) * grid;
+}
+
+function createVoidBlobPoints(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  grid: number,
+  phase: number,
+  options?: {
+    segments?: number;
+    jitter?: number;
+    twist?: number;
+    horizontalScale?: number;
+    verticalScale?: number;
+  },
+): number[] {
+  const segments = options?.segments ?? 18;
+  const jitter = options?.jitter ?? grid * 1.4;
+  const twist = options?.twist ?? 0;
+  const horizontalScale = options?.horizontalScale ?? 1;
+  const verticalScale = options?.verticalScale ?? 1;
+  const points: number[] = [];
+
+  for (let index = 0; index < segments; index++) {
+    const angle = (index / segments) * Math.PI * 2 + twist;
+    const waveA = Math.sin(angle * 3 + phase * 1.6) * jitter;
+    const waveB = Math.cos(angle * 5 - phase * 1.1) * jitter * 0.7;
+    const waveC = Math.sin(angle * 8 + phase * 0.6) * jitter * 0.25;
+    const distance = Math.max(grid * 1.4, radius + waveA + waveB + waveC);
+    points.push(
+      quantizePixel(
+        centerX + Math.cos(angle) * distance * horizontalScale,
+        grid,
+      ),
+      quantizePixel(
+        centerY + Math.sin(angle) * distance * verticalScale,
+        grid,
+      ),
+    );
+  }
+
+  return points;
+}
+
+function createVoidTendrilRects(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  grid: number,
+  phase: number,
+): Array<{ x: number; y: number; size: number; fill: string; opacity: number }> {
+  const baseAngles = [-2.52, -0.55, 0.9, 2.35];
+  const rects: Array<{
+    x: number;
+    y: number;
+    size: number;
+    fill: string;
+    opacity: number;
+  }> = [];
+
+  baseAngles.forEach((angle, index) => {
+    const length = radius * (0.04 + (index % 2) * 0.025);
+    const wobble = Math.sin(phase * 1.6 + index * 1.7) * grid * 0.45;
+    for (let step = 0; step < 2; step++) {
+      const distance = radius + step * grid * 0.9 + length + wobble;
+      const offsetAngle = angle + step * 0.08;
+      const size = step === 0 ? grid * 1.05 : grid * 0.9;
+      rects.push({
+        x: quantizePixel(centerX + Math.cos(offsetAngle) * distance, grid),
+        y: quantizePixel(centerY + Math.sin(offsetAngle) * distance, grid),
+        size,
+        fill: step === 1 ? "#000000" : "#4f46ff",
+        opacity: 0.88 - step * 0.14,
+      });
+    }
+  });
+
+  return rects;
+}
+
 const spriteImageCache = new Map<string, HTMLImageElement | null>();
 const spriteImagePromiseCache = new Map<string, Promise<HTMLImageElement | null>>();
 const animatedSpriteCache = new Map<string, HTMLImageElement[]>();
@@ -1585,7 +1667,6 @@ export default function GameCanvas() {
     isHellhoundRound = false,
     hellhoundsKilled = 0,
     totalHellhoundsInRound = 0,
-    waveTimer = 0,
     boss = null,
     shockwaveRings = [],
     bossProjectiles = [],
@@ -3386,10 +3467,13 @@ export default function GameCanvas() {
           {explosions &&
             explosions.length > 0 &&
             explosions
-              .filter((explosion) => now - explosion.timestamp <= 500)
+              .filter(
+                (explosion) =>
+                  now - explosion.timestamp <= (explosion.durationMs || 500),
+              )
               .map((explosion) => {
                 const age = now - explosion.timestamp;
-                const maxDuration = 500; // ms
+                const maxDuration = explosion.durationMs || 500;
                 const progress = age / maxDuration;
                 const currentRadius = Math.max(
                   0,
@@ -3398,53 +3482,166 @@ export default function GameCanvas() {
                 const opacity = 1 - progress;
 
                 if (explosion.type === "void") {
-                  const pulse = Math.sin(now / 50) * 10;
+                  const pulse = Math.sin(now / 80) * 6;
+                  const vortexRadius = Math.max(
+                    currentRadius * 1.35,
+                    (explosion.pullRadius || explosion.radius * 1.8) *
+                      (0.38 + progress * 0.62),
+                  );
+                  const pixelGrid = Math.max(
+                    6,
+                    Math.round(explosion.radius / 14),
+                  );
+                  const phase = now / 220 + progress * 3.5;
+                  const outerShadowPoints = createVoidBlobPoints(
+                    explosion.position.x,
+                    explosion.position.y,
+                    currentRadius * 0.92 + pixelGrid * 0.7,
+                    pixelGrid,
+                    phase,
+                    {
+                      segments: 30,
+                      jitter: pixelGrid * 0.95,
+                      twist: 0.05,
+                      horizontalScale: 1.01,
+                      verticalScale: 0.99,
+                    },
+                  );
+                  const outerShellPoints = createVoidBlobPoints(
+                    explosion.position.x,
+                    explosion.position.y,
+                    currentRadius * 0.87,
+                    pixelGrid,
+                    phase + 0.22,
+                    {
+                      segments: 28,
+                      jitter: pixelGrid * 0.82,
+                      horizontalScale: 0.99,
+                      verticalScale: 0.97,
+                    },
+                  );
+                  const midShellPoints = createVoidBlobPoints(
+                    explosion.position.x,
+                    explosion.position.y,
+                    currentRadius * 0.73,
+                    pixelGrid,
+                    phase + 0.48,
+                    {
+                      segments: 26,
+                      jitter: pixelGrid * 0.62,
+                      twist: -0.03,
+                      horizontalScale: 0.97,
+                      verticalScale: 0.95,
+                    },
+                  );
+                  const corePoints = createVoidBlobPoints(
+                    explosion.position.x,
+                    explosion.position.y,
+                    currentRadius * 0.57,
+                    pixelGrid,
+                    phase + 0.8,
+                    {
+                      segments: 24,
+                      jitter: pixelGrid * 0.28,
+                      horizontalScale: 0.95,
+                      verticalScale: 0.93,
+                    },
+                  );
+                  const tendrilRects = createVoidTendrilRects(
+                    explosion.position.x,
+                    explosion.position.y,
+                    currentRadius * 0.72 + pulse,
+                    pixelGrid,
+                    phase,
+                  );
                   return (
                     <Group key={explosion.id}>
-                      {/* Outer void aura */}
+                      {/* Pull aura */}
                       <Circle
                         x={explosion.position.x}
                         y={explosion.position.y}
-                        radius={currentRadius + 20 + pulse}
+                        radius={vortexRadius + pulse}
                         fillRadialGradientStartRadius={0}
-                        fillRadialGradientEndRadius={currentRadius + 20}
+                        fillRadialGradientEndRadius={vortexRadius + 14}
                         fillRadialGradientColorStops={[
                           0,
-                          "#4B0082",
-                          0.6,
-                          "#9400D3",
+                          "rgba(98,61,255,0.05)",
+                          0.28,
+                          "rgba(108,68,255,0.22)",
+                          0.62,
+                          "rgba(46,16,101,0.18)",
                           1,
                           "transparent",
                         ]}
-                        opacity={opacity * 0.4}
+                        opacity={opacity * 0.62}
                       />
-                      {/* Event horizon / Black core */}
-                      <Circle
-                        x={explosion.position.x}
-                        y={explosion.position.y}
-                        radius={currentRadius * 0.8}
-                        fill="#000000"
-                        stroke="#9400D3"
-                        strokeWidth={2}
-                        shadowColor="#9400D3"
-                        shadowBlur={20}
+                      {tendrilRects.map((rect, index) => (
+                        <Rect
+                          key={`void-tendril-${index}`}
+                          x={rect.x - rect.size / 2}
+                          y={rect.y - rect.size / 2}
+                          width={rect.size}
+                          height={rect.size}
+                          fill={rect.fill}
+                          opacity={opacity * rect.opacity}
+                        />
+                      ))}
+                      <Line
+                        points={outerShadowPoints}
+                        closed
+                        fill="#02010a"
+                        opacity={opacity * 0.96}
+                        lineJoin="miter"
+                      />
+                      <Line
+                        points={outerShellPoints}
+                        closed
+                        fill="#4b3cff"
+                        opacity={opacity * 0.96}
+                        lineJoin="miter"
+                      />
+                      <Line
+                        points={midShellPoints}
+                        closed
+                        fill="#4630b4"
+                        opacity={opacity * 0.98}
+                        lineJoin="miter"
+                      />
+                      <Line
+                        points={corePoints}
+                        closed
+                        fill="#130024"
                         opacity={opacity}
+                        lineJoin="miter"
                       />
-                      {/* Implosion sparkles */}
-                      {progress < 0.5 &&
-                        [...Array(8)].map((_, i) => {
-                          const angle = (i * Math.PI * 2) / 8 + progress * 5;
-                          const dist = (1 - progress * 2) * currentRadius * 1.5;
+                      {progress < 0.8 &&
+                        [...Array(5)].map((_, index) => {
+                          const angle = phase * 1.6 + index * 1.22;
+                          const dist = currentRadius * (0.42 + index * 0.05);
+                          const size = Math.max(4, pixelGrid * 0.55);
                           return (
                             <Rect
-                              key={`void-sparkle-${i}`}
-                              x={explosion.position.x + Math.cos(angle) * dist}
-                              y={explosion.position.y + Math.sin(angle) * dist}
-                              width={4}
-                              height={4}
-                              fill="#FFFFFF"
-                              opacity={opacity}
-                              rotation={angle * 50}
+                              key={`void-spark-${index}`}
+                              x={
+                                quantizePixel(
+                                  explosion.position.x +
+                                    Math.cos(angle) * dist,
+                                  pixelGrid,
+                                ) -
+                                size / 2
+                              }
+                              y={
+                                quantizePixel(
+                                  explosion.position.y +
+                                    Math.sin(angle) * dist,
+                                  pixelGrid,
+                                ) -
+                                size / 2
+                              }
+                              width={size}
+                              height={size}
+                              fill={index % 2 === 0 ? "#a78bfa" : "#6d5cff"}
+                              opacity={opacity * 0.42}
                             />
                           );
                         })}

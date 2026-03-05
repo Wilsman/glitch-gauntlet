@@ -154,6 +154,7 @@ export interface Player {
   poisonDamage?: number; // poison DoT percentage
   iceSlow?: number; // slow percentage
   explosionDamage?: number; // explosion damage multiplier
+  voidImplosionStacks?: number; // number of void implosion picks for stronger vortex kills
   pierceCount?: number; // number of enemies to pierce
   chainCount?: number; // number of enemies to chain to
   ricochetCount?: number; // number of bounces
@@ -282,6 +283,7 @@ export interface Enemy {
   supportBuffUntil?: number;
   explodeTelegraphUntil?: number;
   explodeRadius?: number;
+  lastDamagedByPlayerId?: string;
   // Visual history
   history?: Vector2D[];
 }
@@ -434,6 +436,10 @@ export interface Explosion {
   damage: number;
   ownerId: string;
   type?: 'normal' | 'void';
+  durationMs?: number;
+  pullRadius?: number;
+  pullStrength?: number;
+  damagedEnemyIds?: string[];
 }
 
 export interface ChainLightning {
