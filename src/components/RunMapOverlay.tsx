@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
   type ComponentType,
-  type PointerEvent,
+  type MouseEvent as ReactMouseEvent,
   type WheelEvent,
 } from "react";
 import { getCharacter } from "@shared/characterConfig";
@@ -189,7 +189,7 @@ function nodeHash(id: string, salt: number) {
 
 const MAP_LAYOUT_PADDING = {
   top: 48,
-  right: 300,
+  right: 260,
   bottom: 48,
   left: 48,
 };
@@ -367,6 +367,24 @@ function renderMapNodeButton({
   );
 }
 
+function getGraphBounds(
+  nodePositions: Map<string, { x: number; y: number }>,
+  nodes: RunMapNode[],
+  center: { x: number; y: number },
+) {
+  const points = nodes
+    .map((node) => nodePositions.get(node.id))
+    .filter((point): point is { x: number; y: number } => Boolean(point));
+  points.push(center);
+
+  const minX = Math.min(...points.map((point) => point.x));
+  const maxX = Math.max(...points.map((point) => point.x));
+  const minY = Math.min(...points.map((point) => point.y));
+  const maxY = Math.max(...points.map((point) => point.y));
+
+  return { minX, maxX, minY, maxY };
+}
+
 export default function RunMapOverlay({
   runMap,
   currentDepth,
@@ -410,8 +428,8 @@ export default function RunMapOverlay({
     runMap.nodes.find((node) => reachableNodeIds.has(node.id)) ||
     runMap.nodes[0] ||
     null;
-  const activeLegendType = hoveredNode?.encounterType || null;
-  const emphasizedRouteId = currentNode?.routeId || null;
+  const activeLegendType = highlightedNode?.encounterType || null;
+  const emphasizedRouteId = highlightedNode?.routeId || currentNode?.routeId || null;
   const maxDepth = runMap.nodes.reduce(
     (max, node) => Math.max(max, node.depth),
     0,
@@ -437,7 +455,6 @@ export default function RunMapOverlay({
   const character = localPlayerCharacterType
     ? getCharacter(localPlayerCharacterType)
     : null;
-
   useEffect(() => {
     if (hoveredNodeId && !nodesById.has(hoveredNodeId)) {
       setHoveredNodeId(null);
@@ -460,11 +477,6 @@ export default function RunMapOverlay({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    setZoom(0.9);
-    setPan({ x: 0, y: 0 });
-  }, [runMap.floorIndex, runMap.nodes.length]);
-
   const usableWidth = Math.max(
     320,
     viewportSize.width - MAP_LAYOUT_PADDING.left - MAP_LAYOUT_PADDING.right,
@@ -473,10 +485,13 @@ export default function RunMapOverlay({
     280,
     viewportSize.height - MAP_LAYOUT_PADDING.top - MAP_LAYOUT_PADDING.bottom,
   );
-  const graphCenter = {
-    x: MAP_LAYOUT_PADDING.left + usableWidth / 2,
-    y: MAP_LAYOUT_PADDING.top + usableHeight / 2,
-  };
+  const graphCenter = useMemo(
+    () => ({
+      x: MAP_LAYOUT_PADDING.left + usableWidth / 2,
+      y: MAP_LAYOUT_PADDING.top + usableHeight / 2,
+    }),
+    [usableWidth, usableHeight],
+  );
   const nodeScreenPositions = useMemo(() => {
     const ROUTE_BASE_ANGLES: Record<RunMapRouteId, number> = {
       north: -Math.PI / 2,
@@ -590,6 +605,51 @@ export default function RunMapOverlay({
       .sort((a, b) => a.depth - b.depth);
   }, [runMap.nodes, nodeScreenPositions, graphCenter.x, graphCenter.y]);
 
+  const graphBounds = useMemo(
+    () => getGraphBounds(nodeScreenPositions, runMap.nodes, graphCenter),
+    [nodeScreenPositions, runMap.nodes, graphCenter.x, graphCenter.y],
+  );
+
+  const defaultTransform = useMemo(() => {
+    const horizontalPadding = 120;
+    const verticalPadding = 120;
+    const availableWidth = Math.max(420, usableWidth - horizontalPadding);
+    const availableHeight = Math.max(320, usableHeight - verticalPadding);
+    const graphWidth = Math.max(320, graphBounds.maxX - graphBounds.minX);
+    const graphHeight = Math.max(260, graphBounds.maxY - graphBounds.minY);
+    const fitZoom = clampValue(
+      Math.min(availableWidth / graphWidth, availableHeight / graphHeight),
+      0.72,
+      1.58,
+    );
+
+    const targetCenterX = MAP_LAYOUT_PADDING.left + availableWidth / 2 + 26;
+    const targetCenterY = MAP_LAYOUT_PADDING.top + availableHeight / 2;
+    const graphMidX = (graphBounds.minX + graphBounds.maxX) / 2;
+    const graphMidY = (graphBounds.minY + graphBounds.maxY) / 2;
+
+    return {
+      zoom: fitZoom,
+      pan: {
+        x: targetCenterX - graphMidX * fitZoom,
+        y: targetCenterY - graphMidY * fitZoom,
+      },
+    };
+  }, [graphBounds.maxX, graphBounds.maxY, graphBounds.minX, graphBounds.minY, usableHeight, usableWidth]);
+
+  useEffect(() => {
+    setZoom(defaultTransform.zoom);
+    setPan(defaultTransform.pan);
+  }, [
+    defaultTransform.zoom,
+    defaultTransform.pan.x,
+    defaultTransform.pan.y,
+    runMap.floorIndex,
+    runMap.nodes.length,
+    viewportSize.height,
+    viewportSize.width,
+  ]);
+
   const entryNodes = runMap.nodes.filter((node) => node.depth === 1);
   const edgeSegments = [
     ...entryNodes.map((node) => ({
@@ -653,9 +713,43 @@ export default function RunMapOverlay({
     handleZoomChange(zoom * factor, cursorX, cursorY);
   };
 
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+  const stopPanning = () => {
+    setIsPanning(false);
+    panAnchorRef.current = null;
+  };
+
+  useEffect(() => {
+    if (!isPanning) return;
+
+    const handleWindowMouseMove = (event: MouseEvent) => {
+      if (!panAnchorRef.current) return;
+      const deltaX = event.clientX - panAnchorRef.current.pointerX;
+      const deltaY = event.clientY - panAnchorRef.current.pointerY;
+      setPan({
+        x: panAnchorRef.current.startX + deltaX,
+        y: panAnchorRef.current.startY + deltaY,
+      });
+    };
+
+    const handleWindowMouseUp = () => {
+      stopPanning();
+    };
+
+    window.addEventListener("mousemove", handleWindowMouseMove);
+    window.addEventListener("mouseup", handleWindowMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleWindowMouseMove);
+      window.removeEventListener("mouseup", handleWindowMouseUp);
+    };
+  }, [isPanning]);
+
+  const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     const target = event.target as HTMLElement;
+    if (target.closest("[data-pan-block='true']")) return;
     if (target.closest("button[data-map-node-id]")) return;
+    event.preventDefault();
     setIsPanning(true);
     panAnchorRef.current = {
       pointerX: event.clientX,
@@ -663,25 +757,6 @@ export default function RunMapOverlay({
       startX: pan.x,
       startY: pan.y,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!isPanning || !panAnchorRef.current) return;
-    const deltaX = event.clientX - panAnchorRef.current.pointerX;
-    const deltaY = event.clientY - panAnchorRef.current.pointerY;
-    setPan({
-      x: panAnchorRef.current.startX + deltaX,
-      y: panAnchorRef.current.startY + deltaY,
-    });
-  };
-
-  const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    setIsPanning(false);
-    panAnchorRef.current = null;
   };
 
   return (
@@ -702,6 +777,12 @@ export default function RunMapOverlay({
         animate={{ x: [0, -26, 0], y: [0, 10, 0] }}
         transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }}
       />
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute left-1/2 top-[7%] h-[30vh] w-[30vh] -translate-x-1/2 rounded-full bg-yellow-300/6 blur-[100px]" />
+        <div className="absolute right-[10%] top-1/2 h-[34vh] w-[34vh] -translate-y-1/2 rounded-full bg-cyan-300/5 blur-[110px]" />
+        <div className="absolute bottom-[8%] left-1/2 h-[30vh] w-[30vh] -translate-x-1/2 rounded-full bg-emerald-300/5 blur-[110px]" />
+        <div className="absolute left-[10%] top-1/2 h-[34vh] w-[34vh] -translate-y-1/2 rounded-full bg-rose-300/5 blur-[110px]" />
+      </div>
       <div className="absolute inset-0 bg-[linear-gradient(transparent_96%,rgba(56,189,248,0.03)_100%),linear-gradient(90deg,transparent_96%,rgba(217,70,239,0.03)_100%)] bg-[size:100%_24px,24px_100%] opacity-20" />
 
       <motion.div
@@ -711,48 +792,50 @@ export default function RunMapOverlay({
         exit={{ opacity: 0, y: -14 }}
         transition={{ duration: 0.28, delay: 0.04 }}
       >
-        <div className="max-w-[58%]">
-          <div className="flex items-baseline gap-3">
-            <div className="font-press-start text-[13px] tracking-[0.12em] text-white/90">
-              ROUTE MAP
+        <div className="max-w-[60%] rounded-[18px] border border-white/8 bg-black/28 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="rounded-full border border-cyan-400/20 bg-cyan-400/8 px-3 py-1 font-vt323 text-[13px] uppercase tracking-[0.28em] text-cyan-200/70">
+              Route Map
             </div>
-            <div className="font-vt323 text-[18px] tracking-[0.16em] text-cyan-300/50">
-              DEPTH {currentDepth}/{maxDepth}
+            <div className="font-vt323 text-[20px] tracking-[0.16em] text-cyan-300/45">
+              Floor {currentDepth}/{maxDepth}
             </div>
           </div>
-          {bossSummary && (
-            <div className="mt-1.5 font-vt323 text-[15px] text-white/40 truncate">
-              {bossSummary}
-            </div>
-          )}
+          <div className="mt-3 font-press-start text-[19px] tracking-[0.06em] text-white/92">
+            Choose your next room.
+          </div>
+          <div className="mt-2 font-vt323 text-[18px] text-white/54">
+            Pick one connected node. Your path locks in after each stop.
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="font-press-start text-[9px] text-fuchsia-300/60">
-            THREAT{" "}
-            <span className="text-white/80 text-[13px] ml-1">
+        <div className="flex items-center gap-3">
+          <div className="rounded-[16px] border border-white/10 bg-black/28 px-4 py-3 text-right backdrop-blur-sm">
+            <div className="font-press-start text-[8px] text-fuchsia-300/60">
+              Current Threat
+            </div>
+            <div className="mt-1 font-vt323 text-[24px] leading-none text-white/88">
               {Math.max(0, threatTier)}
-            </span>
+            </div>
           </div>
         </div>
       </motion.div>
 
       <motion.div
-        className="absolute inset-x-6 bottom-6 top-14 overflow-hidden rounded-[20px] border border-white/[0.06] bg-white/[0.02] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02),0_0_40px_rgba(0,0,0,0.25)]"
+        className="absolute inset-x-6 bottom-6 top-20 overflow-hidden rounded-[24px] border border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03),0_20px_80px_rgba(0,0,0,0.35)]"
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 10 }}
         transition={{ duration: 0.32, delay: 0.08 }}
+        onMouseDown={handleMouseDown}
       >
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(11,21,48,0.5),rgba(2,6,23,0.88)_68%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/45 to-transparent" />
+        <div className="pointer-events-none absolute inset-y-0 right-[252px] w-px bg-gradient-to-b from-transparent via-white/8 to-transparent" />
         <div
           ref={graphViewportRef}
-          className={`absolute inset-0 z-[1] touch-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
+          className={`absolute inset-x-0 bottom-0 top-0 z-[1] touch-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
           onWheel={handleWheel}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onPointerLeave={handlePointerUp}
         >
           <div
             className="absolute inset-0"
@@ -907,12 +990,12 @@ export default function RunMapOverlay({
 
             <div className="absolute inset-0 z-[2]">
               <motion.div
-                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/35 bg-black/70 p-3 text-center ${highlightedRouteMeta?.coreGlow || "shadow-[0_0_28px_rgba(34,211,238,0.12)]"}`}
+                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/35 bg-black/72 p-3 text-center ${highlightedRouteMeta?.coreGlow || "shadow-[0_0_28px_rgba(34,211,238,0.12)]"}`}
                 style={{
                   left: graphCenter.x,
                   top: graphCenter.y,
-                  width: 170,
-                  height: 170,
+                  width: 162,
+                  height: 162,
                 }}
                 animate={{
                   boxShadow:
@@ -922,17 +1005,21 @@ export default function RunMapOverlay({
                 }}
                 transition={{ duration: 0.22, ease: "easeOut" }}
               >
-                <div className="flex h-full flex-col items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.08),transparent_60%)]">
+                <div className="relative flex h-full flex-col items-center justify-center rounded-full border border-white/10 bg-[radial-gradient(circle_at_50%_35%,rgba(255,255,255,0.1),transparent_60%)]">
+                  <div className="absolute inset-[10px] rounded-full border border-cyan-300/10" />
                   <div className="text-[30px] leading-none">
                     {character?.emoji || "O"}
                   </div>
-                  <div className="mt-3 font-press-start text-[10px] tracking-[0.16em] text-white/70">
+                  <div className="mt-2 font-press-start text-[9px] tracking-[0.18em] text-white/68">
                     RUN CORE
                   </div>
                   <div className="mt-2 font-vt323 text-[20px] leading-none text-white">
                     {localPlayerName || character?.name || "Operator"}
                   </div>
-                  <div className="mt-2 font-vt323 text-[16px] text-white/48">
+                  <div className="mt-1.5 font-vt323 text-[14px] uppercase tracking-[0.2em] text-white/42">
+                    {highlightedRouteMeta?.tag || "CHOOSE"}
+                  </div>
+                  <div className="mt-1.5 font-vt323 text-[14px] text-white/48">
                     Select an outward route
                   </div>
                 </div>
@@ -955,32 +1042,55 @@ export default function RunMapOverlay({
           </div>
         </div>
 
-        <div className="absolute right-5 top-5 z-[3] w-[240px] rounded-2xl border border-white/[0.08] bg-black/60 p-4 backdrop-blur-sm">
+        <div data-pan-block="true" className="absolute right-5 top-5 z-[3] w-[244px] rounded-[22px] border border-white/[0.08] bg-black/62 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur-sm">
           {highlightedNode ? (
             <>
-              <div className="font-press-start text-[11px] text-cyan-200/80">
-                {getNodeStyle(highlightedNode).label}
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-press-start text-[11px] text-cyan-200/80">
+                  {getNodeStyle(highlightedNode).label}
+                </div>
+                <div
+                  className="rounded-full border px-2 py-1 font-vt323 text-xs uppercase tracking-[0.22em]"
+                  style={{
+                    borderColor: highlightedRouteMeta?.stroke || "rgba(255,255,255,0.18)",
+                    color: highlightedRouteMeta?.stroke || "rgba(255,255,255,0.65)",
+                  }}
+                >
+                  {ROUTE_META[highlightedNode.routeId].tag}
+                </div>
               </div>
-              <div className="mt-3 font-vt323 text-[28px] leading-none text-white">
+              <div className="mt-3 font-vt323 text-[30px] leading-none text-white">
                 {highlightedNode.bossType
                   ? formatBossType(highlightedNode.bossType)
                   : highlightedNode.title ||
                     getNodeStyle(highlightedNode).label}
               </div>
               <div className="mt-2 font-vt323 text-[18px] text-white/55">
-                {ROUTE_META[highlightedNode.routeId].tag}
                 {reachableNodeIds.has(highlightedNode.id)
-                  ? "  |  Reachable"
+                  ? "Reachable now"
                   : visitedNodeIds.has(highlightedNode.id)
-                    ? "  |  Cleared"
-                    : ""}
+                    ? "Already cleared"
+                    : "Inspecting future signal"}
               </div>
-              <div className="mt-3 rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-3">
+              <div className="mt-3 rounded-[18px] border border-white/8 bg-white/[0.03] px-3 py-3">
                 <div className="font-press-start text-[10px] text-white/42">
-                  ROUTE
+                  Path Info
                 </div>
                 <div className="mt-2 font-vt323 text-[22px] leading-none text-white">
                   {ROUTE_META[highlightedNode.routeId].label}
+                </div>
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/6">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${((highlightedNode.depth + 1) / (maxDepth + 1)) * 100}%`,
+                      background:
+                        highlightedRouteMeta?.stroke || "rgba(255,255,255,0.3)",
+                      boxShadow: highlightedRouteMeta
+                        ? `0 0 16px ${highlightedRouteMeta.glow}`
+                        : "none",
+                    }}
+                  />
                 </div>
                 {highlightedBoss?.bossType && (
                   <div className="mt-2 font-vt323 text-[18px] text-fuchsia-100/70">
@@ -988,10 +1098,24 @@ export default function RunMapOverlay({
                   </div>
                 )}
               </div>
+              <div className="mt-3 rounded-[16px] border border-white/8 bg-white/[0.03] px-3 py-2">
+                <div className="font-press-start text-[10px] text-white/42">
+                  Room Status
+                </div>
+                <div className="mt-2 font-vt323 text-[18px] text-white/72">
+                  Floor {highlightedNode.depth}
+                  <span className="mx-2 text-white/22">|</span>
+                  {reachableNodeIds.has(highlightedNode.id)
+                    ? "Available"
+                    : visitedNodeIds.has(highlightedNode.id)
+                      ? "Cleared"
+                      : "Locked for now"}
+                </div>
+              </div>
               {(highlightedNode.rewards || []).length > 0 && (
                 <div className="mt-4">
                   <div className="font-press-start text-[10px] text-white/48">
-                    REWARDS
+                    Rewards
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {(highlightedNode.rewards || []).map((reward) =>
@@ -1009,7 +1133,7 @@ export default function RunMapOverlay({
 
           <div className="mt-5 border-t border-white/10 pt-4">
             <div className="font-press-start text-[10px] text-white/48">
-              LEGEND
+              Room Types
             </div>
             <div className="mt-3 flex flex-col gap-2">
               {(
@@ -1057,13 +1181,14 @@ export default function RunMapOverlay({
         </div>
 
         <motion.div
-          className="absolute bottom-5 left-5 z-[3] flex flex-wrap gap-3"
+          data-pan-block="true"
+          className="absolute bottom-5 left-5 z-[3] flex flex-wrap items-center gap-3"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.25, delay: 0.12 }}
         >
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/50 px-3 py-2">
+          <div className="inline-flex items-center gap-2 rounded-[16px] border border-white/[0.08] bg-black/55 px-3 py-2">
             <button
               type="button"
               onClick={() => handleZoomChange(zoom * 0.88)}
@@ -1074,8 +1199,8 @@ export default function RunMapOverlay({
             <button
               type="button"
               onClick={() => {
-                setZoom(1);
-                setPan({ x: 0, y: 0 });
+                setZoom(defaultTransform.zoom);
+                setPan(defaultTransform.pan);
               }}
               className="rounded-full border border-white/18 bg-white/5 px-3 py-1 font-press-start text-[9px] text-white/70 hover:border-white/45 hover:bg-white/12"
             >
@@ -1088,6 +1213,14 @@ export default function RunMapOverlay({
             >
               +
             </button>
+          </div>
+          <div className="rounded-[16px] border border-white/[0.08] bg-black/45 px-4 py-3">
+            <div className="font-press-start text-[9px] text-white/42">
+              Controls
+            </div>
+            <div className="mt-1 font-vt323 text-[17px] text-white/58">
+              Drag to pan. Wheel to zoom. Select a glowing room to continue.
+            </div>
           </div>
         </motion.div>
       </motion.div>
