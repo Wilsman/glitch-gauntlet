@@ -697,6 +697,9 @@ export interface LeaderboardResponse {
   entries: LeaderboardEntry[];
   total?: number;
 }
+
+export type CombatEncounterPhase = 'spawning' | 'clearing' | 'intermission';
+
 export interface GameState {
   gameId: string;
   status: GameStatus;
@@ -730,6 +733,12 @@ export interface GameState {
   hellhoundsKilled?: number;
   hellhoundSpawnTimer?: number;
   waveTimer?: number; // Current wave elapsed time in ms
+  encounterWave?: number;
+  encounterWavesTotal?: number;
+  encounterPhase?: CombatEncounterPhase | null;
+  encounterEnemiesRemaining?: number;
+  encounterEnemiesTotal?: number;
+  encounterIntermissionMs?: number;
   boss?: Boss | null;
   shockwaveRings?: ShockwaveRing[];
   bossProjectiles?: BossProjectile[];

@@ -1,4 +1,5 @@
 import type {
+  CombatEncounterPhase,
   GameState,
   RunMapEncounterType,
   RunMapNode,
@@ -37,7 +38,7 @@ import type {
 } from "@shared/types";
 import { ALL_UPGRADES, getRandomUpgrades } from "@shared/upgrades";
 import { applyUpgradeEffect } from "@shared/upgradeEffects";
-import { createEnemy, selectRandomEnemyType } from "@shared/enemyConfig";
+import { createEnemy } from "@shared/enemyConfig";
 import { getCharacter } from "@shared/characterConfig";
 import {
   incrementLevel10Count,
@@ -117,9 +118,6 @@ const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
 const PLAYER_COLORS = ["#00FFFF", "#FF00FF", "#FFFF00", "#00FF00"];
 const TICK_RATE = 50; // ms
-const WAVE_DURATION = 20000; // 20 seconds per wave
-const ENEMY_SPAWN_BASE_CHANCE = 0.05;
-const ENEMY_SPAWN_WAVE_SCALAR = 0.01;
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
 const EXTRACTION_DURATION = 5000; // 5 seconds to extract
@@ -165,11 +163,42 @@ const GOLEM_COLLAPSE_TELEGRAPH = 1400;
 const GOLEM_BUILDER_DROP_TELEGRAPH = 1380;
 const GOLEM_BUILDER_DROP_CHAIN_DELAY = 840;
 const GOLEM_BUILDER_DROP_RADIUS = 135;
+const COMBAT_INTERMISSION_BASE_MS = 1350;
+const COMBAT_INTERMISSION_STEP_MS = 180;
+const COMBAT_SPAWN_GRACE_MS = 450;
+const COMBAT_PACK_ENEMY_CAP_BASE = 6;
+const COMBAT_PACK_ENEMY_CAP_WAVE_SCALAR = 0.9;
+const COMBAT_PACK_ENEMY_CAP_LEVEL_SCALAR = 0.4;
 
 // Performance optimization constants
 const DAMAGE_NUMBER_THROTTLE_MS = 100; // Merge hits within this window
 const MAX_DAMAGE_NUMBERS_PER_ENEMY = 5; // Cap visible damage numbers per enemy
 const MAX_STATUS_EFFECTS_PER_ENEMY = 3; // Cap status effects per enemy
+
+type CombatPackStyle = "solo" | "group" | "mixed";
+type CombatPackFormation = "line" | "cluster" | "staggered";
+
+interface CombatSpawnPack {
+  enemies: EnemyType[];
+  style: CombatPackStyle;
+  formation: CombatPackFormation;
+  side: 0 | 1 | 2 | 3;
+  cooldownMs: number;
+}
+
+const COMBAT_ENEMY_THREAT: Record<EnemyType, number> = {
+  grunt: 1,
+  slugger: 1.5,
+  hellhound: 2.4,
+  splitter: 2.4,
+  "mini-splitter": 0.5,
+  "neon-pulse": 2.7,
+  "glitch-spider": 1.1,
+  "tank-bot": 4.2,
+  "leech-beacon": 2.8,
+  bomber: 1.4,
+  "orbit-drone": 1.9,
+};
 
 function uuidv4() {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
@@ -822,7 +851,8 @@ export class LocalGameEngine {
   private lastTick: number = 0;
   private tickInterval: number | null = null;
   private upgradeChoices: Map<string, UpgradeOption[]> = new Map();
-  private waveTimer: number = 0;
+  private combatSpawnQueue: CombatSpawnPack[] = [];
+  private combatSpawnCooldownMs: number = 0;
   private inputState: InputState = {
     up: false,
     down: false,
@@ -902,6 +932,12 @@ export class LocalGameEngine {
       turrets: [],
       clones: [],
       waveTimer: 0,
+      encounterWave: 0,
+      encounterWavesTotal: 0,
+      encounterPhase: null,
+      encounterEnemiesRemaining: 0,
+      encounterEnemiesTotal: 0,
+      encounterIntermissionMs: 0,
       boss: null,
       shockwaveRings: [],
       bossProjectiles: [],
@@ -1044,9 +1080,20 @@ export class LocalGameEngine {
       player.attachedBug = undefined;
       player.wasShakePressed = false;
     });
-    this.waveTimer = 0;
+    this.resetCombatEncounterState(state);
     state.waveTimer = 0;
     this.returnToMapAfterUpgrade = false;
+  }
+
+  private resetCombatEncounterState(state: GameState) {
+    this.combatSpawnQueue = [];
+    this.combatSpawnCooldownMs = 0;
+    state.encounterWave = 0;
+    state.encounterWavesTotal = 0;
+    state.encounterPhase = null;
+    state.encounterEnemiesRemaining = 0;
+    state.encounterEnemiesTotal = 0;
+    state.encounterIntermissionMs = 0;
   }
 
   private enterMapSelection(state: GameState) {
@@ -1068,6 +1115,238 @@ export class LocalGameEngine {
     this.resetArenaForEncounter(state);
     state.status = "playing";
     state.currentEncounterType = "combat";
+    state.encounterWavesTotal = this.getCombatEncounterWaveCount(state);
+    this.beginCombatEncounterWave(state, 1);
+  }
+
+  private getAveragePlayerLevel(state: GameState): number {
+    const players = state.players.length > 0 ? state.players : this.gameState.players;
+    if (players.length === 0) return 1;
+    return (
+      players.reduce((sum, player) => sum + Math.max(1, player.level || 1), 0) /
+      players.length
+    );
+  }
+
+  private getCombatEncounterWaveCountForTier(
+    wave: number,
+    averagePlayerLevel: number,
+  ): number {
+    return Math.max(
+      2,
+      Math.min(5, 2 + Math.floor((wave + averagePlayerLevel * 0.75) / 4)),
+    );
+  }
+
+  private getCombatEncounterWaveCount(state: GameState): number {
+    return this.getCombatEncounterWaveCountForTier(
+      Math.max(1, state.wave || 1),
+      this.getAveragePlayerLevel(state),
+    );
+  }
+
+  private getAvailableCombatEnemyTypes(threatTier: number): EnemyType[] {
+    const types: EnemyType[] = ["grunt", "slugger"];
+
+    if (threatTier >= 3.5) types.push("glitch-spider");
+    if (threatTier >= 5.5) types.push("splitter");
+    if (threatTier >= 6.5) types.push("bomber");
+    if (threatTier >= 7.5) types.push("neon-pulse");
+    if (threatTier >= 8.5) types.push("orbit-drone");
+    if (threatTier >= 9.5) types.push("leech-beacon");
+    if (threatTier >= 11.5) types.push("tank-bot");
+
+    return types;
+  }
+
+  private randomFrom<T>(items: T[]): T {
+    return items[Math.floor(Math.random() * items.length)];
+  }
+
+  private getPackThreat(pack: CombatSpawnPack): number {
+    return pack.enemies.reduce(
+      (sum, type) => sum + (COMBAT_ENEMY_THREAT[type] || 1),
+      0,
+    );
+  }
+
+  private createCombatSpawnPack(
+    threatTier: number,
+    style: CombatPackStyle,
+    targetThreat: number,
+    isFinalPack: boolean,
+  ): CombatSpawnPack {
+    const available = this.getAvailableCombatEnemyTypes(threatTier);
+    const heavyPool = available.filter((type) =>
+      ["splitter", "neon-pulse", "leech-beacon", "tank-bot"].includes(type),
+    );
+    const fastPool = available.filter((type) =>
+      ["grunt", "glitch-spider", "bomber"].includes(type),
+    );
+    const supportPool = available.filter((type) =>
+      ["slugger", "orbit-drone", "leech-beacon", "neon-pulse"].includes(type),
+    );
+    const packEnemies: EnemyType[] = [];
+
+    if (style === "solo") {
+      const anchorType =
+        heavyPool.length > 0
+          ? this.randomFrom(heavyPool)
+          : this.randomFrom(available.filter((type) => type !== "grunt"));
+      packEnemies.push(anchorType);
+
+      let escortsBudget = Math.max(0, targetThreat - this.getPackThreat({
+        enemies: packEnemies,
+        style,
+        formation: "cluster",
+        side: 0,
+        cooldownMs: 0,
+      }));
+      const escorts = Math.min(
+        isFinalPack ? 3 : 2,
+        Math.max(0, Math.floor(escortsBudget / 1.15)),
+      );
+      for (let i = 0; i < escorts; i++) {
+        packEnemies.push(this.randomFrom(fastPool.length > 0 ? fastPool : ["grunt"]));
+      }
+    } else if (style === "group") {
+      const groupPool = available.filter(
+        (type) => type !== "tank-bot" && type !== "leech-beacon",
+      );
+      const groupType = this.randomFrom(groupPool);
+      const unitThreat = COMBAT_ENEMY_THREAT[groupType] || 1;
+      const minCount = groupType === "grunt" ? 4 : groupType === "glitch-spider" ? 3 : 2;
+      const maxCount =
+        groupType === "grunt"
+          ? 7
+          : groupType === "glitch-spider"
+            ? 6
+            : groupType === "slugger"
+              ? 4
+              : 3;
+      const count = Math.max(
+        minCount,
+        Math.min(maxCount, Math.round(targetThreat / Math.max(1, unitThreat))),
+      );
+      for (let i = 0; i < count; i++) {
+        packEnemies.push(groupType);
+      }
+      if (supportPool.length > 0 && targetThreat >= 6 && Math.random() < 0.45) {
+        packEnemies.push(this.randomFrom(supportPool));
+      }
+    } else {
+      const leaderPool = heavyPool.length > 0 ? heavyPool : available;
+      packEnemies.push(this.randomFrom(leaderPool));
+      const desiredCount = Math.max(
+        3,
+        Math.min(6, 2 + Math.round(targetThreat / 2.4)),
+      );
+      while (packEnemies.length < desiredCount) {
+        const pool =
+          packEnemies.length === 1 && fastPool.length > 0
+            ? fastPool
+            : available.filter((type) => type !== "tank-bot" || isFinalPack);
+        packEnemies.push(this.randomFrom(pool));
+      }
+    }
+
+    return {
+      enemies: packEnemies,
+      style,
+      formation:
+        style === "solo"
+          ? "cluster"
+          : style === "group"
+            ? Math.random() < 0.5
+              ? "line"
+              : "cluster"
+            : "staggered",
+      side: Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3,
+      cooldownMs: Math.max(
+        420,
+        1100 - packEnemies.length * 85 - Math.round(threatTier * 18),
+      ),
+    };
+  }
+
+  private buildCombatSpawnQueue(
+    state: GameState,
+    encounterWave: number,
+    encounterWavesTotal: number,
+  ): CombatSpawnPack[] {
+    const averagePlayerLevel = this.getAveragePlayerLevel(state);
+    const threatTier =
+      Math.max(1, state.wave || 1) +
+      Math.max(0, averagePlayerLevel - 1) * 0.7 +
+      (encounterWave - 1) * 0.95;
+    const packCount = Math.max(
+      2,
+      Math.min(
+        5,
+        2 + Math.floor(threatTier / 4) + (encounterWave === encounterWavesTotal ? 1 : 0),
+      ),
+    );
+    let remainingThreat =
+      4.5 + threatTier * 1.7 + encounterWave * 1.25 + averagePlayerLevel * 0.35;
+    const queue: CombatSpawnPack[] = [];
+
+    for (let packIndex = 0; packIndex < packCount; packIndex++) {
+      const packsLeft = packCount - packIndex;
+      const isFinalPack = packIndex === packCount - 1;
+      const style: CombatPackStyle =
+        isFinalPack && threatTier >= 6
+          ? "mixed"
+          : packIndex === 0 && threatTier >= 8
+            ? "solo"
+            : packIndex % 2 === 0
+              ? "group"
+              : "mixed";
+      const targetThreat = Math.max(
+        2.6,
+        Math.min(9.8, remainingThreat / packsLeft + (isFinalPack ? 1.2 : 0)),
+      );
+      const pack = this.createCombatSpawnPack(
+        threatTier,
+        style,
+        targetThreat,
+        isFinalPack,
+      );
+      queue.push(pack);
+      remainingThreat = Math.max(0, remainingThreat - this.getPackThreat(pack));
+    }
+
+    return queue;
+  }
+
+  private syncCombatEncounterState(
+    state: GameState,
+    phaseOverride?: CombatEncounterPhase | null,
+  ) {
+    state.encounterPhase = phaseOverride ?? state.encounterPhase ?? "spawning";
+    state.encounterEnemiesRemaining =
+      state.enemies.length +
+      this.combatSpawnQueue.reduce((sum, pack) => sum + pack.enemies.length, 0);
+  }
+
+  private beginCombatEncounterWave(state: GameState, encounterWave: number) {
+    const encounterWavesTotal =
+      state.encounterWavesTotal || this.getCombatEncounterWaveCount(state);
+    const queue = this.buildCombatSpawnQueue(
+      state,
+      encounterWave,
+      encounterWavesTotal,
+    );
+
+    this.combatSpawnQueue = queue;
+    this.combatSpawnCooldownMs = COMBAT_SPAWN_GRACE_MS;
+    state.encounterWave = encounterWave;
+    state.encounterWavesTotal = encounterWavesTotal;
+    state.encounterIntermissionMs = 0;
+    state.encounterEnemiesTotal = queue.reduce(
+      (sum, pack) => sum + pack.enemies.length,
+      0,
+    );
+    this.syncCombatEncounterState(state, "spawning");
   }
 
   private startHellhoundEncounter(state: GameState) {
@@ -1575,24 +1854,36 @@ export class LocalGameEngine {
     );
   }
 
-  private getExpectedEnemySpawnsPerWave(wave: number): number {
-    const ticksPerWave = Math.floor(WAVE_DURATION / TICK_RATE);
-    const spawnChance = Math.min(
-      0.95,
-      ENEMY_SPAWN_BASE_CHANCE + wave * ENEMY_SPAWN_WAVE_SCALAR,
+  private getExpectedEnemySpawnsPerWave(
+    wave: number,
+    averagePlayerLevel: number = this.getAveragePlayerLevel(this.gameState),
+  ): number {
+    const encounterWaves = this.getCombatEncounterWaveCountForTier(
+      Math.max(1, wave),
+      averagePlayerLevel,
     );
-    return ticksPerWave * spawnChance;
+    return Math.round(
+      (4 + Math.max(1, wave) + averagePlayerLevel * 0.8) * encounterWaves,
+    );
   }
 
-  private getShopCostBaseline(wave: number): number {
+  private getShopCostBaseline(
+    wave: number,
+    averagePlayerLevel: number = this.getAveragePlayerLevel(this.gameState),
+  ): number {
     return Math.max(
       SHOP_MIN_BASELINE_COST,
-      this.getExpectedEnemySpawnsPerWave(wave) * SHOP_BASELINE_MULTIPLIER,
+      this.getExpectedEnemySpawnsPerWave(wave, averagePlayerLevel) *
+        SHOP_BASELINE_MULTIPLIER,
     );
   }
 
-  private getShopUpgradeCost(option: UpgradeOption, wave: number): number {
-    const baselineCost = this.getShopCostBaseline(wave);
+  private getShopUpgradeCost(
+    option: UpgradeOption,
+    wave: number,
+    averagePlayerLevel: number = this.getAveragePlayerLevel(this.gameState),
+  ): number {
+    const baselineCost = this.getShopCostBaseline(wave, averagePlayerLevel);
     switch (option.rarity) {
       case "common":
         return this.roundShopCost(baselineCost * 0.95);
@@ -1628,6 +1919,7 @@ export class LocalGameEngine {
     const discountPercent = Math.max(0, modifiers.discountPercent || 0);
     const extraStock = Math.max(0, Math.min(2, modifiers.extraStock || 0));
     const priceMultiplier = Math.max(0.55, 1 - discountPercent / 100);
+    const averagePlayerLevel = this.getAveragePlayerLevel(this.gameState);
     const rolled = getRandomUpgrades(2 + extraStock);
     const offers: ShopOffer[] = [
       ...rolled.map((option) => ({
@@ -1638,7 +1930,11 @@ export class LocalGameEngine {
         emoji: option.emoji,
         rarity: option.rarity,
         cost: this.roundShopCost(
-          this.getShopUpgradeCost(option as UpgradeOption, wave) *
+          this.getShopUpgradeCost(
+            option as UpgradeOption,
+            wave,
+            averagePlayerLevel,
+          ) *
             priceMultiplier,
         ),
         upgradeType: option.type,
@@ -1651,7 +1947,7 @@ export class LocalGameEngine {
         description: `Restore ${SHOP_HEAL_AMOUNT} HP.`,
         emoji: "HP",
         cost: this.roundShopCost(
-          this.getShopCostBaseline(wave) * priceMultiplier,
+          this.getShopCostBaseline(wave, averagePlayerLevel) * priceMultiplier,
         ),
         healAmount: SHOP_HEAL_AMOUNT,
         purchased: false,
@@ -1663,7 +1959,9 @@ export class LocalGameEngine {
         description: "+25% damage for the next 2 waves.",
         emoji: "DMG",
         cost: this.roundShopCost(
-          this.getShopCostBaseline(wave) * 1.35 * priceMultiplier,
+          this.getShopCostBaseline(wave, averagePlayerLevel) *
+            1.35 *
+            priceMultiplier,
         ),
         tempDamageMultiplier: 1.25,
         tempDurationWaves: 2,
@@ -1735,7 +2033,6 @@ export class LocalGameEngine {
 
     if (pendingBossType) {
       state.wave++;
-      this.waveTimer = 0;
       state.waveTimer = 0;
       state.enemies = [];
       state.boss = createBoss(
@@ -1857,6 +2154,7 @@ export class LocalGameEngine {
     if (toggle) {
       this.gameState.status = "playing"; // Ensure we're in playing state
       this.gameState.waveTimer = 0;
+      this.resetCombatEncounterState(this.gameState);
     }
     this.markStateDirty();
   }
@@ -1921,7 +2219,6 @@ export class LocalGameEngine {
     const player = this.gameState.players[0];
     if (!player) return;
     const type = typeof upgrade === "string" ? upgrade : upgrade.type;
-
     applyUpgradeEffect(player, type);
 
     // Track collected upgrade visually
@@ -2004,9 +2301,7 @@ export class LocalGameEngine {
   }
 
   debugTriggerBossRound() {
-    this.gameState.currentEncounterType = "boss";
-    this.gameState.status = "bossFight";
-    this.gameState.waveTimer = WAVE_DURATION - 1000; // Trigger it almost immediately
+    this.startBossEncounter(this.gameState);
     this.markStateDirty();
   }
 
@@ -2017,6 +2312,8 @@ export class LocalGameEngine {
   }
 
   debugClearEnemies() {
+    this.combatSpawnQueue = [];
+    this.combatSpawnCooldownMs = 0;
     this.gameState.enemies = [];
     this.gameState.projectiles = [];
     this.gameState.boss = null;
@@ -2032,6 +2329,12 @@ export class LocalGameEngine {
     this.gameState.shopPrompt = null;
     this.gameState.shopPendingBossType = null;
     this.gameState.currentEncounterType = null;
+    this.gameState.encounterWave = 0;
+    this.gameState.encounterWavesTotal = 0;
+    this.gameState.encounterEnemiesRemaining = 0;
+    this.gameState.encounterEnemiesTotal = 0;
+    this.gameState.encounterPhase = null;
+    this.gameState.encounterIntermissionMs = 0;
     this.markStateDirty();
   }
 
@@ -2146,6 +2449,17 @@ export class LocalGameEngine {
       })),
       isShopRound: !!state.isShopRound,
       isHellhoundRound: !!state.isHellhoundRound,
+      combatEncounter:
+        state.currentEncounterType === "combat"
+          ? {
+              wave: state.encounterWave || 0,
+              totalWaves: state.encounterWavesTotal || 0,
+              phase: state.encounterPhase || null,
+              enemiesRemaining: state.encounterEnemiesRemaining || 0,
+              enemiesTotal: state.encounterEnemiesTotal || 0,
+              intermissionMs: state.encounterIntermissionMs || 0,
+            }
+          : null,
       hellhoundProgress: state.isHellhoundRound
         ? {
             killed: state.hellhoundsKilled || 0,
@@ -3092,6 +3406,100 @@ export class LocalGameEngine {
     enemy.lastHitTimestamp = now;
   }
 
+  private getCombatEnemyCap(state: GameState): number {
+    const averagePlayerLevel = this.getAveragePlayerLevel(state);
+    return Math.max(
+      6,
+      Math.min(
+        16,
+        Math.round(
+          COMBAT_PACK_ENEMY_CAP_BASE +
+            state.wave * COMBAT_PACK_ENEMY_CAP_WAVE_SCALAR +
+            averagePlayerLevel * COMBAT_PACK_ENEMY_CAP_LEVEL_SCALAR,
+        ),
+      ),
+    );
+  }
+
+  private getPackSpawnOrigin(side: 0 | 1 | 2 | 3) {
+    if (side === 0) {
+      return {
+        anchor: { x: 140 + Math.random() * (ARENA_WIDTH - 280), y: -34 },
+        normal: { x: 0, y: 1 },
+      };
+    }
+
+    if (side === 1) {
+      return {
+        anchor: { x: 140 + Math.random() * (ARENA_WIDTH - 280), y: ARENA_HEIGHT + 34 },
+        normal: { x: 0, y: -1 },
+      };
+    }
+
+    if (side === 2) {
+      return {
+        anchor: { x: -34, y: 120 + Math.random() * (ARENA_HEIGHT - 240) },
+        normal: { x: 1, y: 0 },
+      };
+    }
+
+    return {
+      anchor: { x: ARENA_WIDTH + 34, y: 120 + Math.random() * (ARENA_HEIGHT - 240) },
+      normal: { x: -1, y: 0 },
+    };
+  }
+
+  private getCombatPackOffset(
+    formation: CombatPackFormation,
+    index: number,
+    total: number,
+    normal: Vector2D,
+  ) {
+    const tangent = { x: -normal.y, y: normal.x };
+    const centeredIndex = index - (total - 1) / 2;
+
+    if (formation === "line") {
+      return {
+        x: tangent.x * centeredIndex * 44 - normal.x * Math.abs(centeredIndex) * 16,
+        y: tangent.y * centeredIndex * 44 - normal.y * Math.abs(centeredIndex) * 16,
+      };
+    }
+
+    if (formation === "staggered") {
+      const row = Math.floor(index / 2);
+      const lane = index % 2 === 0 ? -1 : 1;
+      return {
+        x: tangent.x * lane * (30 + row * 18) - normal.x * row * 28,
+        y: tangent.y * lane * (30 + row * 18) - normal.y * row * 28,
+      };
+    }
+
+    const angle = total <= 1 ? 0 : (index / (total - 1) - 0.5) * Math.PI * 0.9;
+    const radius = 22 + total * 8;
+    return {
+      x: tangent.x * Math.sin(angle) * radius - normal.x * Math.cos(angle) * radius * 0.5,
+      y: tangent.y * Math.sin(angle) * radius - normal.y * Math.cos(angle) * radius * 0.5,
+    };
+  }
+
+  private spawnCombatPack(state: GameState, pack: CombatSpawnPack) {
+    const { anchor, normal } = this.getPackSpawnOrigin(pack.side);
+    pack.enemies.forEach((enemyType, index) => {
+      const offset = this.getCombatPackOffset(
+        pack.formation,
+        index,
+        pack.enemies.length,
+        normal,
+      );
+      const spawnPosition = {
+        x: anchor.x + offset.x,
+        y: anchor.y + offset.y,
+      };
+      const enemy = createEnemy(uuidv4(), spawnPosition, enemyType, state.wave);
+      state.enemies.push(enemy);
+    });
+  }
+
   private updateEnemyAI(
     state: GameState,
     now: number,
@@ -3101,7 +3509,6 @@ export class LocalGameEngine {
     if (state.isShopRound) return;
 
     const isHellhoundRound = state.isHellhoundRound || false;
-    const waitingForHellhoundRound = state.waitingForHellhoundRound || false;
 
     if (isHellhoundRound) {
       // Check if all normal enemies are dead
@@ -3170,27 +3577,6 @@ export class LocalGameEngine {
 
           state.hellhoundSpawnTimer = 3000 + Math.random() * 2000;
         }
-      }
-    } else if (!waitingForHellhoundRound && !state.isSandboxMode) {
-      // Only spawn normal enemies if NOT waiting for hellhound round
-      const enemySpawnRate = Math.min(
-        0.95,
-        ENEMY_SPAWN_BASE_CHANCE + state.wave * ENEMY_SPAWN_WAVE_SCALAR,
-      );
-      if (
-        state.enemies.length < 10 * state.players.length &&
-        Math.random() < enemySpawnRate
-      ) {
-        const enemyType = selectRandomEnemyType(state.wave);
-        const spawnX = Math.random() * ARENA_WIDTH;
-        const spawnY = Math.random() > 0.5 ? -20 : ARENA_HEIGHT + 20;
-        const newEnemy = createEnemy(
-          uuidv4(),
-          { x: spawnX, y: spawnY },
-          enemyType,
-          state.wave,
-        );
-        state.enemies.push(newEnemy);
       }
     }
 
@@ -4831,13 +5217,59 @@ export class LocalGameEngine {
       return;
     }
 
-    this.waveTimer += delta;
-    state.waveTimer = this.waveTimer;
+    if (state.encounterPhase === "intermission") {
+      const remainingIntermission = Math.max(
+        0,
+        (state.encounterIntermissionMs || 0) - delta,
+      );
+      state.encounterIntermissionMs = remainingIntermission;
+      state.waveTimer = remainingIntermission;
+      if (remainingIntermission <= 0) {
+        this.beginCombatEncounterWave(state, (state.encounterWave || 0) + 1);
+      }
+      return;
+    }
 
-    if (this.waveTimer >= WAVE_DURATION) {
+    if (
+      this.combatSpawnQueue.length > 0 &&
+      state.enemies.length < this.getCombatEnemyCap(state)
+    ) {
+      this.combatSpawnCooldownMs -= delta;
+      if (this.combatSpawnCooldownMs <= 0) {
+        const nextPack = this.combatSpawnQueue.shift();
+        if (nextPack) {
+          this.spawnCombatPack(state, nextPack);
+          this.combatSpawnCooldownMs = nextPack.cooldownMs;
+        }
+      }
+    }
+
+    const encounterEnemiesRemaining =
+      state.enemies.length +
+      this.combatSpawnQueue.reduce((sum, pack) => sum + pack.enemies.length, 0);
+    state.encounterEnemiesRemaining = encounterEnemiesRemaining;
+    state.waveTimer = 0;
+
+    if (this.combatSpawnQueue.length > 0) {
+      state.encounterPhase = "spawning";
+      return;
+    }
+
+    if (state.enemies.length > 0) {
+      state.encounterPhase = "clearing";
+      return;
+    }
+
+    if ((state.encounterWave || 0) >= (state.encounterWavesTotal || 0)) {
       this.applyRunMapRewards(state, this.getCurrentNodeRewards(state));
       this.enterMapSelection(state);
+      return;
     }
+
+    state.encounterPhase = "intermission";
+    state.encounterIntermissionMs =
+      COMBAT_INTERMISSION_BASE_MS +
+      Math.max(0, (state.encounterWave || 1) - 1) * COMBAT_INTERMISSION_STEP_MS;
   }
 
   private updateGameStatus(state: GameState) {
@@ -6545,7 +6977,6 @@ export class LocalGameEngine {
     // Resume normal gameplay
     state.status = "playing";
     state.wave++;
-    this.waveTimer = 0;
     state.waveTimer = 0;
 
     // Grant reward - legendary upgrade choice

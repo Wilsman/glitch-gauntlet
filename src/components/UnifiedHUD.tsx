@@ -10,7 +10,6 @@ interface UnifiedHUDProps {
   localPlayerPet?: Pet | null;
 }
 
-const WAVE_DURATION = 20000; // 20 seconds (sync with engine)
 const HEALTH_SLOTS = 5;
 const SHIELD_SLOTS = 3;
 
@@ -40,7 +39,12 @@ export default function UnifiedHUD({
     mapDepth = 0,
     runMap = null,
     currentEncounterType = null,
-    waveTimer,
+    encounterWave = 0,
+    encounterWavesTotal = 0,
+    encounterPhase = null,
+    encounterEnemiesRemaining = 0,
+    encounterEnemiesTotal = 0,
+    encounterIntermissionMs = 0,
     isHellhoundRound,
     hellhoundsKilled,
     totalHellhoundsInRound,
@@ -77,8 +81,6 @@ export default function UnifiedHUD({
     : [];
 
   const isDead = localPlayer.status === "dead";
-  const remainingTime = Math.max(0, Math.ceil((WAVE_DURATION - (waveTimer || 0)) / 1000));
-  const timerPercentage = Math.min(100, ((waveTimer || 0) / WAVE_DURATION) * 100);
   const totalMapDepth = runMap?.nodes.reduce((max, node) => Math.max(max, node.depth), 10) || 10;
   const statusText = status === "mapSelection"
     ? "CHOOSE PATH"
@@ -88,8 +90,23 @@ export default function UnifiedHUD({
         ? "BOSS FIGHT"
         : isHellhoundRound
           ? "HELLHOUND NODE"
-          : "SURVIVE";
-  const showTimer = currentEncounterType === "combat" && status === "playing" && !isHellhoundRound;
+          : currentEncounterType === "combat"
+            ? "CLEAR THE PACKS"
+            : "SURVIVE";
+  const showCombatProgress =
+    currentEncounterType === "combat" && status === "playing" && !isHellhoundRound;
+  const combatProgressPercentage =
+    encounterEnemiesTotal > 0
+      ? Math.min(
+          100,
+          ((encounterEnemiesTotal - encounterEnemiesRemaining) / encounterEnemiesTotal) * 100,
+        )
+      : 0;
+  const intermissionSeconds = Math.max(0, Math.ceil((encounterIntermissionMs || 0) / 1000));
+  const combatPackLabel =
+    showCombatProgress && encounterWavesTotal > 0
+      ? `PACK ${Math.max(1, encounterWave)}/${encounterWavesTotal}`
+      : "SELECT A REACHABLE NODE";
   const petDps = localPlayerPet
     ? (localPlayerPet.damage / Math.max(0.001, localPlayerPet.attackSpeed / 1000)).toFixed(1)
     : null;
@@ -293,9 +310,11 @@ export default function UnifiedHUD({
           </div>
           <div className="mt-2 flex items-center justify-between gap-3 text-[10px]">
             <span className="text-white/65">
-              {currentEncounterType
-                ? `NEXT TYPE: ${currentEncounterType.toUpperCase()}`
-                : "SELECT A REACHABLE NODE"}
+              {showCombatProgress
+                ? combatPackLabel
+                : currentEncounterType
+                  ? `NEXT TYPE: ${currentEncounterType.toUpperCase()}`
+                  : "SELECT A REACHABLE NODE"}
             </span>
             <span
               className={`${
@@ -303,8 +322,12 @@ export default function UnifiedHUD({
                   ? "text-yellow-300"
                   : isHellhoundRound
                     ? "text-red-300"
-                    : showTimer
-                      ? "text-white"
+                    : showCombatProgress
+                      ? encounterPhase === "intermission"
+                        ? "text-neon-cyan"
+                        : encounterEnemiesRemaining > 0
+                          ? "text-white"
+                          : "text-green-300"
                       : "text-white/65"
               }`}
             >
@@ -312,8 +335,12 @@ export default function UnifiedHUD({
                 <>
                 {hellhoundsKilled || 0}/{totalHellhoundsInRound || 0} HELLHOUNDS
                 </>
-              ) : showTimer ? (
-                <>{remainingTime}s</>
+              ) : showCombatProgress ? (
+                encounterPhase === "intermission" ? (
+                  <>NEXT PACK IN {intermissionSeconds}s</>
+                ) : (
+                  <>{encounterEnemiesRemaining} HOSTILES</>
+                )
               ) : status === "mapSelection" ? (
                 <>ROUTE PLANNING</>
               ) : status === "bossFight" ? (
@@ -323,11 +350,11 @@ export default function UnifiedHUD({
               )}
             </span>
           </div>
-          {showTimer && (
+          {showCombatProgress && (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full border border-white/10 bg-black/40">
               <div
                 className="h-full bg-neon-cyan transition-all duration-1000 ease-linear"
-                style={{ width: `${100 - timerPercentage}%` }}
+                style={{ width: `${combatProgressPercentage}%` }}
               />
             </div>
           )}
