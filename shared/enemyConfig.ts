@@ -24,7 +24,7 @@ export const ENEMY_CONFIGS: Record<EnemyType, EnemyConfig> = {
     baseHealth: 20,
     baseDamage: 5,
     baseSpeed: 2,
-    baseXpValue: 5,
+    baseXpValue: 4,
     healthScaling: 1.3, // +30% per wave
     damageScaling: 1.2, // +20% per wave
     speedScaling: 1.05, // +5% per wave

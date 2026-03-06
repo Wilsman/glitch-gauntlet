@@ -888,7 +888,7 @@ export class LocalGameEngine {
       maxHealth: character.baseHealth,
       level: 1,
       xp: 0,
-      xpToNextLevel: 10,
+      xpToNextLevel: 20,
       coins: 0,
       color: PLAYER_COLORS[0],
       attackCooldown: 0,

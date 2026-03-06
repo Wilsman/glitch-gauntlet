@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { Crown, Crosshair, PawPrint, ShoppingBag } from "lucide-react";
+import { Coins, Crown, Crosshair, PawPrint, ShoppingBag } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -26,6 +26,7 @@ interface RunMapOverlayProps {
   threatTier: number;
   onSelectNode: (nodeId: string) => void;
   localPlayerName?: string | null;
+  localPlayerCoins?: number;
   localPlayerCharacterType?: CharacterType | null;
 }
 
@@ -220,6 +221,8 @@ function renderMapNodeButton({
   selectable,
   visited,
   current,
+  focusRelevant,
+  highlighted,
   left,
   top,
   onSelectNode,
@@ -229,6 +232,8 @@ function renderMapNodeButton({
   selectable: boolean;
   visited: boolean;
   current: boolean;
+  focusRelevant: boolean;
+  highlighted: boolean;
   left: number;
   top: number;
   onSelectNode: (nodeId: string) => void;
@@ -241,6 +246,19 @@ function renderMapNodeButton({
   const routeColor = ROUTE_COLORS[runNode.routeId];
   const isKeystone = tier === "keystone";
   const isNotable = tier === "notable";
+  const shouldPulse = current || selectable;
+  const isMuted = !focusRelevant && !visited && !highlighted;
+  const bodyOpacity = current
+    ? 1
+    : selectable
+      ? 0.98
+      : highlighted
+        ? 0.86
+        : visited
+          ? 0.62
+          : isMuted
+            ? 0.22
+            : 0.4;
 
   return (
     <button
@@ -261,16 +279,17 @@ function renderMapNodeButton({
       data-map-node-type={runNode.encounterType}
       data-map-node-route={runNode.routeId}
       data-map-node-selectable={selectable ? "true" : "false"}
-      className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ${
+      className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-300 ${
         selectable
           ? "cursor-pointer hover:scale-110"
           : "cursor-help hover:scale-105"
-      } ${selectable ? "animate-[mapNodePulse_2s_ease-in-out_infinite]" : ""}`}
+      } ${shouldPulse ? "animate-[mapNodePulse_2s_ease-in-out_infinite]" : ""}`}
       style={{
         left,
         top,
         width: size,
         height: size,
+        filter: isMuted ? "saturate(0.58)" : "none",
       }}
     >
       {/* Outer glow aura */}
@@ -278,17 +297,30 @@ function renderMapNodeButton({
         className="absolute rounded-full pointer-events-none"
         style={{
           inset: isKeystone ? -14 : isNotable ? -10 : -7,
-          background: `radial-gradient(circle, ${routeColor}${selectable ? "40" : visited ? "18" : "0c"}, transparent 70%)`,
-          filter: selectable ? `blur(${isKeystone ? 6 : 4}px)` : "blur(3px)",
+          background: `radial-gradient(circle, ${routeColor}${current ? "52" : selectable ? "32" : highlighted ? "22" : visited ? "14" : "08"}, transparent 72%)`,
+          filter:
+            current || selectable
+              ? `blur(${isKeystone ? 7 : 5}px)`
+              : "blur(3px)",
         }}
       />
+      {current && (
+        <div
+          className="absolute rounded-full pointer-events-none animate-[mapNodePulse_1.6s_ease-in-out_infinite]"
+          style={{
+            inset: isKeystone ? -20 : isNotable ? -16 : -12,
+            border: `1.5px solid ${routeColor}95`,
+            boxShadow: `0 0 ${isKeystone ? 24 : 18}px ${routeColor}55`,
+          }}
+        />
+      )}
       {/* Outer ring for notable/keystone */}
       {(isKeystone || isNotable) && (
         <div
           className="absolute rounded-full pointer-events-none"
           style={{
             inset: -3,
-            border: `1.5px solid ${routeColor}${selectable ? "70" : visited ? "40" : "20"}`,
+            border: `1.5px solid ${routeColor}${current ? "96" : selectable ? "78" : visited ? "40" : "20"}`,
             borderRadius: "9999px",
           }}
         />
@@ -299,14 +331,18 @@ function renderMapNodeButton({
           current ? "ring-2 ring-offset-1 ring-offset-transparent" : ""
         }`}
         style={{
-          borderColor: `${routeColor}${selectable ? "b0" : visited ? "60" : "30"}`,
-          background: `radial-gradient(circle at 40% 35%, ${routeColor}${selectable ? "20" : visited ? "10" : "08"}, rgba(0,0,0,0.7) 80%)`,
-          boxShadow: selectable
-            ? `0 0 ${isKeystone ? 24 : 14}px ${routeColor}40, inset 0 0 ${isKeystone ? 12 : 8}px ${routeColor}15`
+          borderColor: `${routeColor}${current ? "f0" : selectable ? "b0" : highlighted ? "90" : visited ? "60" : "30"}`,
+          background: `radial-gradient(circle at 40% 35%, ${routeColor}${current ? "34" : selectable ? "22" : highlighted ? "18" : visited ? "10" : "08"}, rgba(0,0,0,0.74) 82%)`,
+          boxShadow: current
+            ? `0 0 ${isKeystone ? 30 : 20}px ${routeColor}55, inset 0 0 ${isKeystone ? 14 : 10}px ${routeColor}22`
+            : selectable
+              ? `0 0 ${isKeystone ? 24 : 14}px ${routeColor}40, inset 0 0 ${isKeystone ? 12 : 8}px ${routeColor}15`
+            : highlighted
+              ? `0 0 12px ${routeColor}24`
             : visited
               ? `0 0 8px ${routeColor}18`
               : "none",
-          opacity: selectable ? 1 : visited ? 0.85 : 0.55,
+          opacity: bodyOpacity,
         }}
       >
         {/* Inner highlight for minor */}
@@ -314,7 +350,7 @@ function renderMapNodeButton({
           <div
             className="absolute inset-[3px] rounded-full pointer-events-none"
             style={{
-              background: `radial-gradient(circle at 45% 40%, ${routeColor}30, transparent 65%)`,
+              background: `radial-gradient(circle at 45% 40%, ${routeColor}${current ? "3a" : "30"}, transparent 65%)`,
             }}
           />
         )}
@@ -330,12 +366,14 @@ function renderMapNodeButton({
         )}
         <div className="flex h-full w-full items-center justify-center relative z-10">
           <span
-            style={{
-              filter: selectable
-                ? `drop-shadow(0 0 4px ${routeColor}80)`
-                : "none",
-            }}
-          >
+              style={{
+                filter: selectable
+                  ? `drop-shadow(0 0 4px ${routeColor}80)`
+                  : current
+                    ? `drop-shadow(0 0 6px ${routeColor}aa)`
+                  : "none",
+              }}
+            >
             <Icon
               className={`${
                 isKeystone
@@ -363,6 +401,18 @@ function renderMapNodeButton({
           />
         </div>
       )}
+      {current && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 rounded-full border px-2 py-1 font-press-start text-[8px] tracking-[0.18em] text-white/90"
+          style={{
+            borderColor: `${routeColor}66`,
+            background: "rgba(4, 10, 24, 0.88)",
+            boxShadow: `0 0 16px ${routeColor}22`,
+          }}
+        >
+          CURRENT
+        </div>
+      )}
     </button>
   );
 }
@@ -385,12 +435,56 @@ function getGraphBounds(
   return { minX, maxX, minY, maxY };
 }
 
+function getTransformForBounds({
+  bounds,
+  usableWidth,
+  usableHeight,
+  horizontalPadding,
+  verticalPadding,
+  minZoom,
+  maxZoom,
+  targetOffsetX = 0,
+}: {
+  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+  usableWidth: number;
+  usableHeight: number;
+  horizontalPadding: number;
+  verticalPadding: number;
+  minZoom: number;
+  maxZoom: number;
+  targetOffsetX?: number;
+}) {
+  const availableWidth = Math.max(320, usableWidth - horizontalPadding);
+  const availableHeight = Math.max(240, usableHeight - verticalPadding);
+  const graphWidth = Math.max(140, bounds.maxX - bounds.minX);
+  const graphHeight = Math.max(140, bounds.maxY - bounds.minY);
+  const fitZoom = clampValue(
+    Math.min(availableWidth / graphWidth, availableHeight / graphHeight),
+    minZoom,
+    maxZoom,
+  );
+  const graphMidX = (bounds.minX + bounds.maxX) / 2;
+  const graphMidY = (bounds.minY + bounds.maxY) / 2;
+  const targetCenterX =
+    MAP_LAYOUT_PADDING.left + availableWidth / 2 + targetOffsetX;
+  const targetCenterY = MAP_LAYOUT_PADDING.top + availableHeight / 2;
+
+  return {
+    zoom: fitZoom,
+    pan: {
+      x: targetCenterX - graphMidX * fitZoom,
+      y: targetCenterY - graphMidY * fitZoom,
+    },
+  };
+}
+
 export default function RunMapOverlay({
   runMap,
   currentDepth,
   threatTier,
   onSelectNode,
   localPlayerName = null,
+  localPlayerCoins = 0,
   localPlayerCharacterType = null,
 }: RunMapOverlayProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -609,42 +703,69 @@ export default function RunMapOverlay({
     () => getGraphBounds(nodeScreenPositions, runMap.nodes, graphCenter),
     [nodeScreenPositions, runMap.nodes, graphCenter.x, graphCenter.y],
   );
+  const focusNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (currentNode) ids.add(currentNode.id);
+    runMap.reachableNodeIds.forEach((nodeId) => ids.add(nodeId));
+    return ids;
+  }, [currentNode, runMap.reachableNodeIds]);
+  const focusNodes = useMemo(
+    () => runMap.nodes.filter((node) => focusNodeIds.has(node.id)),
+    [focusNodeIds, runMap.nodes],
+  );
 
   const defaultTransform = useMemo(() => {
-    const horizontalPadding = 120;
-    const verticalPadding = 120;
-    const availableWidth = Math.max(420, usableWidth - horizontalPadding);
-    const availableHeight = Math.max(320, usableHeight - verticalPadding);
-    const graphWidth = Math.max(320, graphBounds.maxX - graphBounds.minX);
-    const graphHeight = Math.max(260, graphBounds.maxY - graphBounds.minY);
-    const fitZoom = clampValue(
-      Math.min(availableWidth / graphWidth, availableHeight / graphHeight),
-      0.72,
-      1.58,
+    return getTransformForBounds({
+      bounds: graphBounds,
+      usableWidth,
+      usableHeight,
+      horizontalPadding: 120,
+      verticalPadding: 120,
+      minZoom: 0.72,
+      maxZoom: 1.58,
+      targetOffsetX: 26,
+    });
+  }, [graphBounds, usableHeight, usableWidth]);
+  const focusTransform = useMemo(() => {
+    if (!currentNode || focusNodes.length === 0) return null;
+
+    const currentPoint = nodeScreenPositions.get(currentNode.id) || graphCenter;
+    const focusBounds = getGraphBounds(
+      nodeScreenPositions,
+      focusNodes,
+      currentPoint,
     );
 
-    const targetCenterX = MAP_LAYOUT_PADDING.left + availableWidth / 2 + 26;
-    const targetCenterY = MAP_LAYOUT_PADDING.top + availableHeight / 2;
-    const graphMidX = (graphBounds.minX + graphBounds.maxX) / 2;
-    const graphMidY = (graphBounds.minY + graphBounds.maxY) / 2;
-
-    return {
-      zoom: fitZoom,
-      pan: {
-        x: targetCenterX - graphMidX * fitZoom,
-        y: targetCenterY - graphMidY * fitZoom,
-      },
-    };
-  }, [graphBounds.maxX, graphBounds.maxY, graphBounds.minX, graphBounds.minY, usableHeight, usableWidth]);
+    return getTransformForBounds({
+      bounds: focusBounds,
+      usableWidth,
+      usableHeight,
+      horizontalPadding: 60,
+      verticalPadding: 80,
+      minZoom: 1.1,
+      maxZoom: 2.05,
+      targetOffsetX: -52,
+    });
+  }, [
+    currentNode,
+    focusNodes,
+    graphCenter,
+    nodeScreenPositions,
+    usableHeight,
+    usableWidth,
+  ]);
+  const preferredTransform = focusTransform ?? defaultTransform;
 
   useEffect(() => {
-    setZoom(defaultTransform.zoom);
-    setPan(defaultTransform.pan);
+    setZoom(preferredTransform.zoom);
+    setPan(preferredTransform.pan);
   }, [
-    defaultTransform.zoom,
-    defaultTransform.pan.x,
-    defaultTransform.pan.y,
+    preferredTransform.zoom,
+    preferredTransform.pan.x,
+    preferredTransform.pan.y,
     runMap.floorIndex,
+    runMap.currentNodeId,
+    runMap.reachableNodeIds.join("|"),
     runMap.nodes.length,
     viewportSize.height,
     viewportSize.width,
@@ -655,6 +776,8 @@ export default function RunMapOverlay({
     ...entryNodes.map((node) => ({
       id: `core-${node.id}`,
       routeId: node.routeId,
+      sourceNodeId: null,
+      targetNodeId: node.id,
       source: graphCenter,
       target: nodeScreenPositions.get(node.id) || graphCenter,
     })),
@@ -666,6 +789,8 @@ export default function RunMapOverlay({
           return {
             id: `${node.id}-${targetNode.id}`,
             routeId: node.routeId,
+            sourceNodeId: node.id,
+            targetNodeId: targetNode.id,
             source: nodeScreenPositions.get(node.id) || graphCenter,
             target: nodeScreenPositions.get(targetNode.id) || graphCenter,
           };
@@ -676,6 +801,8 @@ export default function RunMapOverlay({
           ): edge is {
             id: string;
             routeId: RunMapRouteId;
+            sourceNodeId: string | null;
+            targetNodeId: string;
             source: { x: number; y: number };
             target: { x: number; y: number };
           } => edge !== null,
@@ -810,6 +937,15 @@ export default function RunMapOverlay({
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="rounded-[16px] border border-amber-300/18 bg-amber-400/8 px-4 py-3 text-right backdrop-blur-sm">
+            <div className="font-press-start text-[8px] text-amber-200/65">
+              Coins On Hand
+            </div>
+            <div className="mt-1 flex items-center justify-end gap-2 font-vt323 text-[24px] leading-none text-amber-100">
+              <Coins className="h-5 w-5 text-amber-300" />
+              {Math.max(0, Math.floor(localPlayerCoins))}
+            </div>
+          </div>
           <div className="rounded-[16px] border border-white/10 bg-black/28 px-4 py-3 text-right backdrop-blur-sm">
             <div className="font-press-start text-[8px] text-fuchsia-300/60">
               Current Threat
@@ -837,8 +973,22 @@ export default function RunMapOverlay({
           className={`absolute inset-x-0 bottom-0 top-0 z-[1] touch-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
           onWheel={handleWheel}
         >
+          {focusTransform && currentNode && (
+            <div
+              className="pointer-events-none absolute inset-0 z-[1]"
+              style={{
+                background: (() => {
+                  const currentPoint =
+                    nodeScreenPositions.get(currentNode.id) || graphCenter;
+                  const focusMidX = currentPoint.x * zoom + pan.x;
+                  const focusMidY = currentPoint.y * zoom + pan.y;
+                  return `radial-gradient(circle at ${focusMidX}px ${focusMidY}px, rgba(255,224,120,0.12), rgba(40,78,120,0.05) 24%, rgba(2,6,23,0) 52%)`;
+                })(),
+              }}
+            />
+          )}
           <div
-            className="absolute inset-0"
+            className={`absolute inset-0 ${isPanning ? "" : "transition-transform duration-500 ease-out"}`}
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: "0 0",
@@ -914,6 +1064,7 @@ export default function RunMapOverlay({
                     stroke={`${ROUTE_COLORS[routeId]}08`}
                     strokeWidth={1}
                     strokeDasharray="6 18"
+                    opacity={focusNodeIds.size > 0 ? 0.3 : 1}
                   />
                 );
               })}
@@ -924,7 +1075,17 @@ export default function RunMapOverlay({
                 const isEmphasized = emphasizedRouteId === edge.routeId;
                 const isReachableRoute = reachableRouteIds.has(edge.routeId);
                 const isCurrentRoute = currentNode?.routeId === edge.routeId;
-                const active = isEmphasized || isCurrentRoute;
+                const sourceInFocus =
+                  edge.sourceNodeId !== null && focusNodeIds.has(edge.sourceNodeId);
+                const targetInFocus = focusNodeIds.has(edge.targetNodeId);
+                const isDecisionEdge =
+                  currentNode?.id === edge.sourceNodeId && targetInFocus;
+                const touchesFocus =
+                  isDecisionEdge ||
+                  targetInFocus ||
+                  sourceInFocus ||
+                  (edge.sourceNodeId === null && targetInFocus);
+                const active = isDecisionEdge || isEmphasized || isCurrentRoute;
                 const path = buildCurvePath(
                   edge.source,
                   edge.target,
@@ -939,12 +1100,16 @@ export default function RunMapOverlay({
                       fill="none"
                       stroke={
                         active
-                          ? `${routeColor}28`
+                          ? `${routeColor}18`
+                          : touchesFocus
+                            ? `${routeColor}10`
                           : isReachableRoute
-                            ? "rgba(90,130,160,0.06)"
-                            : "rgba(60,90,120,0.025)"
+                            ? "rgba(90,130,160,0.045)"
+                            : "rgba(60,90,120,0.02)"
                       }
-                      strokeWidth={active ? 14 : isReachableRoute ? 8 : 5}
+                      strokeWidth={
+                        active ? 8 : touchesFocus ? 5.5 : isReachableRoute ? 4 : 2.5
+                      }
                       strokeLinecap="round"
                       filter={active ? "url(#edgeGlow)" : undefined}
                     />
@@ -954,15 +1119,25 @@ export default function RunMapOverlay({
                       fill="none"
                       stroke={
                         active
-                          ? `${routeColor}55`
+                          ? `${routeColor}4a`
+                          : touchesFocus
+                            ? `${routeColor}28`
                           : isReachableRoute
-                            ? "rgba(142,245,255,0.22)"
-                            : "rgba(106,154,194,0.10)"
+                            ? "rgba(142,245,255,0.18)"
+                            : "rgba(106,154,194,0.08)"
                       }
-                      strokeWidth={active ? 3 : isReachableRoute ? 2 : 1}
+                      strokeWidth={
+                        active ? 2.2 : touchesFocus ? 1.6 : isReachableRoute ? 1.4 : 0.85
+                      }
                       strokeLinecap="round"
                       strokeDasharray={
-                        active ? "8 6" : isReachableRoute ? "6 8" : "4 10"
+                        active
+                          ? "8 6"
+                          : touchesFocus
+                            ? "6 7"
+                            : isReachableRoute
+                              ? "6 8"
+                              : "4 10"
                       }
                     />
                     {/* Thin bright animated dash */}
@@ -971,14 +1146,20 @@ export default function RunMapOverlay({
                       fill="none"
                       stroke={
                         active
-                          ? `${routeColor}cc`
+                          ? `${routeColor}b8`
+                          : touchesFocus
+                            ? `${routeColor}66`
                           : isReachableRoute
-                            ? "rgba(142,245,255,0.50)"
-                            : "rgba(106,154,194,0.25)"
+                            ? "rgba(142,245,255,0.42)"
+                            : "rgba(106,154,194,0.2)"
                       }
-                      strokeWidth={active ? 1.5 : isReachableRoute ? 1 : 0.5}
+                      strokeWidth={
+                        active ? 1.1 : touchesFocus ? 0.85 : isReachableRoute ? 0.75 : 0.4
+                      }
                       strokeLinecap="round"
-                      strokeDasharray={active ? "3 9" : "2 14"}
+                      strokeDasharray={
+                        active ? "3 9" : touchesFocus ? "3 10" : "2 14"
+                      }
                       className={
                         active ? "animate-[edgeFlow_2s_linear_infinite]" : ""
                       }
@@ -1032,6 +1213,8 @@ export default function RunMapOverlay({
                   selectable: reachableNodeIds.has(node.id),
                   visited: visitedNodeIds.has(node.id),
                   current: currentNode?.id === node.id,
+                  focusRelevant: focusNodeIds.has(node.id),
+                  highlighted: highlightedNode?.id === node.id,
                   left: point.x,
                   top: point.y,
                   onSelectNode,
@@ -1199,8 +1382,8 @@ export default function RunMapOverlay({
             <button
               type="button"
               onClick={() => {
-                setZoom(defaultTransform.zoom);
-                setPan(defaultTransform.pan);
+                setZoom(preferredTransform.zoom);
+                setPan(preferredTransform.pan);
               }}
               className="rounded-full border border-white/18 bg-white/5 px-3 py-1 font-press-start text-[9px] text-white/70 hover:border-white/45 hover:bg-white/12"
             >

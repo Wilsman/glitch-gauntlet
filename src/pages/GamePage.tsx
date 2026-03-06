@@ -474,6 +474,7 @@ export default function GamePage() {
               threatTier={activeGameState.wave || 0}
               onSelectNode={handleSelectMapNode}
               localPlayerName={localPlayer?.name || null}
+              localPlayerCoins={localPlayer?.coins || 0}
               localPlayerCharacterType={localPlayer?.characterType || null}
             />
           )}

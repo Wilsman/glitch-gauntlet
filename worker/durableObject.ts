@@ -46,7 +46,7 @@ export class GlobalDurableObject extends DurableObject {
         const initialPlayer: Player = {
             id: playerId,
             position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
-            health: 100, maxHealth: 100, level: 1, xp: 0, xpToNextLevel: 10,
+            health: 100, maxHealth: 100, level: 1, xp: 0, xpToNextLevel: 20,
             color: PLAYER_COLORS[0], attackCooldown: 0, attackSpeed: 500,
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
             pickupRadius: 30, projectilesPerShot: 1, critChance: 0, critMultiplier: 2, lifeSteal: 0,
@@ -77,7 +77,7 @@ export class GlobalDurableObject extends DurableObject {
         const newPlayer: Player = {
             id: playerId,
             position: { x: Math.random() * (ARENA_WIDTH - 80) + 40, y: Math.random() * (ARENA_HEIGHT - 80) + 40 },
-            health: 100, maxHealth: 100, level: 1, xp: 0, xpToNextLevel: 10,
+            health: 100, maxHealth: 100, level: 1, xp: 0, xpToNextLevel: 20,
             color: PLAYER_COLORS[gameState.players.length % PLAYER_COLORS.length],
             attackCooldown: 0, attackSpeed: 500,
             status: 'alive', speed: 4, projectileDamage: 10, reviveProgress: 0,
