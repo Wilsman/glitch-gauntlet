@@ -28,6 +28,7 @@ import { getCharacter } from "@shared/characterConfig";
 import { submitLeaderboardScore } from "@/lib/leaderboardApi";
 import { getPlayerName, getLastRunStats } from "@/lib/progressionStorage";
 import RunMapOverlay from "@/components/RunMapOverlay";
+import { PauseMenuOverlay } from "@/components/PauseMenuOverlay";
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -44,6 +45,8 @@ export default function GamePage() {
   const openUpgradeModal = useGameStore((state) => state.openUpgradeModal);
   const isUpgradeModalOpen = useGameStore((state) => state.isUpgradeModalOpen);
   const [isTestingArenaOpen, setIsTestingArenaOpen] = useState(false);
+  const [isPauseMenuOpen, setIsPauseMenuOpen] = useState(false);
+  const [localRunNonce, setLocalRunNonce] = useState(0);
   const rawGameState = useGameStore((state) => state.gameState);
   const urlPlayerId = isLocalMode ? searchParams.get("playerId") : null;
   const localPlayerId = storeLocalPlayerId || urlPlayerId;
@@ -74,34 +77,61 @@ export default function GamePage() {
 
   const isPaused = !!levelingUpPlayerId;
   const isLocalPlayerLevelingUp = levelingUpPlayerId === localPlayerId;
+  const shouldPauseGameplay =
+    isPaused || isTestingArenaOpen || isPauseMenuOpen;
 
   // Use appropriate game loop based on mode
   useGameLoop(isLocalMode ? undefined : gameId, isPaused);
   useLocalGameLoop(
     isLocalMode ? localEngineRef.current : null,
-    isPaused || isTestingArenaOpen
+    shouldPauseGameplay
   );
 
   useGameAudio();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isLocalMode) {
+        if (
+          isUpgradeModalOpen ||
+          gameStatus === "bossDefeated" ||
+          gameStatus === "gameOver" ||
+          gameStatus === "won"
+        ) {
+          return;
+        }
+        if (isTestingArenaOpen) {
+          setIsTestingArenaOpen(false);
+          return;
+        }
+        e.preventDefault();
+        setIsPauseMenuOpen((prev) => !prev);
+        return;
+      }
+
       if (e.key === "\\") {
         if (isLocalMode) {
+          setIsPauseMenuOpen(false);
           setIsTestingArenaOpen((prev) => !prev);
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isLocalMode]);
+  }, [
+    gameStatus,
+    isLocalMode,
+    isPauseMenuOpen,
+    isTestingArenaOpen,
+    isUpgradeModalOpen,
+  ]);
 
-  // Sync engine pause state with Testing Arena visibility
+  // Sync engine pause state with overlay visibility
   useEffect(() => {
     if (isLocalMode && localEngineRef.current) {
-      localEngineRef.current.setIsPaused(isTestingArenaOpen);
+      localEngineRef.current.setIsPaused(shouldPauseGameplay);
     }
-  }, [isTestingArenaOpen, isLocalMode]);
+  }, [isLocalMode, shouldPauseGameplay]);
 
   useEffect(() => {
     if (!gameStatus || !gameId) return;
@@ -194,6 +224,8 @@ export default function GamePage() {
       engine.start();
       setGameState(engine.getGameState(), true);
       setIsLoading(false);
+      setIsPauseMenuOpen(false);
+      setIsTestingArenaOpen(false);
 
       return () => {
         engine.stop();
@@ -227,6 +259,7 @@ export default function GamePage() {
     navigate,
     isLocalMode,
     searchParams,
+    localRunNonce,
   ]);
 
   useEffect(() => {
@@ -382,6 +415,20 @@ export default function GamePage() {
     }
   };
 
+  const handleRestartRun = () => {
+    if (!isLocalMode || !localEngineRef.current) return;
+    setIsPauseMenuOpen(false);
+    localEngineRef.current.stop();
+    localEngineRef.current = null;
+    setLocalRunNonce((value) => value + 1);
+    setIsLoading(true);
+  };
+
+  const handleExitToMenu = () => {
+    setIsPauseMenuOpen(false);
+    navigate("/");
+  };
+
   if (isLoading && !activeGameState) {
     return (
       <div className="min-h-screen w-full flex flex-col items-center justify-center bg-black text-neon-cyan">
@@ -454,6 +501,14 @@ export default function GamePage() {
       <GameCanvas />
       {localPlayer && <StatsPanel player={localPlayer} />}
       <SettingsPanel className="fixed right-4 top-1 z-40" />
+      {isLocalMode && (
+        <PauseMenuOverlay
+          open={isPauseMenuOpen}
+          onResume={() => setIsPauseMenuOpen(false)}
+          onRestartRun={handleRestartRun}
+          onExitToMenu={handleExitToMenu}
+        />
+      )}
 
       {activeGameState && localPlayer && (
         <UnifiedHUD
