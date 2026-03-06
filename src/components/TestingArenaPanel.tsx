@@ -325,6 +325,7 @@ export default function TestingArenaPanel({
                     "burst-fire",
                     "heavy-cannon",
                     "shotgun",
+                    "energy-blade",
                   ].map((w) => (
                     <button
                       key={w}

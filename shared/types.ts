@@ -24,9 +24,9 @@ export type InputState = {
 };
 export type PlayerStatus = 'alive' | 'dead';
 
-export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl' | 'pet-pal-percy' | 'vampire-vex' | 'turret-tina' | 'dash-dynamo';
+export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl' | 'pet-pal-percy' | 'vampire-vex' | 'turret-tina' | 'dash-dynamo' | 'null-ronin';
 
-export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot' | 'burst-fire' | 'heavy-cannon' | 'shotgun';
+export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot' | 'burst-fire' | 'heavy-cannon' | 'shotgun' | 'energy-blade';
 
 export type UnlockCriteriaType =
   | 'level10Count'
@@ -174,6 +174,12 @@ export interface Player {
   blinkCooldown?: number; // Dash Dynamo: blink ability cooldown
   blinkReady?: boolean; // Dash Dynamo: is blink ready
   burstShotsFired?: number; // Burst fire: track shots in current burst
+  meleeComboStep?: number; // Null Ronin: combo finisher counter
+  meleeSwingUntil?: number; // Null Ronin: slash render timing
+  meleeSwingAngle?: number; // Null Ronin: slash render angle
+  meleeSwingArc?: number; // Null Ronin: slash render arc in degrees
+  meleeSwingRange?: number; // Null Ronin: slash render range
+  meleeSwingColor?: string; // Null Ronin: slash render color
   // Legendary upgrade effects
   hasLucky?: boolean; // Lucky upgrade: double drops
   hasTimeWarp?: boolean; // TimeWarp upgrade: slow enemies

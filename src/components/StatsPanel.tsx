@@ -18,21 +18,37 @@ interface WeaponStats {
 export default function StatsPanel({ player }: StatsPanelProps) {
   const stats = useMemo(() => {
     const weapons: WeaponStats[] = [];
+    const isMeleeWeapon = player.weaponType === "energy-blade";
+    const averageBladeDamage =
+      player.projectileDamage *
+      (1 + Math.max(0, (player.projectilesPerShot || 1) - 1) * 0.08) *
+      1.28;
 
-    // Bullet weapon stats
-    const bulletBaseDamage = player.projectileDamage;
-    const bulletTotalDamage = bulletBaseDamage * player.projectilesPerShot;
-    const bulletDps = (bulletTotalDamage / player.attackSpeed) * 1000;
+    if (isMeleeWeapon) {
+      weapons.push({
+        name: "Energy Blade",
+        baseDamage: player.projectileDamage,
+        totalDamage: averageBladeDamage,
+        dps: (averageBladeDamage / player.attackSpeed) * 1000,
+        projectilesPerShot: player.projectilesPerShot,
+        critChance: player.critChance,
+        critMultiplier: player.critMultiplier,
+      });
+    } else {
+      const bulletBaseDamage = player.projectileDamage;
+      const bulletTotalDamage = bulletBaseDamage * player.projectilesPerShot;
+      const bulletDps = (bulletTotalDamage / player.attackSpeed) * 1000;
 
-    weapons.push({
-      name: "Bullets",
-      baseDamage: bulletBaseDamage,
-      totalDamage: bulletTotalDamage,
-      dps: bulletDps,
-      projectilesPerShot: player.projectilesPerShot,
-      critChance: player.critChance,
-      critMultiplier: player.critMultiplier,
-    });
+      weapons.push({
+        name: "Bullets",
+        baseDamage: bulletBaseDamage,
+        totalDamage: bulletTotalDamage,
+        dps: bulletDps,
+        projectilesPerShot: player.projectilesPerShot,
+        critChance: player.critChance,
+        critMultiplier: player.critMultiplier,
+      });
+    }
 
     // Bananarang weapon stats (if unlocked)
     if (player.hasBananarang && player.bananarangsPerShot) {
@@ -193,7 +209,8 @@ export default function StatsPanel({ player }: StatsPanelProps) {
       {/* Character Passive Abilities */}
       {(player.characterType === "dash-dynamo" ||
         player.characterType === "turret-tina" ||
-        player.characterType === "vampire-vex") && (
+        player.characterType === "vampire-vex" ||
+        player.characterType === "null-ronin") && (
         <div className="mb-3 pb-3 border-b border-neon-pink/30">
           <h3 className="font-press-start text-[10px] text-neon-pink mb-2">
             PASSIVES
@@ -225,6 +242,21 @@ export default function StatsPanel({ player }: StatsPanelProps) {
                   color="text-red-400"
                 />
               )}
+            {player.characterType === "null-ronin" && (
+              <StatRow
+                label="Finisher"
+                value={
+                  (player.meleeComboStep || 0) >= 2
+                    ? "READY"
+                    : `${(player.meleeComboStep || 0) + 1}/3`
+                }
+                color={
+                  (player.meleeComboStep || 0) >= 2
+                    ? "text-yellow-300"
+                    : "text-cyan-300"
+                }
+              />
+            )}
           </div>
         </div>
       )}

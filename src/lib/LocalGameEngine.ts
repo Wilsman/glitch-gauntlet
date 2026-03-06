@@ -134,6 +134,15 @@ const FACEHUGGER_SLOW_MULTIPLIER = 0.72;
 const FACEHUGGER_REQUIRED_SHAKES = 5;
 const PLAYER_HEART_SLOTS = 5;
 const PLAYER_HIT_INVULNERABILITY_MS = 5000;
+const NULL_RONIN_SLASH_RANGE = 118;
+const NULL_RONIN_SLASH_ARC_DEG = 100;
+const NULL_RONIN_FINISHER_RANGE = 152;
+const NULL_RONIN_FINISHER_ARC_DEG = 138;
+const NULL_RONIN_ENGAGE_RANGE = 170;
+const NULL_RONIN_LUNGE_DISTANCE = 30;
+const NULL_RONIN_ABILITY_DASH_DISTANCE = 150;
+const NULL_RONIN_ABILITY_INVULN_MS = 900;
+const NULL_RONIN_SLASH_VISUAL_MS = 170;
 const SLUGGER_STRAFE_SWAP_MIN_MS = 1250;
 const SLUGGER_STRAFE_SWAP_VARIANCE_MS = 950;
 const NEON_PULSE_TELEGRAPH_MS = 900;
@@ -250,6 +259,13 @@ function addDamageNumber(
     position: { ...position },
     timestamp: now,
   });
+}
+
+function normalizeAngleDelta(angle: number): number {
+  let normalized = angle;
+  while (normalized > Math.PI) normalized -= Math.PI * 2;
+  while (normalized < -Math.PI) normalized += Math.PI * 2;
+  return normalized;
 }
 
 function hashString(value: string) {
@@ -973,6 +989,9 @@ export class LocalGameEngine {
       initialPlayer.blinkCooldown = 0;
       initialPlayer.blinkReady = true;
     }
+    if (characterType === "null-ronin") {
+      initialPlayer.meleeComboStep = 0;
+    }
     if (character.weaponType === "burst-fire") {
       initialPlayer.burstShotsFired = 0;
     }
@@ -1645,6 +1664,26 @@ export class LocalGameEngine {
         player.abilityCooldown = 10000;
         this.triggerScreenShake(6, 400);
         break;
+      case "null-ronin": {
+        const angle = this.getTargetAngleForPlayer(player);
+        this.dashPlayer(player, angle, NULL_RONIN_ABILITY_DASH_DISTANCE);
+        this.performMeleeSlash(this.gameState, player, angle, Date.now(), {
+          damageMultiplier: 2.25,
+          range: NULL_RONIN_FINISHER_RANGE + 18,
+          arcDegrees: 160,
+          color: "#FDE047",
+          critBonus: 0.2,
+        });
+        player.isAbilityActive = true;
+        player.abilityDuration = NULL_RONIN_ABILITY_INVULN_MS;
+        player.abilityCooldown = 12000;
+        player.isInvulnerable = true;
+        player.invulnerableUntil = Date.now() + NULL_RONIN_ABILITY_INVULN_MS;
+        player.meleeComboStep = 0;
+        player.maxShield = Math.max(player.maxShield || 0, 18);
+        player.shield = Math.min(player.maxShield, (player.shield || 0) + 18);
+        break;
+      }
     }
   }
 
@@ -1661,6 +1700,369 @@ export class LocalGameEngine {
       return this.inputState;
     }
     return player.lastInput;
+  }
+
+  private getTargetAngleForPlayer(player: Player): number {
+    if (this.gameState.status === "bossFight" && this.gameState.boss) {
+      return Math.atan2(
+        this.gameState.boss.position.y - player.position.y,
+        this.gameState.boss.position.x - player.position.x,
+      );
+    }
+
+    const nearestEnemy = this.gameState.enemies.reduce(
+      (closest, enemy) => {
+        const dist = Math.hypot(
+          enemy.position.x - player.position.x,
+          enemy.position.y - player.position.y,
+        );
+        return dist < closest.dist ? { enemy, dist } : closest;
+      },
+      { enemy: null as Enemy | null, dist: Infinity },
+    );
+
+    if (nearestEnemy.enemy) {
+      return Math.atan2(
+        nearestEnemy.enemy.position.y - player.position.y,
+        nearestEnemy.enemy.position.x - player.position.x,
+      );
+    }
+
+    const input = this.getCurrentInput(player);
+    const analogX = input?.analogX || 0;
+    const analogY = input?.analogY || 0;
+    if (Math.hypot(analogX, analogY) > 0.2) {
+      return Math.atan2(analogY, analogX);
+    }
+    if (input?.up || input?.down || input?.left || input?.right) {
+      return Math.atan2(
+        (input.down ? 1 : 0) - (input.up ? 1 : 0),
+        (input.right ? 1 : 0) - (input.left ? 1 : 0),
+      );
+    }
+
+    return 0;
+  }
+
+  private dashPlayer(player: Player, angle: number, distance: number) {
+    player.position.x = Math.max(
+      24,
+      Math.min(ARENA_WIDTH - 24, player.position.x + Math.cos(angle) * distance),
+    );
+    player.position.y = Math.max(
+      24,
+      Math.min(
+        ARENA_HEIGHT - 24,
+        player.position.y + Math.sin(angle) * distance,
+      ),
+    );
+  }
+
+  private triggerMeleeSwing(
+    player: Player,
+    now: number,
+    angle: number,
+    range: number,
+    arcDegrees: number,
+    color: string,
+  ) {
+    player.meleeSwingUntil = now + NULL_RONIN_SLASH_VISUAL_MS;
+    player.meleeSwingAngle = angle;
+    player.meleeSwingRange = range;
+    player.meleeSwingArc = arcDegrees;
+    player.meleeSwingColor = color;
+  }
+
+  private addStatusEffectsFromPlayer(owner: Player, enemy: Enemy, damage: number) {
+    if (!enemy.statusEffects) enemy.statusEffects = [];
+
+    const addOrRefreshEffect = (
+      effectType: StatusEffect["type"],
+      effectData: StatusEffect,
+    ) => {
+      const existing = enemy.statusEffects!.find(
+        (effect) => effect.type === effectType,
+      );
+      if (existing) {
+        existing.duration = Math.max(existing.duration, effectData.duration);
+        if (effectData.damage !== undefined) {
+          existing.damage = Math.max(existing.damage || 0, effectData.damage);
+        }
+        if (effectData.slowAmount !== undefined) {
+          existing.slowAmount = Math.min(
+            existing.slowAmount || 1,
+            effectData.slowAmount,
+          );
+        }
+      } else if (enemy.statusEffects!.length < MAX_STATUS_EFFECTS_PER_ENEMY) {
+        enemy.statusEffects!.push(effectData);
+      }
+    };
+
+    if (owner.fireDamage && owner.fireDamage > 0) {
+      addOrRefreshEffect("burning", {
+        type: "burning",
+        damage: owner.fireDamage * damage,
+        duration: 2000,
+      });
+    }
+    if (owner.poisonDamage && owner.poisonDamage > 0) {
+      addOrRefreshEffect("poisoned", {
+        type: "poisoned",
+        damage: owner.poisonDamage * damage,
+        duration: 3000,
+      });
+    }
+    if (owner.iceSlow && owner.iceSlow > 0) {
+      addOrRefreshEffect("slowed", {
+        type: "slowed",
+        slowAmount: owner.iceSlow,
+        duration: 2000,
+      });
+    }
+  }
+
+  private applyChainLightningFromHit(
+    state: GameState,
+    owner: Player,
+    sourceEnemy: Enemy,
+    damage: number,
+    now: number,
+  ) {
+    if (!owner.chainCount || owner.chainCount <= 0) return;
+
+    const chainRange = 150;
+    const chainDamage = damage * 0.7;
+    let currentTarget = sourceEnemy;
+    const hitByChain = new Set([sourceEnemy.id]);
+
+    for (let i = 0; i < owner.chainCount; i++) {
+      const nearbyEnemies = state.enemies.filter(
+        (enemy) =>
+          !hitByChain.has(enemy.id) &&
+          Math.hypot(
+            enemy.position.x - currentTarget.position.x,
+            enemy.position.y - currentTarget.position.y,
+          ) < chainRange,
+      );
+
+      if (nearbyEnemies.length === 0) break;
+
+      const nextTarget = nearbyEnemies.reduce(
+        (closest, enemy) => {
+          const dist = Math.hypot(
+            enemy.position.x - currentTarget.position.x,
+            enemy.position.y - currentTarget.position.y,
+          );
+          return dist < closest.dist ? { enemy, dist } : closest;
+        },
+        { enemy: null as Enemy | null, dist: Infinity },
+      ).enemy;
+
+      if (!nextTarget) break;
+
+      nextTarget.health -= chainDamage;
+      this.markEnemyDamagedBySource(state, nextTarget, owner.id);
+      nextTarget.lastHitTimestamp = now;
+      addDamageNumber(nextTarget, chainDamage, false, nextTarget.position, now);
+
+      if (!state.chainLightning) state.chainLightning = [];
+      state.chainLightning.push({
+        id: uuidv4(),
+        from: { ...currentTarget.position },
+        to: { ...nextTarget.position },
+        timestamp: now,
+      });
+
+      hitByChain.add(nextTarget.id);
+      currentTarget = nextTarget;
+    }
+  }
+
+  private applyMeleeHitToEnemy(
+    state: GameState,
+    owner: Player,
+    enemy: Enemy,
+    damage: number,
+    isCrit: boolean,
+    hitPosition: Vector2D,
+    now: number,
+  ) {
+    let finalDamage = damage;
+    if (owner.health < owner.maxHealth * 0.3) {
+      finalDamage *= 1.5;
+    }
+    if (enemy.health < enemy.maxHealth * 0.15) {
+      finalDamage = enemy.health;
+    }
+
+    enemy.health -= finalDamage;
+    this.markEnemyDamagedBySource(state, enemy, owner.id);
+
+    if (owner.hasGlitchPatch && Math.random() < 0.2) {
+      owner.health = Math.min(owner.maxHealth, owner.health + 1);
+      owner.lastHealedTimestamp = now;
+    }
+
+    this.spawnParticles(
+      hitPosition,
+      isCrit ? "#FF4D6D" : "#7DD3FC",
+      isCrit ? 14 : 8,
+      isCrit ? "glitch" : "blood",
+    );
+
+    if (owner.knockbackForce && owner.knockbackForce > 0) {
+      const knockbackAngle = Math.atan2(
+        enemy.position.y - owner.position.y,
+        enemy.position.x - owner.position.x,
+      );
+      enemy.position.x += Math.cos(knockbackAngle) * owner.knockbackForce;
+      enemy.position.y += Math.sin(knockbackAngle) * owner.knockbackForce;
+    }
+
+    if (owner.lifeSteal && owner.lifeSteal > 0) {
+      owner.health = Math.min(
+        owner.maxHealth,
+        owner.health + finalDamage * owner.lifeSteal,
+      );
+      owner.lastHealedTimestamp = now;
+    }
+
+    enemy.lastHitTimestamp = now;
+    if (isCrit) enemy.lastCritTimestamp = now;
+    this.addStatusEffectsFromPlayer(owner, enemy, finalDamage);
+    addDamageNumber(enemy, finalDamage, isCrit, enemy.position, now);
+    this.applyChainLightningFromHit(state, owner, enemy, finalDamage, now);
+  }
+
+  private performMeleeSlash(
+    state: GameState,
+    owner: Player,
+    angle: number,
+    now: number,
+    options?: {
+      damageMultiplier?: number;
+      range?: number;
+      arcDegrees?: number;
+      color?: string;
+      critBonus?: number;
+    },
+  ): number {
+    const range =
+      options?.range ??
+      NULL_RONIN_SLASH_RANGE +
+        Math.max(0, (owner.projectilesPerShot || 1) - 1) * 10;
+    const arcDegrees =
+      options?.arcDegrees ??
+      NULL_RONIN_SLASH_ARC_DEG +
+        Math.max(0, (owner.projectilesPerShot || 1) - 1) * 7;
+    const halfArcRadians = (arcDegrees * Math.PI) / 360;
+    const baseDamage = owner.projectileDamage * (options?.damageMultiplier || 1);
+
+    this.triggerMeleeSwing(
+      owner,
+      now,
+      angle,
+      range,
+      arcDegrees,
+      options?.color || "#7DD3FC",
+    );
+
+    let hits = 0;
+
+    const isInsideArc = (target: Vector2D, padding: number) => {
+      const dx = target.x - owner.position.x;
+      const dy = target.y - owner.position.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > range + padding) return false;
+      const targetAngle = Math.atan2(dy, dx);
+      return (
+        Math.abs(normalizeAngleDelta(targetAngle - angle)) <= halfArcRadians
+      );
+    };
+
+    if (state.status === "bossFight" && state.boss && !state.boss.isInvulnerable) {
+      const bossConfig = BOSS_CONFIGS[state.boss.type];
+      if (isInsideArc(state.boss.position, bossConfig.size)) {
+        const isCrit =
+          Math.random() <
+          Math.min(1, (owner.critChance || 0) + (options?.critBonus || 0));
+        const finalDamage =
+          baseDamage *
+          (isCrit ? owner.critMultiplier || 2 : 1) *
+          (owner.health < owner.maxHealth * 0.3 ? 1.5 : 1);
+        state.boss.health -= finalDamage;
+        state.boss.lastHitTimestamp = now;
+        this.triggerScreenShake(isCrit ? 8 : 5, 120);
+        this.spawnParticles(
+          state.boss.position,
+          isCrit ? "#FDE047" : "#7DD3FC",
+          isCrit ? 16 : 10,
+          isCrit ? "glitch" : "pixel",
+        );
+        if (owner.lifeSteal && owner.lifeSteal > 0) {
+          owner.health = Math.min(
+            owner.maxHealth,
+            owner.health + finalDamage * owner.lifeSteal,
+          );
+          owner.lastHealedTimestamp = now;
+        }
+        hits++;
+      }
+    }
+
+    state.boss?.shieldGenerators?.forEach((generator) => {
+      if (!isInsideArc(generator.position, 18)) return;
+      generator.health -= baseDamage;
+      hits++;
+      if (owner.lifeSteal && owner.lifeSteal > 0) {
+        owner.health = Math.min(
+          owner.maxHealth,
+          owner.health + baseDamage * owner.lifeSteal,
+        );
+        owner.lastHealedTimestamp = now;
+      }
+    });
+
+    state.boss?.portals?.forEach((portal) => {
+      if (!isInsideArc(portal.position, 24)) return;
+      portal.health -= baseDamage;
+      hits++;
+      if (owner.lifeSteal && owner.lifeSteal > 0) {
+        owner.health = Math.min(
+          owner.maxHealth,
+          owner.health + baseDamage * owner.lifeSteal,
+        );
+        owner.lastHealedTimestamp = now;
+      }
+    });
+
+    state.enemies.forEach((enemy) => {
+      if (!isInsideArc(enemy.position, 10)) return;
+      const isCrit =
+        Math.random() <
+        Math.min(1, (owner.critChance || 0) + (options?.critBonus || 0));
+      const damage = baseDamage * (isCrit ? owner.critMultiplier || 2 : 1);
+      this.applyMeleeHitToEnemy(
+        state,
+        owner,
+        enemy,
+        damage,
+        isCrit,
+        enemy.position,
+        now,
+      );
+      hits++;
+    });
+
+    if (hits > 0) {
+      this.triggerScreenShake(
+        options?.damageMultiplier && options.damageMultiplier > 1.5 ? 8 : 4,
+        110,
+      );
+    }
+
+    return hits;
   }
 
   private markStateDirty() {
@@ -2441,6 +2843,12 @@ export class LocalGameEngine {
             health: Math.round(localPlayer.health),
             level: localPlayer.level,
             coins: Math.floor(localPlayer.coins || 0),
+            characterType: localPlayer.characterType || null,
+            meleeComboStep: localPlayer.meleeComboStep || 0,
+            meleeSwingRemainingMs: Math.max(
+              0,
+              (localPlayer.meleeSwingUntil || 0) - now,
+            ),
             voidImplosionStacks: localPlayer.voidImplosionStacks || 0,
           }
         : null,
@@ -3992,9 +4400,14 @@ export class LocalGameEngine {
 
       // Determine target: boss if in boss fight, otherwise closest enemy
       let targetPosition: { x: number; y: number } | null = null;
+      let targetDistance = Infinity;
 
       if (state.status === "bossFight" && state.boss) {
         targetPosition = state.boss.position;
+        targetDistance = Math.hypot(
+          state.boss.position.x - p.position.x,
+          state.boss.position.y - p.position.y,
+        );
       } else if (state.enemies.length > 0) {
         const closestEnemy = state.enemies.reduce(
           (closest, enemy) => {
@@ -4008,18 +4421,54 @@ export class LocalGameEngine {
         );
         if (closestEnemy.enemy) {
           targetPosition = closestEnemy.enemy.position;
+          targetDistance = closestEnemy.dist;
         }
       }
 
       if (p.attackCooldown <= 0 && targetPosition) {
-        p.attackCooldown = p.attackSpeed;
         const baseAngle = Math.atan2(
           targetPosition.y - p.position.y,
           targetPosition.x - p.position.x,
         );
 
         // Weapon-specific behavior
-        if (p.weaponType === "grenade-launcher") {
+        if (p.weaponType === "energy-blade") {
+          const isFinisher = (p.meleeComboStep || 0) >= 2;
+          const slashRange = isFinisher
+            ? NULL_RONIN_FINISHER_RANGE
+            : NULL_RONIN_SLASH_RANGE;
+          const engageRange = Math.max(NULL_RONIN_ENGAGE_RANGE, slashRange + 24);
+
+          if (targetDistance <= engageRange) {
+            const lungeDistance = Math.min(
+              NULL_RONIN_LUNGE_DISTANCE,
+              Math.max(0, targetDistance - slashRange * 0.7),
+            );
+            if (lungeDistance > 0) {
+              this.dashPlayer(p, baseAngle, lungeDistance);
+            }
+
+            const slashHits = this.performMeleeSlash(state, p, baseAngle, now, {
+              damageMultiplier: isFinisher ? 1.85 : 1,
+              range: isFinisher ? NULL_RONIN_FINISHER_RANGE : NULL_RONIN_SLASH_RANGE,
+              arcDegrees: isFinisher
+                ? NULL_RONIN_FINISHER_ARC_DEG
+                : NULL_RONIN_SLASH_ARC_DEG,
+              color: isFinisher ? "#FDE047" : "#7DD3FC",
+              critBonus: isFinisher ? 0.12 : 0,
+            });
+
+            if (slashHits > 0) {
+              p.attackCooldown = p.attackSpeed;
+              p.meleeComboStep = isFinisher ? 0 : (p.meleeComboStep || 0) + 1;
+              if (isFinisher) {
+                p.maxShield = Math.max(p.maxShield || 0, 8);
+                p.shield = Math.min(p.maxShield, (p.shield || 0) + 8);
+              }
+            }
+          }
+        } else if (p.weaponType === "grenade-launcher") {
+          p.attackCooldown = p.attackSpeed;
           // Boom Bringer: Single grenade with built-in explosion
           const isCrit = Math.random() < (p.critChance || 0);
           const damage = Math.round(
@@ -4043,6 +4492,7 @@ export class LocalGameEngine {
           };
           state.projectiles.push(grenade);
         } else if (p.weaponType === "burst-fire") {
+          p.attackCooldown = p.attackSpeed;
           // Vampire Vex: 3-round burst
           if (!p.burstShotsFired) p.burstShotsFired = 0;
 
@@ -4095,6 +4545,7 @@ export class LocalGameEngine {
             p.attackCooldown = p.attackSpeed; // Full cooldown after burst
           }
         } else if (p.weaponType === "heavy-cannon") {
+          p.attackCooldown = p.attackSpeed;
           // Turret Tina: Slower, larger projectiles
           const isCrit = Math.random() < (p.critChance || 0);
           const damage = Math.round(
@@ -4118,6 +4569,7 @@ export class LocalGameEngine {
           };
           state.projectiles.push(heavyShot);
         } else if (p.weaponType === "shotgun") {
+          p.attackCooldown = p.attackSpeed;
           // Dash Dynamo: Short-range shotgun spread
           const pellets = 5;
           const spread = (25 * Math.PI) / 180; // Wider spread
@@ -4150,6 +4602,7 @@ export class LocalGameEngine {
             state.projectiles.push(pellet);
           }
         } else {
+          p.attackCooldown = p.attackSpeed;
           // Standard shooting (rapid-fire and sniper-shot)
           const shots = Math.max(1, p.projectilesPerShot || 1);
           const spread = (10 * Math.PI) / 180;

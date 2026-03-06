@@ -3,7 +3,7 @@ import type { CharacterStats, CharacterType } from './types';
 /**
  * Character Configuration
  * 
- * Seven distinct playstyles:
+ * Eight distinct playstyles:
  * 1. Spray 'n' Pray - Balanced rapid-fire character
  * 2. Boom Bringer - AoE explosion specialist (UNLOCKABLE)
  * 3. Glass Cannon Carl - High damage, low survivability sniper (UNLOCKABLE)
@@ -11,6 +11,7 @@ import type { CharacterStats, CharacterType } from './types';
  * 5. Vampire Vex - Life drain specialist with AoE drain (UNLOCKABLE)
  * 6. Turret Tina - Deploys time-limited turrets (UNLOCKABLE)
  * 7. Dash Dynamo - High mobility with blink dash (UNLOCKABLE)
+ * 8. True Melee - Melee duelist with combo finishers
  */
 
 export const CHARACTERS: Record<CharacterType, CharacterStats> = {
@@ -162,6 +163,22 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
       required: 5,
       description: 'Extract successfully 5 times',
     },
+  },
+  'null-ronin': {
+    type: 'null-ronin',
+    name: 'True Melee',
+    emoji: '⚔️',
+    weaponType: 'energy-blade',
+    baseHealth: 95,
+    baseDamage: 20,
+    baseAttackSpeed: 420,
+    baseSpeed: 4.6,
+    description: 'Close-range duelist who auto-slashes, lunges into openings, and cashes out with combo finishers',
+    abilityName: 'Phase Counter',
+    abilityDescription: 'Dash through your target, unleash a wide finisher slash, and gain brief invulnerability',
+    baseAbilityCooldown: 12000,
+    pro: 'Strong frontal cleave, built-in engage lunge, every third slash becomes a heavy finisher',
+    con: 'Needs close range to deal damage and can whiff while kiting too wide',
   },
 };
 

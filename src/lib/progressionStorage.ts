@@ -2,11 +2,12 @@ import type { PlayerProgression, CharacterType } from '@shared/types';
 
 const STORAGE_KEY = 'glitch-gauntlet-progression';
 const STORAGE_VERSION = 2;
+const STARTER_CHARACTERS: CharacterType[] = ['spray-n-pray', 'null-ronin'];
 
 const DEFAULT_PROGRESSION: PlayerProgression = {
   playerName: undefined,
   timesReachedLevel10: 0,
-  unlockedCharacters: ['spray-n-pray'],
+  unlockedCharacters: [...STARTER_CHARACTERS],
   highestWaveReached: 0,
   totalGamesPlayed: 0,
   totalEnemiesKilled: 0,
@@ -20,6 +21,10 @@ const DEFAULT_PROGRESSION: PlayerProgression = {
 interface StorageData {
   version: number;
   progression: PlayerProgression;
+}
+
+function mergeStarterCharacters(unlockedCharacters: CharacterType[] = []): CharacterType[] {
+  return Array.from(new Set([...STARTER_CHARACTERS, ...unlockedCharacters]));
 }
 
 /**
@@ -38,7 +43,7 @@ export function getProgression(): PlayerProgression {
       const merged: PlayerProgression = {
         ...DEFAULT_PROGRESSION,
         ...data.progression,
-        unlockedCharacters: [...DEFAULT_PROGRESSION.unlockedCharacters],
+        unlockedCharacters: mergeStarterCharacters(data.progression.unlockedCharacters),
       };
       const { updated } = applyUnlocks(merged);
       saveProgression(updated);
@@ -46,7 +51,11 @@ export function getProgression(): PlayerProgression {
     }
 
     // Merge with defaults to ensure all fields exist (for backwards compatibility)
-    return { ...DEFAULT_PROGRESSION, ...data.progression };
+    return {
+      ...DEFAULT_PROGRESSION,
+      ...data.progression,
+      unlockedCharacters: mergeStarterCharacters(data.progression.unlockedCharacters),
+    };
   } catch (error) {
     console.error('Failed to load progression:', error);
     return { ...DEFAULT_PROGRESSION };
@@ -151,7 +160,8 @@ export function unlockAllCharacters(): PlayerProgression {
     'pet-pal-percy',
     'vampire-vex',
     'turret-tina',
-    'dash-dynamo'
+    'dash-dynamo',
+    'null-ronin'
   ];
 
   return updateProgression({

@@ -6,6 +6,7 @@ import {
   Circle,
   Text,
   Ring,
+  Arc,
   Line,
   Group,
   Image as KonvaImage,
@@ -632,7 +633,7 @@ const PlayerVisuals = memo(
     const isLocal = player.id === localPlayerId;
     const isDead = player.status === "dead";
 
-    const characterEmoji =
+    const legacyCharacterEmoji =
       player.characterType === "spray-n-pray"
         ? "🔫"
         : player.characterType === "boom-bringer"
@@ -649,6 +650,24 @@ const PlayerVisuals = memo(
                     ? "⚡"
                     : "🔫";
 
+    const characterEmoji =
+      player.characterType === "spray-n-pray"
+        ? "🔫"
+        : player.characterType === "boom-bringer"
+          ? "💣"
+          : player.characterType === "glass-cannon-carl"
+            ? "🎯"
+            : player.characterType === "pet-pal-percy"
+              ? "🐾"
+              : player.characterType === "vampire-vex"
+                ? "🧛"
+                : player.characterType === "turret-tina"
+                  ? "🏗️"
+                  : player.characterType === "dash-dynamo"
+                    ? "⚡"
+                    : player.characterType === "null-ronin"
+                      ? "⚔️"
+                      : "🔫";
     const spriteConfig = (SPRITE_MAP.characters as any)[player.characterType];
     const staticSprite = useSprite(spriteConfig?.url);
     const animatedFrames = useAnimatedSprite(
@@ -679,6 +698,13 @@ const PlayerVisuals = memo(
 
     const color = player.color || "#00FFFF";
     const glowColor = isBerserker ? "#FF0000" : color;
+    const showNullRoninSwing =
+      player.characterType === "null-ronin" &&
+      !!player.meleeSwingUntil &&
+      now < player.meleeSwingUntil;
+    const meleeSwingProgress = showNullRoninSwing
+      ? Math.max(0, (player.meleeSwingUntil - now) / 170)
+      : 0;
 
     return (
       <Group>
@@ -708,6 +734,36 @@ const PlayerVisuals = memo(
                 opacity={0.6 + Math.sin(now / 200) * 0.2}
               />
             )}
+
+          {showNullRoninSwing && !isDead && (
+            <Group opacity={0.35 + meleeSwingProgress * 0.55}>
+              <Arc
+                innerRadius={Math.max(24, (player.meleeSwingRange || 110) - 34)}
+                outerRadius={player.meleeSwingRange || 110}
+                angle={player.meleeSwingArc || 100}
+                rotation={
+                  ((player.meleeSwingAngle || 0) * 180) / Math.PI -
+                  (player.meleeSwingArc || 100) / 2
+                }
+                fill={player.meleeSwingColor || "#7DD3FC"}
+                opacity={0.2 + meleeSwingProgress * 0.2}
+              />
+              <Arc
+                innerRadius={Math.max(18, (player.meleeSwingRange || 110) - 18)}
+                outerRadius={player.meleeSwingRange || 110}
+                angle={player.meleeSwingArc || 100}
+                rotation={
+                  ((player.meleeSwingAngle || 0) * 180) / Math.PI -
+                  (player.meleeSwingArc || 100) / 2
+                }
+                stroke={player.meleeSwingColor || "#7DD3FC"}
+                strokeWidth={4}
+                lineCap="round"
+                shadowColor={player.meleeSwingColor || "#7DD3FC"}
+                shadowBlur={18}
+              />
+            </Group>
+          )}
 
           {/* Pickup radius (local player only) */}
           {isLocal && !isDead && (
@@ -786,6 +842,29 @@ const PlayerVisuals = memo(
               opacity={0.4 * playerVisualOpacity}
               rotation={now / 10}
             />
+          )}
+
+          {player.characterType === "null-ronin" && !isDead && (
+            <Group opacity={playerVisualOpacity}>
+              <Rect
+                x={-16}
+                y={-3}
+                width={14}
+                height={6}
+                fill="#7DD3FC"
+                cornerRadius={2}
+                rotation={-35 + Math.sin(now / 150) * 6}
+              />
+              <Rect
+                x={2}
+                y={-3}
+                width={14}
+                height={6}
+                fill="#FDE047"
+                cornerRadius={2}
+                rotation={35 - Math.sin(now / 150) * 6}
+              />
+            </Group>
           )}
 
           {/* 3. Main Body - only show if no sprite or for hit effect if desired */}
@@ -2364,7 +2443,7 @@ export default function GameCanvas() {
               if (!owner) return null;
 
                 // Character-specific emoji for clone
-                const characterEmoji =
+                const legacyCharacterEmoji =
                   owner.characterType === "spray-n-pray"
                     ? "🔫"
                     : owner.characterType === "boom-bringer"
@@ -2380,6 +2459,25 @@ export default function GameCanvas() {
                               : owner.characterType === "dash-dynamo"
                                 ? "⚡"
                                 : "🔫";
+
+                const characterEmoji =
+                  owner.characterType === "spray-n-pray"
+                    ? "🔫"
+                    : owner.characterType === "boom-bringer"
+                      ? "💣"
+                      : owner.characterType === "glass-cannon-carl"
+                        ? "🎯"
+                        : owner.characterType === "pet-pal-percy"
+                          ? "🐾"
+                          : owner.characterType === "vampire-vex"
+                            ? "🧛"
+                            : owner.characterType === "turret-tina"
+                              ? "🏗️"
+                              : owner.characterType === "dash-dynamo"
+                                ? "⚡"
+                                : owner.characterType === "null-ronin"
+                                  ? "⚔️"
+                                  : "🔫";
 
               return (
                 <Group key={clone.id}>
