@@ -671,6 +671,7 @@ export interface RunMapState {
   floorIndex: number;
   nodes: RunMapNode[];
   currentNodeId: string | null;
+  mysteryNodeIds: string[];
   reachableNodeIds: string[];
   revealedNodeIds: string[];
   visitedNodeIds: string[];

@@ -829,6 +829,57 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
   return allNodes;
 }
 
+function nodeHash(id: string, salt: number) {
+  let h = salt;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return (h % 1000) / 1000;
+}
+
+function pickMysteryNodeIds(nodes: RunMapNode[]): string[] {
+  const maxDepth = nodes.reduce((max, node) => Math.max(max, node.depth), 0);
+  const chosen = new Set<string>();
+
+  RADIAL_ROUTE_ORDER.forEach((routeId) => {
+    const candidates = nodes
+      .filter(
+        (node) =>
+          node.routeId === routeId &&
+          node.encounterType !== "boss" &&
+          node.depth >= 3 &&
+          node.depth <= maxDepth - 2,
+      )
+      .sort((a, b) => a.depth - b.depth || a.lane - b.lane);
+
+    if (candidates.length === 0) return;
+
+    const spacedCandidates = candidates.filter((candidate, index) => {
+      if (index === 0) return true;
+      const previous = candidates[index - 1];
+      return candidate.depth - previous.depth >= 2;
+    });
+
+    const primaryPool = spacedCandidates.length > 0 ? spacedCandidates : candidates;
+    const primaryIndex = Math.floor(nodeHash(`${routeId}-mystery-primary`, 11) * primaryPool.length);
+    chosen.add(primaryPool[primaryIndex].id);
+
+    if (candidates.length >= 5 && nodeHash(`${routeId}-mystery-secondary`, 23) > 0.45) {
+      const secondaryPool = candidates.filter(
+        (candidate) =>
+          candidate.id !== primaryPool[primaryIndex].id &&
+          Math.abs(candidate.depth - primaryPool[primaryIndex].depth) >= 2,
+      );
+      if (secondaryPool.length > 0) {
+        const secondaryIndex = Math.floor(
+          nodeHash(`${routeId}-mystery-secondary-pick`, 37) * secondaryPool.length,
+        );
+        chosen.add(secondaryPool[secondaryIndex].id);
+      }
+    }
+  });
+
+  return Array.from(chosen);
+}
+
 function createInitialRunMap(seed: string): RunMapState {
   const nodes: RunMapNode[] = createRunMapNodes(seed).map((node) => ({
     id: node.id,
@@ -847,14 +898,23 @@ function createInitialRunMap(seed: string): RunMapState {
   const depthOneIds = nodes
     .filter((node) => node.depth === 1)
     .map((node) => node.id);
-  const allNodeIds = nodes.map((node) => node.id);
+  const mysteryNodeIds = pickMysteryNodeIds(nodes);
+  const bossNodeIds = nodes
+    .filter((node) => node.encounterType === "boss")
+    .map((node) => node.id);
+  const revealedNodeIds = nodes
+    .filter((node) => !mysteryNodeIds.includes(node.id))
+    .map((node) => node.id);
 
   return {
     floorIndex: 1,
     nodes,
     currentNodeId: null,
+    mysteryNodeIds,
     reachableNodeIds: depthOneIds,
-    revealedNodeIds: allNodeIds,
+    revealedNodeIds: Array.from(
+      new Set([...revealedNodeIds, ...depthOneIds, ...bossNodeIds]),
+    ),
     visitedNodeIds: [],
   };
 }
@@ -1119,14 +1179,28 @@ export class LocalGameEngine {
     const runMap = state.runMap;
     const currentNode = this.getCurrentMapNode(state);
     if (!runMap || !currentNode) return;
+    const nodesById = new Map(runMap.nodes.map((node) => [node.id, node]));
+    const nextNodeIds = [...currentNode.nextNodeIds];
+    const previewNodeIds = nextNodeIds.flatMap(
+      (nodeId) => nodesById.get(nodeId)?.nextNodeIds || [],
+    );
+    const bossNodeIds = runMap.nodes
+      .filter((node) => node.encounterType === "boss")
+      .map((node) => node.id);
 
     this.resetArenaForEncounter(state);
     state.status = "mapSelection";
     state.currentEncounterType = null;
     state.mapDepth = currentNode.depth;
-    runMap.reachableNodeIds = [...currentNode.nextNodeIds];
+    runMap.reachableNodeIds = nextNodeIds;
     runMap.revealedNodeIds = Array.from(
-      new Set([...runMap.revealedNodeIds, ...currentNode.nextNodeIds]),
+      new Set([
+        ...runMap.revealedNodeIds,
+        currentNode.id,
+        ...nextNodeIds,
+        ...previewNodeIds,
+        ...bossNodeIds,
+      ]),
     );
   }
 
@@ -1407,12 +1481,25 @@ export class LocalGameEngine {
     if (!node) return;
 
     runMap.currentNodeId = node.id;
+    const nodesById = new Map(runMap.nodes.map((candidate) => [candidate.id, candidate]));
+    const previewNodeIds = node.nextNodeIds.flatMap(
+      (nextNodeId) => nodesById.get(nextNodeId)?.nextNodeIds || [],
+    );
+    const bossNodeIds = runMap.nodes
+      .filter((candidate) => candidate.encounterType === "boss")
+      .map((candidate) => candidate.id);
     if (!runMap.visitedNodeIds.includes(node.id)) {
       runMap.visitedNodeIds.push(node.id);
     }
     runMap.reachableNodeIds = [];
     runMap.revealedNodeIds = Array.from(
-      new Set([...runMap.revealedNodeIds, node.id, ...node.nextNodeIds]),
+      new Set([
+        ...runMap.revealedNodeIds,
+        node.id,
+        ...node.nextNodeIds,
+        ...previewNodeIds,
+        ...bossNodeIds,
+      ]),
     );
     state.mapDepth = node.depth;
     state.wave = node.depth;
@@ -2895,13 +2982,20 @@ export class LocalGameEngine {
     if (delta <= 0) return;
 
     const state = this.gameState;
+
+    // Pause game loop if player is leveling up or explicit pause
+    if (state.levelingUpPlayerId || state.isPaused) return;
+
+    const shouldSimulate =
+      state.status === "playing" ||
+      state.status === "bossFight" ||
+      state.status === "bossDefeated";
+    if (!shouldSimulate) return;
+
     const localPlayer = state.players[0];
     if (localPlayer) {
       localPlayer.lastInput = { ...this.inputState };
     }
-
-    // Pause game loop if player is leveling up or explicit pause
-    if (state.levelingUpPlayerId || state.isPaused) return;
 
     const timeFactor = delta / (1000 / 60);
 
