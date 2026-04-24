@@ -130,6 +130,7 @@ const SHOP_COST_ROUNDING = 5;
 const SHOP_MIN_BASELINE_COST = 45;
 const COIN_DROP_PER_KILL = 1;
 const LUCKY_COIN_MULTIPLIER = 2;
+const COIN_DROP_LIFETIME_MS = 6000;
 const FACEHUGGER_SLOW_MULTIPLIER = 0.72;
 const FACEHUGGER_REQUIRED_SHAKES = 5;
 const PLAYER_HEART_SLOTS = 5;
@@ -572,261 +573,161 @@ function pickWeightedUnique<T>(
 function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
   const random = createSeededRandom(hashString(seed) || Date.now());
   const shuffledBosses = shuffle(random, RADIAL_BOSS_POOL);
-  const routeBosses = new Map<RunMapRouteId, BossType>(
-    RADIAL_ROUTE_ORDER.map((routeId, index) => [
-      routeId,
-      shuffledBosses[index],
-    ]),
-  );
-
+  const routeId: RunMapRouteId = "north";
+  const bias = pickOne(random, ["economy", "recovery", "power"] as RewardBias[]);
+  const bossType = shuffledBosses[0] || "berserker";
   const BOSS_DEPTH = 16;
-  const NUM_LAYERS = 15;
+  const MERGE_DEPTH = 8;
+  const FINAL_ROOM_DEPTH = 15;
   const LANE_COUNT = 5;
-  const NUM_PATHS = 4;
-  const allNodes: ProceduralRunMapNode[] = [];
+  const PATH_COUNT = 6;
+  const middleLane = Math.floor(LANE_COUNT / 2);
+  const nodes: ProceduralRunMapNode[] = [];
 
-  for (const routeId of RADIAL_ROUTE_ORDER) {
-    const bias = RADIAL_ROUTE_BIASES[routeId];
-    const bossType = routeBosses.get(routeId) || "berserker";
+  const nodeGrid = new Map<string, ProceduralRunMapNode>();
+  const getOrCreateNode = (depth: number, lane: number, suffix = `l${lane}`) => {
+    const key = `${depth}-${lane}`;
+    const existing = nodeGrid.get(key);
+    if (existing) return existing;
 
-    // --- Slay the Spire path generation ---
-    // Fewer paths (4) = clearer fork decisions
-    const paths: number[][] = [];
-    // Spread starting lanes for maximum initial divergence
-    const startLanes = shuffle(random, [0, 1, 3, 4]);
-    for (let p = 0; p < NUM_PATHS; p++) {
-      paths.push([startLanes[p]]);
-    }
-
-    // Sort path indices by starting lane to establish order
-    const pathOrder = Array.from({ length: NUM_PATHS }, (_, i) => i);
-    pathOrder.sort((a, b) => paths[a][0] - paths[b][0]);
-
-    // Evolve paths layer by layer with crossing prevention
-    for (let layer = 1; layer < NUM_LAYERS; layer++) {
-      for (let oi = 0; oi < pathOrder.length; oi++) {
-        const p = pathOrder[oi];
-        const prevLane = paths[p][layer - 1];
-        const shift = randomInt(random, -1, 1);
-        let newLane = clamp(prevLane + shift, 0, LANE_COUNT - 1);
-
-        // Maintain left-to-right order: don't go below left neighbor
-        if (oi > 0) {
-          const leftLane = paths[pathOrder[oi - 1]][layer];
-          if (newLane < leftLane) newLane = leftLane;
-        }
-
-        paths[p].push(newLane);
-      }
-    }
-
-    // --- Create nodes at unique (depth, lane) positions ---
-    const nodeGrid = new Map<string, ProceduralRunMapNode>();
-
-    for (let layer = 0; layer < NUM_LAYERS; layer++) {
-      const depth = layer + 1;
-      const lanesAtLayer = new Set<number>();
-      for (const path of paths) {
-        lanesAtLayer.add(path[layer]);
-      }
-
-      for (const lane of lanesAtLayer) {
-        const key = `${depth}-${lane}`;
-        if (!nodeGrid.has(key)) {
-          const nodeId = `${routeId}-d${depth}-l${lane}`;
-          const node: ProceduralRunMapNode = {
-            id: nodeId,
-            depth,
-            lane,
-            routeId,
-            x: 0,
-            y: 0,
-            encounterType: "combat",
-            nextNodeIds: [],
-            title: "",
-            rewards: [],
-          };
-          nodeGrid.set(key, node);
-          allNodes.push(node);
-        }
-      }
-    }
-
-    // --- Connect nodes based on path trajectories ---
-    for (const path of paths) {
-      for (let layer = 0; layer < NUM_LAYERS - 1; layer++) {
-        const fromKey = `${layer + 1}-${path[layer]}`;
-        const toKey = `${layer + 2}-${path[layer + 1]}`;
-        const fromNode = nodeGrid.get(fromKey);
-        const toNode = nodeGrid.get(toKey);
-        if (fromNode && toNode && !fromNode.nextNodeIds.includes(toNode.id)) {
-          fromNode.nextNodeIds.push(toNode.id);
-        }
-      }
-    }
-
-    // --- Boss node ---
-    const bossNode: ProceduralRunMapNode = {
-      id: `${routeId}-boss`,
-      depth: BOSS_DEPTH,
-      lane: Math.floor(LANE_COUNT / 2),
+    const node: ProceduralRunMapNode = {
+      id: `${routeId}-d${depth}-${suffix}`,
+      depth,
+      lane,
       routeId,
       x: 0,
       y: 0,
-      encounterType: "boss",
+      encounterType: "combat",
       nextNodeIds: [],
-      title: `${RADIAL_ROUTE_NAMES[routeId]} | ${formatBossRouteLabel(bossType)}`,
-      bossType,
+      title: "",
       rewards: [],
     };
-    allNodes.push(bossNode);
+    nodeGrid.set(key, node);
+    nodes.push(node);
+    return node;
+  };
 
-    // Connect all final-layer nodes to boss
-    for (let lane = 0; lane < LANE_COUNT; lane++) {
-      const key = `${NUM_LAYERS}-${lane}`;
-      const node = nodeGrid.get(key);
-      if (node && !node.nextNodeIds.includes(bossNode.id)) {
-        node.nextNodeIds.push(bossNode.id);
-      }
+  const addEdge = (
+    fromNode: ProceduralRunMapNode,
+    toNode: ProceduralRunMapNode,
+  ) => {
+    if (!fromNode.nextNodeIds.includes(toNode.id)) {
+      fromNode.nextNodeIds.push(toNode.id);
     }
+  };
 
-    // --- Strategic encounter placement ---
-    // Group nodes by depth to find fork points
-    const nodesByDepth = new Map<number, ProceduralRunMapNode[]>();
-    for (const node of nodeGrid.values()) {
-      if (!nodesByDepth.has(node.depth)) nodesByDepth.set(node.depth, []);
-      nodesByDepth.get(node.depth)!.push(node);
-    }
+  const startLanes = shuffle(random, [0, 0, 2, 2, 4, 4]);
+  for (let pathIndex = 0; pathIndex < PATH_COUNT; pathIndex++) {
+    let lane = startLanes[pathIndex] ?? middleLane;
+    let previousNode: ProceduralRunMapNode | null = null;
 
-    // At fork points (depth with 2+ nodes), assign DIFFERENT types
-    // so the player sees a meaningful choice: risk vs safety
-    const middleLane = (LANE_COUNT - 1) / 2;
-    for (const [depth, nodes] of nodesByDepth) {
-      if (depth <= 1 || depth >= NUM_LAYERS) continue;
-      if (nodes.length < 2) continue;
-
-      // Sort by lane: outer lanes = risky, inner lanes = safe
-      const sorted = [...nodes].sort(
-        (a, b) => Math.abs(b.lane - middleLane) - Math.abs(a.lane - middleLane),
-      );
-
-      // At key depths, guarantee mixed encounter types at forks
-      const isKeyFork =
-        depth === 3 ||
-        depth === 5 ||
-        depth === 8 ||
-        depth === 11 ||
-        depth === 13;
-      if (isKeyFork && sorted.length >= 2) {
-        // Outermost node = hellhound (risky, better rewards)
-        sorted[0].encounterType = "hellhound";
-        // Innermost node = shop (safe, utility)
-        sorted[sorted.length - 1].encounterType = "shop";
-      } else if (sorted.length >= 2 && random() > 0.45) {
-        // Even at non-key forks, often make one branch different
-        const roll = random();
-        if (roll < 0.5) {
-          sorted[0].encounterType = "hellhound";
-        } else {
-          sorted[sorted.length - 1].encounterType = "shop";
-        }
-      }
-    }
-
-    // Scatter additional hellhounds on outer-lane nodes (risk paths)
-    const outerCombat = Array.from(nodeGrid.values()).filter(
-      (n) =>
-        n.encounterType === "combat" &&
-        n.depth >= 4 &&
-        n.depth <= 13 &&
-        Math.abs(n.lane - middleLane) >= 1.5,
-    );
-    const extraHH =
-      routeId === "west" ? randomInt(random, 1, 3) : randomInt(random, 0, 2);
-    pickWeightedUnique(random, outerCombat, extraHH, (n) => {
-      return 1 + Math.abs(n.lane - middleLane) * 0.5;
-    }).forEach((n) => {
-      n.encounterType = "hellhound";
-    });
-
-    // Scatter additional shops on inner-lane nodes (safe paths)
-    const innerCombat = Array.from(nodeGrid.values()).filter(
-      (n) =>
-        n.encounterType === "combat" &&
-        n.depth >= 3 &&
-        n.depth <= 12 &&
-        Math.abs(n.lane - middleLane) <= 1,
-    );
-    pickWeightedUnique(random, innerCombat, randomInt(random, 1, 2), (n) => {
-      return 1 + 1 / (1 + Math.abs(n.lane - middleLane));
-    }).forEach((n) => {
-      n.encounterType = "shop";
-    });
-
-    // Ensure minimums: at least 2 shops and 2 hellhounds per route
-    const routeNodes = Array.from(nodeGrid.values());
-    const shopCount = routeNodes.filter(
-      (n) => n.encounterType === "shop",
-    ).length;
-    if (shopCount < 2) {
-      const fallbacks = routeNodes.filter(
-        (n) => n.encounterType === "combat" && n.depth >= 3 && n.depth <= 12,
-      );
-      pickWeightedUnique(random, fallbacks, 2 - shopCount, () => 1).forEach(
-        (n) => {
-          n.encounterType = "shop";
-        },
-      );
-    }
-    const hhCount = routeNodes.filter(
-      (n) => n.encounterType === "hellhound",
-    ).length;
-    if (hhCount < 2) {
-      const fallbacks = routeNodes.filter(
-        (n) => n.encounterType === "combat" && n.depth >= 4 && n.depth <= 13,
-      );
-      pickWeightedUnique(random, fallbacks, 2 - hhCount, () => 1).forEach(
-        (n) => {
-          n.encounterType = "hellhound";
-        },
-      );
-    }
-
-    // --- Assign titles and rewards ---
-    // Hellhounds on outer lanes get boosted rewards (risk = reward)
-    routeNodes.forEach((node) => {
-      if (node.depth === 1) {
-        node.title = pickOne(random, ROUTE_ENTRY_TITLES[routeId]);
-      } else if (node.encounterType === "shop") {
-        node.title = pickOne(random, SHOP_ROUTE_TITLES);
-      } else if (node.encounterType === "hellhound") {
-        node.title = pickOne(random, HELLHOUND_TITLES);
-      } else if (node.depth >= NUM_LAYERS - 1) {
-        node.title = pickOne(random, ROUTE_PREP_TITLES[routeId]);
-      } else if (node.depth <= 3) {
-        node.title = pickOne(random, ROUTE_SPECIAL_TITLES[routeId]);
-      } else {
-        node.title = pickOne(random, ROUTE_FORK_TITLES[routeId]);
+    for (let depth = 1; depth <= MERGE_DEPTH; depth++) {
+      if (depth === MERGE_DEPTH) {
+        lane = middleLane;
+      } else if (depth > 1) {
+        const remainingSteps = MERGE_DEPTH - depth;
+        const drift = Math.sign(middleLane - lane);
+        const needsMergeStep = Math.abs(middleLane - lane) > remainingSteps;
+        lane = clamp(
+          lane + (needsMergeStep ? drift : randomInt(random, -1, 1)),
+          0,
+          LANE_COUNT - 1,
+        );
       }
 
-      // Risk multiplier: outer lanes get better loot
-      const riskBonus = Math.abs(node.lane - middleLane) / middleLane;
-      const effectiveDepth = Math.min(
-        node.depth +
-          (node.encounterType === "hellhound" ? Math.round(riskBonus * 3) : 0),
-        BOSS_DEPTH - 1,
+      const node = getOrCreateNode(
+        depth,
+        lane,
+        depth === MERGE_DEPTH ? "merge" : `l${lane}`,
       );
-
-      node.rewards =
-        node.encounterType === "shop"
-          ? createShopRewards(random, effectiveDepth, bias)
-          : node.encounterType === "hellhound"
-            ? createHellhoundRewards(random, effectiveDepth, bias)
-            : createCombatRewards(random, effectiveDepth, bias);
-    });
+      if (previousNode) addEdge(previousNode, node);
+      previousNode = node;
+    }
   }
 
-  return allNodes;
+  let lane = middleLane;
+  let previousNode = getOrCreateNode(MERGE_DEPTH, middleLane, "merge");
+  for (let depth = MERGE_DEPTH; depth < FINAL_ROOM_DEPTH; depth++) {
+    if (depth > MERGE_DEPTH) {
+      lane = clamp(lane + randomInt(random, -1, 1), 1, 3);
+    }
+    const nextNode = getOrCreateNode(depth + 1, lane);
+    addEdge(previousNode, nextNode);
+    previousNode = nextNode;
+  }
+
+  const shopDepths = new Set(
+    shuffle(random, [3, 5, 7, 10, 12]).slice(0, randomInt(random, 2, 3)),
+  );
+  const eliteDepths = new Set(
+    shuffle(random, [2, 4, 6, 9, 11, 13]).slice(0, randomInt(random, 2, 3)),
+  );
+  const nodesByDepth = new Map<number, ProceduralRunMapNode[]>();
+  nodes.forEach((node) => {
+    if (!nodesByDepth.has(node.depth)) nodesByDepth.set(node.depth, []);
+    nodesByDepth.get(node.depth)!.push(node);
+  });
+
+  nodes.forEach((node) => {
+    const isEntry = node.depth === 1;
+    const isMerge = node.depth === MERGE_DEPTH;
+    const isPrep = node.depth >= FINAL_ROOM_DEPTH - 1;
+    const rowNodes = nodesByDepth.get(node.depth) || [];
+    const rowByRisk = [...rowNodes].sort(
+      (a, b) => Math.abs(b.lane - middleLane) - Math.abs(a.lane - middleLane),
+    );
+    const riskiestNode = rowByRisk[0];
+    const safestNode = rowByRisk[rowByRisk.length - 1];
+
+    if (isMerge) {
+      node.encounterType = "combat";
+    } else if (rowNodes.length > 1 && eliteDepths.has(node.depth) && node.id === riskiestNode?.id) {
+      node.encounterType = "hellhound";
+    } else if (rowNodes.length > 1 && shopDepths.has(node.depth) && node.id === safestNode?.id) {
+      node.encounterType = "shop";
+    } else if (rowNodes.length === 1 && shopDepths.has(node.depth)) {
+      node.encounterType = "shop";
+    } else if (eliteDepths.has(node.depth)) {
+      node.encounterType = "hellhound";
+    }
+
+    node.title = isEntry
+      ? pickOne(random, ROUTE_ENTRY_TITLES[routeId])
+      : node.encounterType === "shop"
+        ? pickOne(random, SHOP_ROUTE_TITLES)
+        : node.encounterType === "hellhound"
+          ? pickOne(random, HELLHOUND_TITLES)
+          : isMerge
+            ? "Convergence Node"
+            : isPrep
+            ? pickOne(random, ROUTE_PREP_TITLES[routeId])
+            : pickOne(random, COMBAT_ROUTE_TITLES);
+
+    node.rewards =
+      node.encounterType === "shop"
+        ? createShopRewards(random, node.depth, bias)
+        : node.encounterType === "hellhound"
+          ? createHellhoundRewards(random, node.depth, bias)
+          : createCombatRewards(random, node.depth, bias);
+
+  });
+
+  const bossNode: ProceduralRunMapNode = {
+    id: `${routeId}-boss`,
+    depth: BOSS_DEPTH,
+    lane: middleLane,
+    routeId,
+    x: 0,
+    y: 0,
+    encounterType: "boss",
+    nextNodeIds: [],
+    title: formatBossRouteLabel(bossType),
+    bossType,
+    rewards: [],
+  };
+  addEdge(previousNode, bossNode);
+
+  return [...nodes, bossNode].sort((a, b) => a.depth - b.depth || a.lane - b.lane);
 }
 
 function nodeHash(id: string, salt: number) {
@@ -3036,7 +2937,7 @@ export class LocalGameEngine {
       this.updateParticles(state, delta, now);
       this.updateScreenShake(state, now);
       this.updateAbilities(state, delta);
-      this.updateXPOrbs(state, timeFactor);
+      this.updateXPOrbs(state, timeFactor, now);
       this.updateTrailSegments(state, delta, now);
       this.updateBinaryDrops(state, delta, now);
     }
@@ -5342,6 +5243,7 @@ export class LocalGameEngine {
         value: coinValue,
         kind: "coin",
         isDoubled: hasLuckyPlayer,
+        timestamp: now,
       });
 
       // Kill-based XP: award XP from enemy difficulty (xpValue) to the nearest alive player.
@@ -5686,7 +5588,16 @@ export class LocalGameEngine {
     return multiplier;
   }
 
-  private updateXPOrbs(state: GameState, timeFactor: number) {
+  private updateXPOrbs(state: GameState, timeFactor: number, now: number) {
+    state.xpOrbs = state.xpOrbs.filter((orb) => {
+      if (orb.kind !== "coin") return true;
+      if (!orb.timestamp) {
+        orb.timestamp = now;
+        return true;
+      }
+      return now - orb.timestamp < COIN_DROP_LIFETIME_MS;
+    });
+
     // For each orb, find if any player is close enough to pull it
     state.xpOrbs.forEach((orb) => {
       let closestPlayer: Player | null = null;

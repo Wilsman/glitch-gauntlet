@@ -50,11 +50,11 @@ type RouteMeta = {
 const ROUTE_ORDER: RunMapRouteId[] = ["north", "east", "south", "west"];
 const ROUTE_META: Record<RunMapRouteId, RouteMeta> = {
   north: {
-    label: "North Route",
-    tag: "North",
-    glow: "rgba(250,204,21,0.38)",
-    stroke: "rgba(250,204,21,0.8)",
-    coreGlow: "shadow-[0_0_34px_rgba(250,204,21,0.18)]",
+    label: "Run Path",
+    tag: "Path",
+    glow: "rgba(255,234,0,0.58)",
+    stroke: "rgba(255,234,0,0.96)",
+    coreGlow: "shadow-[0_0_42px_rgba(255,0,255,0.24)]",
   },
   east: {
     label: "East Route",
@@ -267,10 +267,10 @@ function nodeHash(id: string, salt: number) {
 }
 
 const MAP_LAYOUT_PADDING = {
-  top: 48,
-  right: 260,
-  bottom: 48,
-  left: 48,
+  top: 62,
+  right: 320,
+  bottom: 66,
+  left: 70,
 };
 const DEFAULT_VIEWPORT_SIZE = { width: 1280, height: 720 };
 const HUB_DEPTHS = new Set([3, 6, 10, 14]);
@@ -282,13 +282,13 @@ function getNodeTier(node: RunMapNode): "keystone" | "notable" | "minor" {
 }
 
 const NODE_TIER_SIZES: Record<"keystone" | "notable" | "minor", number> = {
-  keystone: 62,
-  notable: 38,
-  minor: 24,
+  keystone: 88,
+  notable: 58,
+  minor: 44,
 };
 
 const ROUTE_COLORS: Record<RunMapRouteId, string> = {
-  north: "#facc15",
+  north: "#ffea00",
   east: "#22d3ee",
   south: "#34d399",
   west: "#f87171",
@@ -359,13 +359,13 @@ const MapNodeButton = memo(function MapNodeButton({
     ? 1
     : selectable
       ? 0.98
-      : highlighted
-        ? 0.86
+        : highlighted
+          ? 0.92
         : visited
-          ? 0.62
+          ? 0.82
           : isMuted
-            ? 0.22
-            : 0.4;
+            ? 0.72
+            : 0.76;
 
   return (
     <BasePopover.Trigger
@@ -426,8 +426,8 @@ const MapNodeButton = memo(function MapNodeButton({
         style={{
           inset: isKeystone ? -14 : isNotable ? -10 : -7,
           background: hidden
-            ? "radial-gradient(circle, rgba(148,163,184,0.16), transparent 72%)"
-            : `radial-gradient(circle, ${routeColor}${current ? "52" : selectable ? "32" : highlighted ? "22" : visited ? "14" : "08"}, transparent 72%)`,
+            ? "radial-gradient(circle, rgba(148,163,184,0.18), transparent 72%)"
+            : `radial-gradient(circle, ${routeColor}${current ? "78" : selectable ? "64" : highlighted ? "44" : visited ? "30" : "22"}, rgba(255,0,255,0.12) 44%, transparent 72%)`,
           filter:
             current || selectable
               ? `blur(${isKeystone ? 7 : 5}px)`
@@ -468,6 +468,7 @@ const MapNodeButton = memo(function MapNodeButton({
       />
       )}
       {/* Main body */}
+      <div className="absolute -inset-[5px] rounded-full bg-[#050018] shadow-[0_0_0_2px_rgba(0,255,255,0.18)]" />
       <div
         className={`relative h-full w-full rounded-full border ${
           current ? "ring-2 ring-offset-1 ring-offset-transparent" : ""
@@ -477,20 +478,20 @@ const MapNodeButton = memo(function MapNodeButton({
             ? highlighted || planned
               ? "rgba(226,232,240,0.78)"
               : "rgba(148,163,184,0.42)"
-            : `${routeColor}${current ? "f0" : selectable ? "b0" : highlighted ? "90" : visited ? "60" : "30"}`,
+            : `${routeColor}${current ? "ff" : selectable ? "f0" : highlighted ? "c8" : visited ? "90" : "4d"}`,
           background: hidden
-            ? "radial-gradient(circle at 40% 35%, rgba(148,163,184,0.18), rgba(0,0,0,0.78) 82%)"
-            : `radial-gradient(circle at 40% 35%, ${routeColor}${current ? "34" : selectable ? "22" : highlighted ? "18" : visited ? "10" : "08"}, rgba(0,0,0,0.74) 82%)`,
+            ? "radial-gradient(circle at 40% 35%, rgba(148,163,184,0.22), rgba(0,0,0,0.86) 82%)"
+            : `radial-gradient(circle at 35% 30%, rgba(255,255,255,0.68), ${routeColor}${current ? "82" : selectable ? "72" : highlighted ? "60" : visited ? "42" : "34"} 36%, rgba(7,0,22,0.98) 82%)`,
           boxShadow: current
-            ? `0 0 ${isKeystone ? 30 : 20}px ${routeColor}55, inset 0 0 ${isKeystone ? 14 : 10}px ${routeColor}22`
+            ? `0 0 ${isKeystone ? 36 : 24}px ${routeColor}88, 0 0 18px rgba(255,0,255,0.42), inset 0 0 ${isKeystone ? 16 : 11}px ${routeColor}33`
             : selectable
-              ? `0 0 ${isKeystone ? 24 : 14}px ${routeColor}40, inset 0 0 ${isKeystone ? 12 : 8}px ${routeColor}15`
+              ? `0 0 ${isKeystone ? 30 : 18}px ${routeColor}70, 0 0 14px rgba(0,255,255,0.35), inset 0 0 ${isKeystone ? 12 : 8}px ${routeColor}22`
             : hidden && (highlighted || planned)
               ? "0 0 14px rgba(226,232,240,0.14)"
             : highlighted
-              ? `0 0 12px ${routeColor}24`
+              ? `0 0 16px ${routeColor}42`
             : visited
-              ? `0 0 8px ${routeColor}18`
+              ? `0 0 12px ${routeColor}2f`
               : "none",
           opacity: bodyOpacity,
         }}
@@ -502,7 +503,7 @@ const MapNodeButton = memo(function MapNodeButton({
             style={{
               background: hidden
                 ? "radial-gradient(circle at 45% 40%, rgba(226,232,240,0.18), transparent 65%)"
-                : `radial-gradient(circle at 45% 40%, ${routeColor}${current ? "3a" : "30"}, transparent 65%)`,
+                : `radial-gradient(circle at 45% 40%, rgba(255,255,255,0.34), ${routeColor}${current ? "46" : "38"}, transparent 68%)`,
             }}
           />
         )}
@@ -529,10 +530,10 @@ const MapNodeButton = memo(function MapNodeButton({
             <Icon
             className={`${
                 isKeystone
-                  ? "h-7 w-7"
+                  ? "h-10 w-10"
                   : isNotable
-                    ? "h-[18px] w-[18px]"
-                    : "h-3 w-3"
+                    ? "h-7 w-7"
+                    : "h-6 w-6"
               } ${hidden ? "text-slate-200/90" : style!.text}`}
             />
           </span>
@@ -565,10 +566,17 @@ const MapNodeButton = memo(function MapNodeButton({
           CURRENT
         </div>
       )}
-      {showStartBadge && (
-        <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 rounded-full border border-amber-300/55 bg-black/90 px-2 py-1 font-press-start text-[7px] tracking-[0.18em] text-amber-100 shadow-[0_0_16px_rgba(250,204,21,0.18)]">
-          START
-        </div>
+      {showStartBadge && !current && (
+        <div
+          className="pointer-events-none absolute rounded-full border z-20"
+          style={{
+            inset: isKeystone ? -18 : isNotable ? -14 : -11,
+            borderColor: selectable ? "rgba(250,204,21,0.82)" : "rgba(250,204,21,0.22)",
+            boxShadow: selectable
+              ? "0 0 20px rgba(250,204,21,0.34)"
+              : "0 0 10px rgba(250,204,21,0.08)",
+          }}
+        />
       )}
         </button>
       )}
@@ -631,6 +639,10 @@ const MapGraphLayer = memo(function MapGraphLayer({
   onHoverNode: (nodeId: string | null) => void;
   onInspectNode: (nodeId: string) => void;
 }) {
+  const isSingleRouteMap = useMemo(
+    () => new Set(runNodes.map((node) => node.routeId)).size <= 1,
+    [runNodes],
+  );
   const bossNodesByRoute = useMemo(() => {
     const byRoute = new Map<RunMapRouteId, RunMapNode>();
     runNodes.forEach((node) => {
@@ -675,7 +687,7 @@ const MapGraphLayer = memo(function MapGraphLayer({
           />
         ))}
 
-        {ROUTE_ORDER.map((routeId) => {
+        {!isSingleRouteMap && ROUTE_ORDER.map((routeId) => {
           const bossNode = bossNodesByRoute.get(routeId);
           if (!bossNode) return null;
           const bossPos = nodeScreenPositions.get(bossNode.id);
@@ -724,25 +736,25 @@ const MapGraphLayer = memo(function MapGraphLayer({
                 fill="none"
                 stroke={
                   isPlannedEdge
-                    ? `${routeColor}1e`
+                    ? `${routeColor}42`
                     : active
-                    ? `${routeColor}18`
+                    ? `${routeColor}34`
                     : touchesFocus
-                      ? `${routeColor}10`
+                      ? `${routeColor}22`
                       : isReachableRoute
-                          ? "rgba(90,130,160,0.045)"
-                          : "rgba(60,90,120,0.02)"
+                          ? "rgba(255,234,0,0.12)"
+                          : "rgba(0,255,255,0.055)"
                 }
                 strokeWidth={
                   isPlannedEdge
-                    ? 7
+                    ? 8
                     : active
-                      ? 5
+                      ? 6
                       : touchesFocus
-                        ? 3.5
+                        ? 4.25
                         : isReachableRoute
                           ? 2.4
-                          : 1.5
+                          : 1.45
                 }
                 strokeLinecap="round"
               />
@@ -751,27 +763,28 @@ const MapGraphLayer = memo(function MapGraphLayer({
                 fill="none"
                 stroke={
                   isPlannedEdge
-                    ? `${routeColor}78`
+                    ? "#ffffff"
                     : active
-                    ? `${routeColor}4a`
+                    ? `${routeColor}d6`
                     : touchesFocus
-                      ? `${routeColor}28`
+                      ? `${routeColor}90`
                       : isReachableRoute
-                          ? "rgba(142,245,255,0.18)"
-                        : "rgba(106,154,194,0.08)"
+                          ? "rgba(0,255,255,0.28)"
+                        : "rgba(120,86,255,0.12)"
                 }
                 strokeWidth={
                   isPlannedEdge
-                    ? 2
+                    ? 2.6
                     : active
-                      ? 1.45
+                      ? 2.1
                       : touchesFocus
-                        ? 1.1
+                        ? 1.5
                         : isReachableRoute
-                          ? 0.9
+                          ? 0.85
                           : 0.55
                 }
                 strokeLinecap="round"
+                strokeDasharray={active || isPlannedEdge ? undefined : "8 10"}
               />
             </g>
           );
@@ -808,7 +821,7 @@ const MapGraphLayer = memo(function MapGraphLayer({
               {highlightedRouteMeta?.tag || "CHOOSE"}
             </div>
             <div className="mt-1.5 font-vt323 text-[14px] text-white/48">
-              Select an outward route
+              Choose a starting lane
             </div>
           </div>
         </motion.div>
@@ -849,6 +862,10 @@ function getGraphBounds(
     .map((node) => nodePositions.get(node.id))
     .filter((point): point is { x: number; y: number } => Boolean(point));
   points.push(center);
+  points.push({ x: center.x - 180, y: center.y });
+  points.push({ x: center.x + 180, y: center.y });
+  points.push({ x: center.x, y: center.y - 96 });
+  points.push({ x: center.x, y: center.y + 96 });
 
   const minX = Math.min(...points.map((point) => point.x));
   const maxX = Math.max(...points.map((point) => point.x));
@@ -1116,11 +1133,33 @@ export default function RunMapOverlay({
   const graphCenter = useMemo(
     () => ({
       x: MAP_LAYOUT_PADDING.left + usableWidth / 2,
-      y: MAP_LAYOUT_PADDING.top + usableHeight / 2,
+      y: MAP_LAYOUT_PADDING.top + usableHeight - 108,
     }),
     [usableWidth, usableHeight],
   );
   const nodeScreenPositions = useMemo(() => {
+    const routeCount = new Set(runMap.nodes.map((node) => node.routeId)).size;
+    if (routeCount <= 1) {
+      const localMaxDepth = runMap.nodes.reduce(
+        (m, n) => Math.max(m, n.depth),
+        1,
+      );
+      const verticalReach = Math.max(1180, usableHeight * 1.75);
+      const depthStep = verticalReach / Math.max(1, localMaxDepth - 1);
+      const laneSpacing = Math.min(300, Math.max(220, usableWidth / 5.6));
+      const middleLane = 2;
+
+      return new Map(
+        runMap.nodes.map((node) => [
+          node.id,
+          {
+            x: graphCenter.x + (node.lane - middleLane) * laneSpacing,
+            y: graphCenter.y - (node.depth - 1) * depthStep,
+          },
+        ]),
+      );
+    }
+
     const ROUTE_BASE_ANGLES: Record<RunMapRouteId, number> = {
       north: -Math.PI / 2,
       east: 0,
@@ -1134,13 +1173,14 @@ export default function RunMapOverlay({
     );
     const LANE_COUNT = 5;
     const middleLane = (LANE_COUNT - 1) / 2;
-    const minRing = 110;
-    const fullReach = usableWidth / 2;
-    const bossExtra = 50;
+    const minRing = 92;
+    const mapReach = Math.min(usableWidth, usableHeight);
+    const fullReach = mapReach * 0.48;
+    const bossExtra = 38;
     const innerReach = fullReach - bossExtra;
     const depthStep =
       localMaxDepth > 1 ? (innerReach - minRing) / (localMaxDepth - 1) : 0;
-    const laneSpacing = 54;
+    const laneSpacing = 46;
 
     const points = runMap.nodes.map((node) => {
       const baseAngle = ROUTE_BASE_ANGLES[node.routeId];
@@ -1154,9 +1194,9 @@ export default function RunMapOverlay({
 
       const laneOffset = (node.lane - middleLane) * laneSpacing;
 
-      const jitter = isBoss || node.depth <= 1 ? 0 : depthStep * 0.18;
+      const jitter = isBoss || node.depth <= 1 ? 0 : depthStep * 0.14;
       const radialJitter = (nodeHash(node.id, 1) - 0.5) * jitter;
-      const tangentJitter = (nodeHash(node.id, 2) - 0.5) * laneSpacing * 0.25;
+      const tangentJitter = (nodeHash(node.id, 2) - 0.5) * laneSpacing * 0.18;
 
       const x =
         graphCenter.x +
@@ -1217,6 +1257,9 @@ export default function RunMapOverlay({
   }, [graphCenter.x, graphCenter.y, runMap.nodes, usableHeight, usableWidth]);
 
   const depthRings = useMemo(() => {
+    const routeCount = new Set(runMap.nodes.map((node) => node.routeId)).size;
+    if (routeCount <= 1) return [];
+
     const depthRadii = new Map<number, number[]>();
     runMap.nodes.forEach((node) => {
       const pos = nodeScreenPositions.get(node.id);
@@ -1249,17 +1292,25 @@ export default function RunMapOverlay({
   );
 
   const defaultTransform = useMemo(() => {
+    const routeCount = new Set(runMap.nodes.map((node) => node.routeId)).size;
+    if (routeCount <= 1) {
+      return {
+        zoom: 0.9,
+        pan: { x: 0, y: 0 },
+      };
+    }
+
     return getTransformForBounds({
       bounds: graphBounds,
       usableWidth,
       usableHeight,
-      horizontalPadding: 120,
-      verticalPadding: 120,
-      minZoom: 0.72,
-      maxZoom: 1.58,
-      targetOffsetX: 26,
+      horizontalPadding: 140,
+      verticalPadding: 150,
+      minZoom: 0.62,
+      maxZoom: 1.34,
+      targetOffsetX: -14,
     });
-  }, [graphBounds, usableHeight, usableWidth]);
+  }, [graphBounds, runMap.nodes, usableHeight, usableWidth]);
   const focusTransform = useMemo(() => {
     if (!currentNode || focusNodes.length === 0) return null;
 
@@ -1288,7 +1339,25 @@ export default function RunMapOverlay({
     usableHeight,
     usableWidth,
   ]);
-  const preferredTransform = focusTransform ?? defaultTransform;
+  const currentNodeTransform = useMemo(() => {
+    if (!currentNode) return null;
+
+    const currentPoint = nodeScreenPositions.get(currentNode.id) || graphCenter;
+    return {
+      zoom: 1,
+      pan: {
+        x: viewportSize.width / 2 - currentPoint.x,
+        y: viewportSize.height / 2 - currentPoint.y,
+      },
+    };
+  }, [
+    currentNode,
+    graphCenter,
+    nodeScreenPositions,
+    viewportSize.height,
+    viewportSize.width,
+  ]);
+  const preferredTransform = currentNodeTransform ?? defaultTransform;
 
   useEffect(() => {
     setZoom(preferredTransform.zoom);
@@ -1458,21 +1527,22 @@ export default function RunMapOverlay({
 
   return (
     <motion.div
-      className="absolute inset-0 z-[70] overflow-hidden bg-[radial-gradient(circle_at_20%_15%,rgba(34,211,238,0.06),transparent_30%),radial-gradient(circle_at_85%_20%,rgba(217,70,239,0.06),transparent_26%),linear-gradient(180deg,rgb(2,6,23),rgb(2,6,23))] backdrop-blur-sm"
+      className="absolute inset-0 z-[70] overflow-hidden bg-[radial-gradient(circle_at_16%_18%,rgba(255,0,255,0.18),transparent_32%),radial-gradient(circle_at_78%_18%,rgba(0,255,255,0.16),transparent_30%),linear-gradient(180deg,rgb(14,4,35),rgb(3,6,26)_52%,rgb(12,4,28))] backdrop-blur-sm"
       initial={{ opacity: 0, scale: 1.03, filter: "blur(10px)" }}
       animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
       exit={{ opacity: 0, scale: 0.985, filter: "blur(10px)" }}
       transition={{ duration: 0.35, ease: "easeOut" }}
     >
-      <div className="absolute -left-16 top-14 h-72 w-72 rounded-full bg-cyan-400/6 blur-3xl" />
-      <div className="absolute right-10 top-20 h-80 w-80 rounded-full bg-fuchsia-500/8 blur-3xl" />
+      <div className="absolute -left-16 top-14 h-72 w-72 rounded-full bg-fuchsia-500/14 blur-3xl" />
+      <div className="absolute right-10 top-20 h-80 w-80 rounded-full bg-cyan-300/14 blur-3xl" />
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[7%] h-[30vh] w-[30vh] -translate-x-1/2 rounded-full bg-yellow-300/6 blur-[100px]" />
-        <div className="absolute right-[10%] top-1/2 h-[34vh] w-[34vh] -translate-y-1/2 rounded-full bg-cyan-300/5 blur-[110px]" />
-        <div className="absolute bottom-[8%] left-1/2 h-[30vh] w-[30vh] -translate-x-1/2 rounded-full bg-emerald-300/5 blur-[110px]" />
-        <div className="absolute left-[10%] top-1/2 h-[34vh] w-[34vh] -translate-y-1/2 rounded-full bg-rose-300/5 blur-[110px]" />
+        <div className="absolute left-1/2 top-[7%] h-[30vh] w-[30vh] -translate-x-1/2 rounded-full bg-yellow-300/14 blur-[90px]" />
+        <div className="absolute right-[10%] top-1/2 h-[34vh] w-[34vh] -translate-y-1/2 rounded-full bg-cyan-300/10 blur-[100px]" />
+        <div className="absolute bottom-[8%] left-1/2 h-[30vh] w-[30vh] -translate-x-1/2 rounded-full bg-emerald-300/8 blur-[100px]" />
+        <div className="absolute left-[10%] top-1/2 h-[34vh] w-[34vh] -translate-y-1/2 rounded-full bg-pink-500/10 blur-[100px]" />
       </div>
-      <div className="absolute inset-0 bg-[linear-gradient(transparent_96%,rgba(56,189,248,0.03)_100%),linear-gradient(90deg,transparent_96%,rgba(217,70,239,0.03)_100%)] bg-[size:100%_24px,24px_100%] opacity-20" />
+      <div className="absolute inset-0 bg-[linear-gradient(transparent_92%,rgba(0,255,255,0.07)_100%),linear-gradient(90deg,transparent_92%,rgba(255,0,255,0.06)_100%)] bg-[size:100%_18px,18px_100%] opacity-45" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent_10%,transparent_90%,rgba(255,0,255,0.07))]" />
 
       <BasePopover.Root
         handle={mapNodePopover}
@@ -1487,25 +1557,25 @@ export default function RunMapOverlay({
         exit={{ opacity: 0, y: -14 }}
         transition={{ duration: 0.28, delay: 0.04 }}
       >
-        <div className="max-w-[60%] rounded-[18px] border border-white/8 bg-black/28 px-4 py-3 shadow-[0_10px_30px_rgba(0,0,0,0.2)] backdrop-blur-sm">
+        <div className="max-w-[52%] rounded-[10px] border-2 border-fuchsia-400/70 bg-[#140629]/86 px-4 py-3 shadow-[0_0_0_2px_rgba(0,255,255,0.16),0_0_34px_rgba(255,0,255,0.28)] backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="rounded-full border border-cyan-400/20 bg-cyan-400/8 px-3 py-1 font-vt323 text-[13px] uppercase tracking-[0.28em] text-cyan-200/70">
+            <div className="rounded-[6px] border border-cyan-300/70 bg-cyan-300/14 px-3 py-1 font-vt323 text-[13px] uppercase tracking-[0.28em] text-cyan-100">
               Route Map
             </div>
             <div className="font-vt323 text-[20px] tracking-[0.16em] text-cyan-300/45">
               Floor {currentDepth}/{maxDepth}
             </div>
           </div>
-          <div className="mt-3 font-press-start text-[19px] tracking-[0.06em] text-white/92">
+          <div className="mt-2 font-press-start text-[15px] tracking-[0.04em] text-yellow-100 drop-shadow-[0_0_8px_rgba(255,234,0,0.5)]">
             Choose your next room.
           </div>
-          <div className="mt-2 font-vt323 text-[18px] text-white/54">
-            Click any node to inspect it. Use the popover to begin, travel, or preview a route.
+          <div className="mt-2 font-vt323 text-[18px] leading-none text-cyan-100/78">
+            Three starts. Paths narrow and converge halfway.
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="rounded-[16px] border border-amber-300/18 bg-amber-400/8 px-4 py-3 text-right backdrop-blur-sm">
+          <div className="rounded-[10px] border-2 border-yellow-300/70 bg-[#160b20]/86 px-4 py-3 text-right shadow-[0_0_24px_rgba(255,234,0,0.18)] backdrop-blur-md">
             <div className="font-press-start text-[8px] text-amber-200/65">
               Coins
             </div>
@@ -1514,7 +1584,7 @@ export default function RunMapOverlay({
               {Math.max(0, Math.floor(localPlayerCoins))}
             </div>
           </div>
-          <div className="rounded-[16px] border border-white/10 bg-black/28 px-4 py-3 text-right backdrop-blur-sm">
+          <div className="rounded-[10px] border-2 border-fuchsia-400/70 bg-[#160b20]/86 px-4 py-3 text-right shadow-[0_0_24px_rgba(255,0,255,0.18)] backdrop-blur-md">
             <div className="font-press-start text-[8px] text-fuchsia-300/60">
               Threat
             </div>
@@ -1526,16 +1596,16 @@ export default function RunMapOverlay({
       </motion.div>
 
       <motion.div
-        className="absolute inset-x-6 bottom-6 top-20 overflow-hidden rounded-[24px] border border-white/[0.07] bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03),0_20px_80px_rgba(0,0,0,0.35)]"
+        className="absolute inset-x-6 bottom-6 top-20 overflow-hidden rounded-[10px] border-2 border-cyan-300/45 bg-[linear-gradient(180deg,rgba(10,13,50,0.92),rgba(4,4,22,0.98))] shadow-[inset_0_0_0_2px_rgba(255,0,255,0.12),0_0_60px_rgba(0,255,255,0.16),0_20px_80px_rgba(0,0,0,0.42)]"
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 10 }}
         transition={{ duration: 0.32, delay: 0.08 }}
         onMouseDown={handleMouseDown}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(11,21,48,0.5),rgba(2,6,23,0.88)_68%)]" />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/45 to-transparent" />
-        <div className="pointer-events-none absolute inset-y-0 right-[252px] w-px bg-gradient-to-b from-transparent via-white/8 to-transparent" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_48%_52%,rgba(32,18,90,0.65),rgba(3,5,22,0.92)_74%)]" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-fuchsia-400/20 via-cyan-200/80 to-yellow-200/20" />
+        <div className="pointer-events-none absolute inset-y-0 right-[320px] w-px bg-gradient-to-b from-transparent via-white/8 to-transparent" />
         <div
           ref={graphViewportRef}
           className={`absolute inset-x-0 bottom-0 top-0 z-[1] touch-none ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
@@ -1550,7 +1620,7 @@ export default function RunMapOverlay({
                     nodeScreenPositions.get(currentNode.id) || graphCenter;
                   const focusMidX = currentPoint.x * zoom + pan.x;
                   const focusMidY = currentPoint.y * zoom + pan.y;
-                  return `radial-gradient(circle at ${focusMidX}px ${focusMidY}px, rgba(255,224,120,0.12), rgba(40,78,120,0.05) 24%, rgba(2,6,23,0) 52%)`;
+              return `radial-gradient(circle at ${focusMidX}px ${focusMidY}px, rgba(255,224,120,0.12), rgba(40,78,120,0.05) 24%, rgba(2,6,23,0) 52%)`;
                 })(),
               }}
             />
@@ -1594,9 +1664,9 @@ export default function RunMapOverlay({
           </div>
         </div>
 
-        <div data-pan-block="true" className="absolute right-5 top-5 z-[3] w-[244px] rounded-[22px] border border-white/[0.08] bg-black/62 p-4 shadow-[0_18px_50px_rgba(0,0,0,0.28)] backdrop-blur-sm">
+        <div data-pan-block="true" className="absolute right-5 top-5 z-[3] w-[280px] rounded-[10px] border-2 border-cyan-300/40 bg-[#10051f]/88 p-4 shadow-[0_0_30px_rgba(0,255,255,0.12),0_18px_50px_rgba(0,0,0,0.36)] backdrop-blur-md">
           <div>
-            <div className="font-press-start text-[10px] text-white/48">
+            <div className="font-press-start text-[10px] text-yellow-100">
               Legend
             </div>
             <div className="mt-3 flex flex-col gap-2">
@@ -1659,7 +1729,7 @@ export default function RunMapOverlay({
                         }
                     }
                     transition={{ duration: 0.28, ease: "easeOut" }}
-                    className={`inline-flex items-center gap-3 rounded-full border px-3 py-2 ${
+                    className={`inline-flex items-center gap-3 rounded-[8px] border px-3 py-2 shadow-[inset_0_0_18px_rgba(255,255,255,0.03)] ${
                       "type" in item ? style!.chip : item.chipClassName
                     }`}
                   >
@@ -1669,10 +1739,10 @@ export default function RunMapOverlay({
                       }`}
                     />
                     <div className="min-w-0">
-                      <div className="font-vt323 text-[18px] leading-none text-white/82">
+                      <div className="font-vt323 text-[19px] leading-none text-white/90">
                         {item.label}
                       </div>
-                      <div className="mt-1 font-vt323 text-[14px] leading-none text-white/45">
+                      <div className="mt-1 font-vt323 text-[14px] leading-none text-white/58">
                         {item.description}
                       </div>
                     </div>
@@ -1691,11 +1761,11 @@ export default function RunMapOverlay({
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.25, delay: 0.12 }}
         >
-          <div className="inline-flex items-center gap-2 rounded-[16px] border border-white/[0.08] bg-black/55 px-3 py-2">
+          <div className="inline-flex items-center gap-2 rounded-[10px] border-2 border-fuchsia-400/40 bg-[#10051f]/80 px-3 py-2 shadow-[0_0_22px_rgba(255,0,255,0.15)]">
             <button
               type="button"
               onClick={() => handleZoomChange(zoom * 0.88)}
-              className="h-7 w-7 rounded-full border border-white/20 bg-white/5 font-press-start text-[12px] text-white/80 hover:border-white/45 hover:bg-white/12"
+              className="h-7 w-7 rounded-[6px] border border-cyan-300/55 bg-cyan-300/10 font-press-start text-[12px] text-cyan-100 hover:border-yellow-200 hover:bg-yellow-300/20"
             >
               -
             </button>
@@ -1705,24 +1775,24 @@ export default function RunMapOverlay({
                 setZoom(preferredTransform.zoom);
                 setPan(preferredTransform.pan);
               }}
-              className="rounded-full border border-white/18 bg-white/5 px-3 py-1 font-press-start text-[9px] text-white/70 hover:border-white/45 hover:bg-white/12"
+              className="rounded-[6px] border border-fuchsia-300/55 bg-fuchsia-400/10 px-3 py-1 font-press-start text-[9px] text-fuchsia-100 hover:border-yellow-200 hover:bg-yellow-300/20"
             >
               {Math.round(zoom * 100)}%
             </button>
             <button
               type="button"
               onClick={() => handleZoomChange(zoom * 1.14)}
-              className="h-7 w-7 rounded-full border border-white/20 bg-white/5 font-press-start text-[12px] text-white/80 hover:border-white/45 hover:bg-white/12"
+              className="h-7 w-7 rounded-[6px] border border-cyan-300/55 bg-cyan-300/10 font-press-start text-[12px] text-cyan-100 hover:border-yellow-200 hover:bg-yellow-300/20"
             >
               +
             </button>
           </div>
-          <div className="rounded-[16px] border border-white/[0.08] bg-black/45 px-4 py-3">
-            <div className="font-press-start text-[9px] text-white/42">
+          <div className="rounded-[10px] border-2 border-cyan-300/28 bg-[#10051f]/78 px-4 py-3 shadow-[0_0_22px_rgba(0,255,255,0.1)] backdrop-blur-sm">
+            <div className="font-press-start text-[9px] text-yellow-100/78">
               Controls
             </div>
-            <div className="mt-1 font-vt323 text-[17px] text-white/58">
-              Drag to pan. Wheel to zoom. Click any node for details. Reachable rooms start only after you confirm in the popover.
+            <div className="mt-1 font-vt323 text-[17px] text-cyan-100/70">
+              Drag to pan. Wheel to zoom. Click a bright room for details.
             </div>
           </div>
         </motion.div>

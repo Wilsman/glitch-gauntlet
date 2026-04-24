@@ -1965,11 +1965,26 @@ export default function GameCanvas() {
               const kind = orb.kind || "xp";
               const isCoin = kind === "coin";
               const isDoubled = orb.isDoubled;
+              const coinAge = isCoin && orb.timestamp ? now - orb.timestamp : 0;
+              const isExpiringCoin = coinAge >= 3000;
+              const flashOn =
+                !isExpiringCoin || Math.floor(coinAge / 140) % 2 === 0;
+              const coinOpacity = flashOn ? 1 : 0.28;
               const pulseScale = isDoubled ? 1 + Math.sin(now / 100) * 0.2 : 1;
-              const glowIntensity = isDoubled ? 20 : isCoin ? 16 : 10;
+              const warningPulse = isExpiringCoin
+                ? 1 + Math.sin(now / 70) * 0.18
+                : 1;
+              const displayScale = pulseScale * warningPulse;
+              const glowIntensity = isDoubled
+                ? 20
+                : isCoin
+                  ? isExpiringCoin
+                    ? 24
+                    : 16
+                  : 10;
 
               return (
-                <Group key={orb.id}>
+                <Group key={orb.id} opacity={isCoin ? coinOpacity : 1}>
                   {/* Extra glow for doubled orbs */}
                   {isDoubled && (
                     <Circle
@@ -1985,10 +2000,16 @@ export default function GameCanvas() {
                   <Circle
                     x={orb.position.x}
                     y={orb.position.y}
-                    radius={(isCoin ? 7 : 5) * pulseScale}
+                    radius={(isCoin ? 7 : 5) * displayScale}
                     fill={isCoin ? "#FFD700" : isDoubled ? "#FFD700" : "#22d3ee"}
-                    stroke={isCoin ? "#fef08a" : "#67e8f9"}
-                    strokeWidth={isCoin ? 2 : 1}
+                    stroke={
+                      isCoin && isExpiringCoin
+                        ? "#ffffff"
+                        : isCoin
+                          ? "#fef08a"
+                          : "#67e8f9"
+                    }
+                    strokeWidth={isCoin && isExpiringCoin ? 3 : isCoin ? 2 : 1}
                     shadowColor={isCoin ? "#FFD700" : isDoubled ? "#FFD700" : "#22d3ee"}
                     shadowBlur={glowIntensity}
                   />

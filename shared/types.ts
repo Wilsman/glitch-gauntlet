@@ -329,6 +329,7 @@ export interface XpOrb {
   value: number;
   kind?: 'xp' | 'coin';
   isDoubled?: boolean; // Visual indicator for lucky upgrade
+  timestamp?: number;
 }
 export type UpgradeRarity = 'common' | 'uncommon' | 'legendary' | 'boss' | 'lunar' | 'void';
 
