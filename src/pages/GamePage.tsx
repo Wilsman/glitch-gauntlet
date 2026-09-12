@@ -37,6 +37,7 @@ export default function GamePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const isLocalMode = gameId === "local";
+  const isAutoplay = isLocalMode && searchParams.get("autoplay") === "1";
 
   const setGameState = useGameStore((state) => state.setGameState);
   const storeLocalPlayerId = useGameStore((state) => state.localPlayerId);
@@ -138,7 +139,8 @@ export default function GamePage() {
 
     if (gameStatus === "gameOver" || gameStatus === "won") {
       // Submit to leaderboard if in local mode and player has a name
-      if (isLocalMode) {
+      // Autoplay runs never submit scores
+      if (isLocalMode && !isAutoplay) {
         const playerName = getPlayerName();
         const lastRun = getLastRunStats();
 
@@ -167,13 +169,14 @@ export default function GamePage() {
       }
 
       // Navigate to appropriate end screen
+      const autoplaySuffix = isAutoplay ? "?autoplay=1" : "";
       if (gameStatus === "gameOver") {
-        navigate(`/gameover/${gameId}`);
+        navigate(`/gameover/${gameId}${autoplaySuffix}`);
       } else {
-        navigate(`/gamewon/${gameId}`);
+        navigate(`/gamewon/${gameId}${autoplaySuffix}`);
       }
     }
-  }, [gameStatus, navigate, gameId, isLocalMode]);
+  }, [gameStatus, navigate, gameId, isLocalMode, isAutoplay]);
 
   useEffect(() => {
     if (!gameId) {
@@ -210,6 +213,7 @@ export default function GamePage() {
         characterType,
         playerName
       );
+      engine.setAutoplay(isAutoplay);
       localEngineRef.current = engine;
 
       // Set unlock callback
@@ -258,6 +262,7 @@ export default function GamePage() {
     setLocalPlayerId,
     navigate,
     isLocalMode,
+    isAutoplay,
     searchParams,
     localRunNonce,
   ]);
@@ -268,6 +273,7 @@ export default function GamePage() {
       if (
         isLocalPlayerLevelingUp &&
         !isUpgradeModalOpen &&
+        !isAutoplay &&
         gameId &&
         lastLevelUpPlayerRef.current !== levelingUpPlayerId
       ) {
@@ -317,6 +323,7 @@ export default function GamePage() {
     openUpgradeModal,
     isUpgradeModalOpen,
     isLocalMode,
+    isAutoplay,
   ]);
 
   useEffect(() => {
@@ -547,15 +554,21 @@ export default function GamePage() {
         </div>
       )}
 
-      {isLocalPlayerLevelingUp && (
+      {isLocalPlayerLevelingUp && !isAutoplay && (
         <UpgradeModal onSelectUpgrade={handleSelectUpgrade} />
       )}
 
-      {gameStatus === "bossDefeated" && (
+      {gameStatus === "bossDefeated" && !isAutoplay && (
         <BossDefeatedModal
           onExtract={handleExtract}
           onContinue={handleContinue}
         />
+      )}
+
+      {isAutoplay && (
+        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 font-press-start text-xs text-neon-cyan bg-black/70 border border-neon-cyan/60 px-4 py-2 rounded pointer-events-none">
+          AUTOPLAY — score &amp; unlocks disabled
+        </div>
       )}
 
       {isTestingArenaOpen && (

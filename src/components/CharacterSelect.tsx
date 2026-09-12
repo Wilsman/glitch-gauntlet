@@ -12,6 +12,7 @@ import {
 import { UnlockTooltip } from "./UnlockTooltip";
 import { useGamepad } from "@/hooks/useGamepad";
 import { SPRITE_MAP } from "@/lib/spriteMap";
+import { toast } from "@/components/ui/sonner";
 
 interface CharacterSelectProps {
   onSelect: (characterType: CharacterType) => void;
@@ -117,6 +118,7 @@ function CharacterCard({
   offset,
   isSelected,
   isLocked,
+  isDenied,
   onFocus,
   onLaunch,
   onMouseMove,
@@ -126,6 +128,7 @@ function CharacterCard({
   offset: number;
   isSelected: boolean;
   isLocked: boolean;
+  isDenied?: boolean;
   onFocus: () => void;
   onLaunch: () => void;
   onMouseMove: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -133,11 +136,11 @@ function CharacterCard({
 }) {
   const visibility = Math.abs(offset);
   const isVisible = visibility <= 2;
-  const unlockProgress = isLocked ? getUnlockProgress(character.type) : null;
+
 
   return (
     <div
-      className="absolute left-1/2 top-0 h-[500px] w-[250px] -translate-x-1/2 sm:w-[280px] md:h-[540px] md:w-[290px]"
+      className="absolute left-1/2 top-0 h-[480px] w-[250px] -translate-x-1/2 sm:w-[280px] md:h-[480px] md:w-[290px]"
       style={{
         zIndex: isSelected ? 40 : 20 - visibility,
         pointerEvents: isVisible ? "auto" : "none",
@@ -147,7 +150,9 @@ function CharacterCard({
         type="button"
         initial={false}
         animate={{
-          x: offset * 270,
+          x: isDenied
+            ? [offset * 270, offset * 270 - 12, offset * 270 + 12, offset * 270 - 6, offset * 270]
+            : offset * 270,
           scale: isSelected ? 1 : visibility === 1 ? 0.86 : 0.72,
           opacity: isVisible ? (isSelected ? 1 : visibility === 1 ? 0.78 : 0.16) : 0,
           rotateY: isSelected ? 0 : offset > 0 ? -17 : 17,
@@ -163,9 +168,11 @@ function CharacterCard({
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
         className={`relative flex h-full w-full flex-col overflow-hidden rounded-[24px] border-[3px] px-5 py-4 text-left transition-colors duration-200 ${
-          isSelected
-            ? "border-neon-yellow bg-[rgba(14,16,12,0.94)] text-neon-yellow shadow-[0_0_0_1px_rgba(255,255,0,0.18),0_0_48px_rgba(255,255,0,0.16)]"
-            : "border-neon-pink bg-[rgba(10,8,18,0.9)] text-white shadow-[0_0_30px_rgba(255,0,255,0.1)]"
+          isDenied
+            ? "border-red-500 bg-[rgba(20,6,8,0.94)] text-red-300 shadow-[0_0_0_1px_rgba(255,0,0,0.3),0_0_48px_rgba(255,0,0,0.3)]"
+            : isSelected
+              ? "border-neon-yellow bg-[rgba(14,16,12,0.94)] text-neon-yellow shadow-[0_0_0_1px_rgba(255,255,0,0.18),0_0_48px_rgba(255,255,0,0.16)]"
+              : "border-white/20 bg-[rgba(10,8,18,0.9)] text-white"
         }`}
         style={{ transformStyle: "preserve-3d" }}
       >
@@ -197,7 +204,7 @@ function CharacterCard({
             </AnimatePresence>
           </div>
 
-          <div className="relative mt-2 flex h-36 items-center justify-center rounded-[20px] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_58%)] md:h-40">
+          <div className="relative mt-2 flex h-24 shrink-0 items-center justify-center rounded-[20px] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_58%)] md:h-28">
             <motion.div
               animate={isSelected ? { y: [0, -7, 0], scale: [1, 1.03, 1] } : { y: 0, scale: 0.94 }}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
@@ -210,7 +217,7 @@ function CharacterCard({
             <h3 className="font-press-start text-[16px] leading-7 text-inherit sm:text-[18px]">
               {character.name}
             </h3>
-            <p className="mt-3 min-h-[54px] font-vt323 text-[20px] leading-5 text-neon-cyan">
+            <p className="mt-3 min-h-[54px] font-sans text-sm leading-5 text-slate-200">
               {character.description}
             </p>
           </div>
@@ -222,9 +229,9 @@ function CharacterCard({
 
               return (
                 <div key={stat.label} className="space-y-1">
-                  <div className="flex items-center justify-between font-vt323 text-base uppercase tracking-[0.16em] text-white/85 md:text-lg">
+                  <div className="flex items-center justify-between font-sans text-xs font-medium text-slate-200">
                     <span>{stat.label}</span>
-                    <span className="text-neon-pink">{stat.format(value)}</span>
+                    <span className="tabular-nums text-white">{stat.format(value)}</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full border border-white/10 bg-slate-900/80">
                     <motion.div
@@ -239,31 +246,6 @@ function CharacterCard({
             })}
           </div>
 
-          <div className="mt-3 rounded-[16px] border border-white/8 bg-black/25 p-3 font-vt323 text-[13px] leading-4 text-white/75 md:text-sm">
-            <div className="text-emerald-300">
-              <span className="mr-2 font-bold">PRO:</span>
-              {character.pro}
-            </div>
-            <div className="mt-2 text-rose-300">
-              <span className="mr-2 font-bold">CON:</span>
-              {character.con}
-            </div>
-          </div>
-
-          {isLocked && unlockProgress && character.unlockCriteria && (
-            <div className="mt-3 rounded-[16px] border border-neon-yellow/25 bg-neon-yellow/8 p-3">
-              <div className="flex items-center justify-between font-vt323 text-xs uppercase tracking-[0.28em] text-neon-yellow">
-                <span>Unlock</span>
-                <span>
-                  {Math.min(unlockProgress.current, unlockProgress.required)}/
-                  {unlockProgress.required}
-                </span>
-              </div>
-              <p className="mt-2 font-vt323 text-base leading-4 text-white/80 md:text-lg md:leading-5">
-                {character.unlockCriteria.description}
-              </p>
-            </div>
-          )}
         </div>
 
         {isLocked && (
@@ -302,6 +284,8 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
     description: "",
   });
   const [isGamepadFocused, setIsGamepadFocused] = useState(false);
+  const [deniedType, setDeniedType] = useState<CharacterType | null>(null);
+  const deniedTimeoutRef = useRef<number | null>(null);
 
   const lastGamepadInput = useRef<{
     left: boolean;
@@ -327,6 +311,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
 
   const activeCharacter = characters[currentIndex] ?? characters[0];
   const activeUnlocked = isCharacterUnlocked(activeCharacter.type);
+  const activeUnlockProgress = !activeUnlocked ? getUnlockProgress(activeCharacter.type) : null;
 
   const handleMove = (direction: -1 | 1) => {
     setCurrentIndex((previousIndex) => {
@@ -340,7 +325,17 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
   const handleConfirm = () => {
     if (activeUnlocked) {
       onSelect(activeCharacter.type);
+      return;
     }
+    // Denied feedback: shake the card and explain the unlock requirement
+    setDeniedType(activeCharacter.type);
+    toast.warning("OPERATOR LOCKED", {
+      description:
+        activeCharacter.unlockCriteria?.description ||
+        "Complete the unlock challenge first.",
+    });
+    if (deniedTimeoutRef.current) window.clearTimeout(deniedTimeoutRef.current);
+    deniedTimeoutRef.current = window.setTimeout(() => setDeniedType(null), 450);
   };
 
   useEffect(() => {
@@ -442,16 +437,16 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        className="fixed inset-0 z-50 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(0,255,255,0.08),transparent_24%),radial-gradient(circle_at_bottom,rgba(255,0,255,0.08),transparent_18%),rgba(0,0,0,0.96)] px-4 py-4 md:px-8 md:py-6"
+        className="fixed inset-0 z-50 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(0,255,255,0.08),transparent_24%),radial-gradient(circle_at_bottom,rgba(255,0,255,0.08),transparent_18%),rgba(0,0,0,0.96)] px-4 py-4 md:px-8 md:py-4"
       >
         <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(0,255,255,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,255,0.08)_1px,transparent_1px)] [background-size:80px_80px]" />
 
         <div className="relative mx-auto flex min-h-full w-full max-w-[1280px] flex-col justify-center">
-          <div className="mb-6 text-center md:mb-8">
+          <div className="mb-4 text-center">
             <motion.h2
               initial={{ y: -18, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              className="font-press-start text-3xl text-transparent bg-gradient-to-b from-neon-cyan to-sky-500 bg-clip-text md:text-5xl"
+              className="font-press-start text-2xl text-transparent bg-gradient-to-b from-neon-cyan to-sky-500 bg-clip-text md:text-4xl"
               style={{ filter: "drop-shadow(0 0 12px rgba(0,255,255,0.45))" }}
             >
               SELECT CHARACTER
@@ -465,7 +460,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
           </div>
 
           <div className="rounded-[28px] border border-white/8 bg-[rgba(5,8,18,0.82)] px-3 py-5 shadow-[0_30px_120px_rgba(0,0,0,0.45)] backdrop-blur-sm md:px-6 md:py-6">
-            <div className="mb-4 flex flex-wrap items-center justify-center gap-2 text-center font-vt323 text-lg text-white/70 md:mb-6">
+            <div className="mb-4 flex flex-wrap items-center justify-center gap-2 text-center font-sans text-xs text-slate-300">
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
                 Click or tap a card to focus
               </span>
@@ -478,7 +473,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
               </span>
             </div>
 
-            <div className="relative h-[520px] overflow-hidden md:h-[560px]">
+            <div className="relative h-[500px] overflow-hidden">
               <AnimatePresence initial={false}>
                 {characters.map((character, index) => {
                   const offset = getCarouselOffset(index, currentIndex, characters.length);
@@ -492,6 +487,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
                       offset={offset}
                       isSelected={offset === 0}
                       isLocked={isLocked}
+                      isDenied={deniedType === character.type}
                       onFocus={() => {
                         setCurrentIndex(index);
                         setTooltipState((previous) => ({ ...previous, visible: false }));
@@ -549,16 +545,19 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
               })}
             </div>
 
-            <div className="mx-auto mt-5 max-w-3xl rounded-[18px] border border-white/10 bg-black/25 px-4 py-3 text-center">
-              <div className="font-vt323 text-xs uppercase tracking-[0.34em] text-white/45">
-                Highlighted Operator
-              </div>
-              <div className="mt-2 font-press-start text-[13px] leading-6 text-white md:text-[15px]">
+            <div className="mx-auto mt-3 max-w-3xl rounded-[18px] border border-white/10 bg-black/25 px-4 py-3 text-center">
+              <div className="font-press-start text-xs leading-5 text-white">
                 {activeCharacter.name}
                 <span className="mx-2 text-neon-cyan/60">|</span>
                 {activeCharacter.abilityName}
               </div>
-              <div className="mt-2 grid gap-2 font-vt323 text-[15px] leading-4 md:grid-cols-2 md:text-base">
+              {!activeUnlocked && activeCharacter.unlockCriteria ? (
+                <p className="mt-2 font-sans text-sm leading-5 text-yellow-100">
+                  Unlock: {activeCharacter.unlockCriteria.description}
+                  {activeUnlockProgress && <span className="ml-2 tabular-nums text-slate-300">({Math.min(activeUnlockProgress.current, activeUnlockProgress.required)}/{activeUnlockProgress.required})</span>}
+                </p>
+              ) : (
+              <div className="mt-2 grid gap-2 font-sans text-sm leading-5 md:grid-cols-2">
                 <div className="rounded-[12px] border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-emerald-300">
                   PRO: {activeCharacter.pro}
                 </div>
@@ -566,19 +565,20 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
                   CON: {activeCharacter.con}
                 </div>
               </div>
+              )}
             </div>
 
             <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button
                 onClick={onCancel}
-                className="h-14 min-w-[150px] rounded-[14px] border-2 border-neon-pink bg-transparent px-8 font-press-start text-base text-neon-pink transition-all duration-200 hover:bg-neon-pink hover:text-black hover:shadow-[0_0_24px_rgba(255,0,255,0.25)]"
+                className="h-12 min-w-[150px] rounded-[14px] border-2 border-neon-pink bg-transparent px-6 font-press-start text-sm text-neon-pink transition-all duration-200 hover:bg-neon-pink hover:text-black hover:shadow-[0_0_24px_rgba(255,0,255,0.25)]"
               >
                 Cancel
               </Button>
               <Button
                 onClick={handleConfirm}
                 disabled={!activeUnlocked}
-                className={`h-14 min-w-[210px] rounded-[14px] border-2 px-8 font-press-start text-base transition-all duration-200 ${
+                className={`h-12 min-w-[210px] rounded-[14px] border-2 px-8 font-press-start text-base transition-all duration-200 ${
                   activeUnlocked
                     ? isGamepadFocused
                       ? "border-neon-yellow bg-neon-yellow text-black shadow-[0_0_24px_rgba(255,255,0,0.35)]"

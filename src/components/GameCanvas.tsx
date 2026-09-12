@@ -1669,7 +1669,7 @@ const BackgroundGrid = memo(({ isSandbox }: { isSandbox?: boolean }) => (
         width={1}
         height={SERVER_ARENA_HEIGHT}
         fill={isSandbox ? "#00FFFF" : "#FF00FF"}
-        opacity={isSandbox ? 0.1 : 0.2}
+        opacity={isSandbox ? 0.07 : 0.055}
       />
     ))}
     {[...Array(Math.floor(SERVER_ARENA_HEIGHT / 40))].map((_, i) => (
@@ -1680,7 +1680,7 @@ const BackgroundGrid = memo(({ isSandbox }: { isSandbox?: boolean }) => (
         width={SERVER_ARENA_WIDTH}
         height={1}
         fill={isSandbox ? "#00FFFF" : "#FF00FF"}
-        opacity={isSandbox ? 0.1 : 0.2}
+        opacity={isSandbox ? 0.07 : 0.055}
       />
     ))}
     {isSandbox && (
@@ -1825,7 +1825,7 @@ export default function GameCanvas() {
   if (!gameState) {
     return (
       <div
-        className="bg-gray-900 border-4 border-neon-pink shadow-glow-pink flex items-center justify-center"
+        className="bg-gray-900 border border-neon-pink/35 flex items-center justify-center"
         style={{ width: displaySize.width, height: displaySize.height }}
       >
         <p className="text-neon-pink font-pixel">Loading game...</p>
@@ -1839,7 +1839,7 @@ export default function GameCanvas() {
       height={displaySize.height}
       scaleX={scale}
       scaleY={scale}
-      className="bg-gray-900 border-4 border-neon-pink shadow-glow-pink"
+      className="bg-gray-900 border border-neon-pink/35"
       listening={false}
     >
       <Layer>
@@ -2080,6 +2080,8 @@ export default function GameCanvas() {
                   ? "FREE"
                   : `$${offer.cost}`;
               const promptText = isLeave ? "PRESS E TO LEAVE" : "PRESS E TO BUY";
+              // Keep the detail panel below the "SHOP ROUND | COINS" header (~y35)
+              const shopDetailTop = Math.max(stand.position.y - 228, 44);
 
               return (
                 <Group key={`shop-stand-${stand.id}`}>
@@ -2237,7 +2239,7 @@ export default function GameCanvas() {
                     <Group>
                       <Rect
                         x={stand.position.x - 200}
-                        y={stand.position.y - 228}
+                        y={shopDetailTop}
                         width={400}
                         height={100}
                         cornerRadius={8}
@@ -2253,7 +2255,7 @@ export default function GameCanvas() {
                           isSoldOut ? "SOLD" : isLeave ? "FREE" : `-$${offer.cost}`
                         }`}
                         x={stand.position.x - 186}
-                        y={stand.position.y - 214}
+                        y={shopDetailTop + 14}
                         fontSize={9}
                         fill={isSoldOut ? "#9ca3af" : ringColor}
                         fontFamily='"Press Start 2P"'
@@ -2261,7 +2263,7 @@ export default function GameCanvas() {
                       <Text
                         text={offer.title.toUpperCase()}
                         x={stand.position.x - 186}
-                        y={stand.position.y - 193}
+                        y={shopDetailTop + 35}
                         width={372}
                         fontSize={14}
                         fill={isSoldOut ? "#9ca3af" : "#f8fafc"}
@@ -2270,7 +2272,7 @@ export default function GameCanvas() {
                       <Text
                         text={offer.description.toUpperCase()}
                         x={stand.position.x - 186}
-                        y={stand.position.y - 168}
+                        y={shopDetailTop + 60}
                         width={372}
                         fontSize={9}
                         fill="#e2e8f0"
@@ -2283,7 +2285,7 @@ export default function GameCanvas() {
                             : getShopOfferFooter(offer)
                         }
                         x={stand.position.x - 186}
-                        y={stand.position.y - 145}
+                        y={shopDetailTop + 83}
                         width={372}
                         fontSize={9}
                         fill={

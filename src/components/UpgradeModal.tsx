@@ -260,7 +260,7 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
         >
           {isShopPrompt ? "SHOP ROUND" : "LEVEL UP!"}
         </motion.h2>
-        <p className="mt-3 font-vt323 text-xl text-white/85">
+        <p className="mt-3 font-sans text-base text-slate-200">
           {isShopPrompt
             ? `Spend coins on one upgrade or leave. Coins: ${playerCoins}`
             : "XP bar filled. Choose your next upgrade."}
@@ -441,7 +441,7 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
                   </h3>
 
                   {/* Description */}
-                  <p className="font-vt323 text-lg text-white/90 leading-snug">
+                  <p className="font-sans text-base text-slate-100 leading-relaxed">
                     {option.description}
                   </p>
                   {isUnaffordable && (

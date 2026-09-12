@@ -52,7 +52,7 @@ export default function StatsPanel({ player }: StatsPanelProps) {
 
     // Bananarang weapon stats (if unlocked)
     if (player.hasBananarang && player.bananarangsPerShot) {
-      const bananaBaseDamage = bulletBaseDamage * 0.8; // Bananas do 80% of bullet damage
+      const bananaBaseDamage = player.projectileDamage * 0.8; // Bananas do 80% of bullet damage
       const bananaTotalDamage = bananaBaseDamage * player.bananarangsPerShot;
       const bananaDps = (bananaTotalDamage / player.attackSpeed) * 1000;
 

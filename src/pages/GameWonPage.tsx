@@ -1,19 +1,25 @@
 import React, { useEffect, useState } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
 import { AudioManager } from "@/lib/audio/AudioManager";
 import { Button } from "@/components/ui/button";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Loader2 } from "lucide-react";
-import type { ApiResponse, GameState } from "@shared/types";
+import type { ApiResponse, GameState, LastRunStats } from "@shared/types";
 import { motion } from "framer-motion";
 import { useGamepad } from "@/hooks/useGamepad";
 import { useRef } from "react";
+import { getLastRunStats, getPlayerName } from "@/lib/progressionStorage";
+import { getCharacter } from "@shared/characterConfig";
 
 export default function GameWonPage() {
   const { gameId } = useParams<{ gameId: string }>();
+  const [searchParams] = useSearchParams();
+  const isLocalMode = gameId === "local";
+  const isAutoplay = isLocalMode && searchParams.get("autoplay") === "1";
   const navigate = useNavigate();
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [localStats, setLocalStats] = useState<LastRunStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCoinAnimation, setShowCoinAnimation] = useState(false);
   const [coins, setCoins] = useState<
@@ -66,6 +72,13 @@ export default function GameWonPage() {
         setLoading(false);
         return;
       }
+      if (isLocalMode) {
+        // Local runs are not hosted on the server — read the stats the
+        // engine saved to localStorage instead.
+        setLocalStats(getLastRunStats() ?? null);
+        setLoading(false);
+        return;
+      }
       try {
         const response = await fetch(`/api/game/${gameId}`);
         const result = (await response.json()) as ApiResponse<GameState>;
@@ -79,7 +92,14 @@ export default function GameWonPage() {
       }
     };
     fetchGameState();
-  }, [gameId]);
+  }, [gameId, isLocalMode]);
+
+  function formatSurvivalTime(ms: number): string {
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  }
 
   function handleInsertCoin() {
     setShowCoinAnimation(true);
@@ -113,6 +133,57 @@ export default function GameWonPage() {
         </motion.h1>
         {loading ? (
           <Loader2 className="h-12 w-12 animate-spin text-neon-cyan" />
+        ) : isLocalMode && !isAutoplay ? (
+          localStats && (
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.5 }}
+              className="font-vt323 text-3xl text-white space-y-4"
+            >
+              <p>
+                YOU ESCAPED AFTER WAVE:{" "}
+                <span className="font-press-start text-4xl text-neon-yellow">
+                  {localStats.waveReached}
+                </span>
+              </p>
+              <div className="pt-4">
+                <h2 className="font-press-start text-2xl text-neon-pink mb-2">
+                  FINAL STATS
+                </h2>
+                <motion.div
+                  initial={{ x: -20, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: 0.5 }}
+                  className="bg-black/60 border-2 border-neon-cyan p-6 rounded-lg text-left"
+                >
+                  <h3 className="font-press-start text-2xl mb-4 text-neon-cyan text-center">
+                    {(getPlayerName() || "PLAYER").toUpperCase()}
+                  </h3>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-xl">
+                    <div>
+                      <span className="text-neon-cyan">Character:</span>{" "}
+                      <span className="text-white">
+                        {getCharacter(localStats.characterType).name}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neon-cyan">Enemies Killed:</span>{" "}
+                      <span className="text-white">
+                        {localStats.enemiesKilled}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-neon-cyan">Survived:</span>{" "}
+                      <span className="text-white">
+                        {formatSurvivalTime(localStats.survivalTimeMs)}
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            </motion.div>
+          )
         ) : (
           gameState && (
             <motion.div

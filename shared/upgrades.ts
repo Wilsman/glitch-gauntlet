@@ -117,14 +117,23 @@ export const RARITY_WEIGHTS = {
 
 export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'): Omit<UpgradeOption, 'id'>[] {
   const selected: Omit<UpgradeOption, 'id'>[] = [];
+  // Same upgrade must not appear twice in one roll. Cross-rarity variants
+  // (e.g. legendary 'berserker' vs lunar 'berserker') are distinct picks.
+  const used = new Set<string>();
+
+  const pickUnused = (pool: Omit<UpgradeOption, 'id'>[]) => {
+    const available = pool.filter((u) => !used.has(`${u.type}:${u.rarity}`));
+    if (available.length === 0) return false;
+    const pick = available[Math.floor(Math.random() * available.length)];
+    used.add(`${pick.type}:${pick.rarity}`);
+    selected.push(pick);
+    return true;
+  };
 
   if (forceRarity) {
     // Force specific rarity (for hellhound rounds)
     const upgradesOfRarity = ALL_UPGRADES.filter(u => u.rarity === forceRarity);
-    for (let i = 0; i < count && upgradesOfRarity.length > 0; i++) {
-      const randomUpgrade = upgradesOfRarity[Math.floor(Math.random() * upgradesOfRarity.length)];
-      selected.push(randomUpgrade);
-    }
+    for (let i = 0; i < count && pickUnused(upgradesOfRarity); i++);
     return selected;
   }
 
@@ -143,12 +152,10 @@ export function getRandomUpgrades(count: number = 3, forceRarity?: 'legendary'):
       }
     }
 
-    // Get all upgrades of that rarity
+    // Get all upgrades of that rarity; fall back to any unused upgrade
+    // if the rolled rarity's pool is exhausted
     const upgradesOfRarity = ALL_UPGRADES.filter(u => u.rarity === selectedRarity);
-    if (upgradesOfRarity.length > 0) {
-      const randomUpgrade = upgradesOfRarity[Math.floor(Math.random() * upgradesOfRarity.length)];
-      selected.push(randomUpgrade);
-    }
+    if (!pickUnused(upgradesOfRarity) && !pickUnused(ALL_UPGRADES)) break;
   }
 
   return selected;

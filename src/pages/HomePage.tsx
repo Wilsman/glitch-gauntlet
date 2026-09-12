@@ -1,15 +1,7 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Toaster, toast } from "@/components/ui/sonner";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { CharacterSelect } from "@/components/CharacterSelect";
@@ -17,7 +9,7 @@ import { UnlockNotification } from "@/components/UnlockNotification";
 import { PlayerNameDialog } from "@/components/PlayerNameDialog";
 import { LastRunStatsCard } from "@/components/LastRunStatsCard";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
-import type { ApiResponse, CharacterType } from "@shared/types";
+import type { CharacterType } from "@shared/types";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
 import { AudioManager } from "@/lib/audio/AudioManager";
@@ -30,22 +22,16 @@ import {
 import { AnimatedBackground } from "@/components/AnimatedBackground";
 
 import { useGamepad } from "@/hooks/useGamepad";
-import { useRef } from "react";
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [isHosting, setIsHosting] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
-  const [joinCode, setJoinCode] = useState("");
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
+  const [autoplayPending, setAutoplayPending] = useState(false);
   const [showNameDialog, setShowNameDialog] = useState(false);
-  const [selectedCharacter, setSelectedCharacter] =
-    useState<CharacterType | null>(null);
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
   const [unlockedCharacter, setUnlockedCharacter] =
     useState<CharacterType | null>(null);
-  const [focusedButtonIndex, setFocusedButtonIndex] = useState(0);
   const { getGamepadInput } = useGamepad();
   const lastGamepadInput = useRef<{
     up: boolean;
@@ -63,25 +49,10 @@ export function HomePage() {
     const pollInterval = setInterval(() => {
       const input = getGamepadInput();
       if (input) {
-        // Handle vertical navigation
-        if (input.up && !lastGamepadInput.current.up) {
-          setFocusedButtonIndex((prev) => Math.max(0, prev - 1));
-        }
-        if (input.down && !lastGamepadInput.current.down) {
-          setFocusedButtonIndex((prev) => Math.min(2, prev + 1));
-        }
-
         // Handle Confirm (A button)
         if (input.blink && !lastGamepadInput.current.confirm) {
           if (!showCharacterSelect && !showNameDialog) {
-            if (focusedButtonIndex === 0) {
-              handleLocalGame();
-            } else {
-              toast.info("Feature coming soon!", {
-                description:
-                  "Multiplayer hosting and joining will be available in a future update.",
-              });
-            }
+            handleLocalGame();
           }
           lastGamepadInput.current.confirm = true;
         } else if (!input.blink) {
@@ -93,18 +64,14 @@ export function HomePage() {
       }
     }, 100);
 
-    const handleMouseMove = () => setFocusedButtonIndex(-1); // Clear focus on mouse move
-    window.addEventListener("mousemove", handleMouseMove);
 
     return () => {
       clearInterval(pollInterval);
-      window.removeEventListener("mousemove", handleMouseMove);
     };
   }, [
     getGamepadInput,
     showCharacterSelect,
     showNameDialog,
-    focusedButtonIndex,
   ]);
 
   useEffect(() => {
@@ -153,6 +120,13 @@ export function HomePage() {
       setShowNameDialog(true);
       return;
     }
+    setAutoplayPending(false);
+    setShowCharacterSelect(true);
+  };
+
+  const handleAutoplay = () => {
+    if (showNameDialog) return;
+    setAutoplayPending(true);
     setShowCharacterSelect(true);
   };
 
@@ -167,73 +141,23 @@ export function HomePage() {
   const handleCharacterSelected = (characterType: CharacterType) => {
     const playerId = `local-${Date.now()}`;
     setLocalPlayerId(playerId);
-    setSelectedCharacter(characterType);
     setShowCharacterSelect(false);
+    if (autoplayPending) {
+      setAutoplayPending(false);
+      toast.success("Autoplay started", {
+        description: "Score and unlocks are disabled for autoplay runs.",
+      });
+      navigate(
+        `/game/local?playerId=${playerId}&character=${characterType}&autoplay=1`
+      );
+      return;
+    }
     toast.success("Starting local game!");
     navigate(`/game/local?playerId=${playerId}&character=${characterType}`);
   };
 
-  const handleHostGame = async () => {
-    setIsHosting(true);
-    try {
-      const response = await fetch("/api/game/create", { method: "POST" });
-      const result = (await response.json()) as ApiResponse<{
-        gameId: string;
-        playerId: string;
-      }>;
-      if (result.success && result.data?.gameId && result.data?.playerId) {
-        setLocalPlayerId(result.data.playerId);
-        toast.success("Game session created!", {
-          description: `Joining session: ${result.data.gameId}`,
-        });
-        navigate(`/game/${result.data.gameId}`);
-      } else {
-        throw new Error(result.error || "Failed to create game session.");
-      }
-    } catch (error) {
-      console.error("Error hosting game:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "An unknown error occurred.";
-      toast.error("Failed to Host Game", {
-        description: errorMessage,
-      });
-      setIsHosting(false);
-    }
-  };
-
-  const handleJoinGame = async () => {
-    if (!joinCode) {
-      toast.warning("Please enter a game code.");
-      return;
-    }
-    setIsJoining(true);
-    try {
-      const response = await fetch(`/api/game/${joinCode}/join`, {
-        method: "POST",
-      });
-      const result = (await response.json()) as ApiResponse<{
-        playerId: string;
-      }>;
-      if (result.success && result.data?.playerId) {
-        setLocalPlayerId(result.data.playerId);
-        toast.success("Joined game successfully!");
-        navigate(`/game/${joinCode}`);
-      } else {
-        throw new Error(result.error || "Failed to join game. Check the code.");
-      }
-    } catch (error) {
-      console.error("Error joining game:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "An unknown error occurred.";
-      toast.error("Failed to Join Game", {
-        description: errorMessage,
-      });
-      setIsJoining(false);
-    }
-  };
-
   return (
-    <main className="min-h-screen w-full flex items-center justify-center p-4 overflow-hidden relative text-neon-cyan selection:bg-neon-pink/30">
+    <main className="min-h-screen w-full flex flex-col items-center justify-center px-5 pb-6 pt-20 overflow-x-hidden relative text-slate-100 selection:bg-neon-pink/30">
       <AnimatedBackground />
       <div className="absolute inset-0 bg-black/40 z-[5] pointer-events-none" />
 
@@ -242,7 +166,7 @@ export function HomePage() {
         initial={{ opacity: 0, scale: 1.1 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 1.5, ease: "easeOut" }}
-        className="w-full h-full absolute inset-0 border-[12px] border-neon-pink/20 shadow-[inset_0_0_100px_rgba(255,0,255,0.1)] z-10 pointer-events-none"
+        className="w-full h-full absolute inset-0 border border-neon-pink/10 z-10 pointer-events-none"
       />
 
       {/* Player Name Dialog */}
@@ -267,83 +191,29 @@ export function HomePage() {
         {showCharacterSelect && (
           <CharacterSelect
             onSelect={handleCharacterSelected}
-            onCancel={() => setShowCharacterSelect(false)}
+            onCancel={() => {
+              setShowCharacterSelect(false);
+              setAutoplayPending(false);
+            }}
           />
         )}
       </AnimatePresence>
 
-      {/* Last Run Stats - Left Side */}
-      <div className="fixed left-8 top-0 bottom-0 z-30 w-80 hidden lg:flex items-center">
-        <motion.div
-          initial={{ x: -400, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{
-            delay: 0.5,
-            duration: 0.8,
-            type: "spring",
-            bounce: 0.3,
-          }}
-          className="w-full"
-        >
-          <LastRunStatsCard />
-        </motion.div>
-      </div>
-
-      {/* Leaderboard - Right Side */}
-      <div className="fixed right-8 top-0 bottom-0 z-40 w-96 hidden lg:flex items-center">
-        <motion.div
-          initial={{ x: 400, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{
-            delay: 0.7,
-            duration: 0.8,
-            type: "spring",
-            bounce: 0.3,
-          }}
-          className="w-full h-[66vh]"
-        >
-          <LeaderboardPanel />
-        </motion.div>
-      </div>
-
-      <div className="relative z-20 flex flex-col items-center justify-center text-center space-y-12">
+      <div className={`relative z-20 mx-auto grid w-full max-w-[1120px] flex-1 items-center gap-10 py-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-20 ${showCharacterSelect || showNameDialog ? 'invisible' : ''}`}>
+      <div className="flex min-w-0 flex-col items-center justify-center text-center space-y-8">
         <motion.div
           initial={{ y: -100, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 1, ease: "backOut" }}
         >
           <motion.h1
-            animate={{
-              textShadow: [
-                "0 0 10px #FFFF00, 0 0 20px #FFFF00",
-                "0 0 20px #FFFF00, 0 0 40px #FFFF00",
-                "0 0 10px #FFFF00, 0 0 20px #FFFF00",
-              ],
-            }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="font-press-start text-5xl md:text-7xl text-neon-yellow relative"
+            style={{ textShadow: '0 0 24px rgba(255,255,0,0.2)' }}
+            className="font-press-start text-[clamp(2rem,4.5vw,4rem)] leading-[1.35] text-neon-yellow relative"
           >
             CHILLIN
-            <br />
-            'n'
-            <br />
+            <span className="block py-1 text-[0.5em] leading-normal text-yellow-100">'n'</span>
             KILLIN
-            {/* Title Glitch Overlay */}
-            <motion.span
-              animate={{
-                opacity: [0, 0.2, 0, 0.4, 0],
-                x: [0, -5, 5, -2, 0],
-              }}
-              transition={{ duration: 0.2, repeat: Infinity, repeatDelay: 3 }}
-              className="absolute inset-0 text-neon-cyan pointer-events-none"
-              style={{ clipPath: "inset(45% 0 45% 0)" }}
-            >
-              CHILLIN
-              <br />
-              'n'
-              <br />
-              KILLIN
-            </motion.span>
+
           </motion.h1>
         </motion.div>
 
@@ -353,8 +223,8 @@ export function HomePage() {
           transition={{ delay: 1, duration: 1 }}
           className="flex items-center space-x-2"
         >
-          <p className="font-press-start text-lg text-neon-pink animate-pulse">
-            The game
+          <p className="max-w-sm font-sans text-base leading-relaxed text-slate-300">
+            Pick your character. Build your loadout. Survive the gauntlet.
           </p>
         </motion.div>
 
@@ -367,106 +237,38 @@ export function HomePage() {
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
             <Button
               onClick={handleLocalGame}
-              disabled={isHosting || isJoining}
-              className={`w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-neon-yellow text-neon-yellow h-16 transition-all duration-300 ${
-                focusedButtonIndex === 0
-                  ? "bg-neon-yellow text-black shadow-[0_0_30px_rgba(255,255,0,0.5)] scale-105"
-                  : "hover:bg-neon-yellow hover:text-black hover:shadow-[0_0_30px_rgba(255,255,0,0.5)]"
-              }`}
+              className="w-full font-press-start text-sm bg-neon-yellow border border-neon-yellow text-black h-14 shadow-glow-yellow transition hover:bg-yellow-200 focus-visible:ring-neon-cyan"
             >
               Play Local
             </Button>
           </motion.div>
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <motion.div>
-                  <Button
-                    disabled
-                    className={`w-full font-press-start text-lg bg-black/40 backdrop-blur-md border-2 h-16 transition-all duration-300 ${
-                      focusedButtonIndex === 1
-                        ? "border-neon-yellow bg-neon-yellow/20 text-neon-yellow shadow-[0_0_20px_rgba(255,255,0,0.3)] scale-105"
-                        : "border-gray-600 text-gray-500 cursor-not-allowed opacity-50"
-                    }`}
-                  >
-                    Host Game
-                  </Button>
-                </motion.div>
-              </TooltipTrigger>
-              <TooltipContent className="font-press-start text-sm bg-black/90 border border-neon-pink text-neon-pink px-4 py-2">
-                Coming Soon
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.4 }}
-            className={`flex items-center space-x-4 p-2 rounded-lg transition-all duration-300 ${
-              focusedButtonIndex === 2
-                ? "bg-white/5 border border-neon-cyan shadow-[0_0_15px_rgba(0,255,255,0.2)] scale-105"
-                : ""
-            }`}
-          >
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Input
-                    type="text"
-                    placeholder="ENTER GAME CODE"
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.trim())}
-                    disabled
-                    className="font-press-start text-center h-16 text-lg bg-black/60 backdrop-blur-md border-2 border-gray-600 text-gray-500 placeholder:text-gray-600 cursor-not-allowed opacity-50 transition-all"
-                  />
-                </TooltipTrigger>
-                <TooltipContent className="font-press-start text-sm bg-black/90 border border-neon-pink text-neon-pink px-4 py-2">
-                  Coming Soon
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <motion.div>
-                    <Button
-                      disabled
-                      className="font-press-start text-lg bg-black/40 backdrop-blur-md border-2 border-gray-600 text-gray-500 h-16 cursor-not-allowed opacity-50 transition-all duration-300"
-                    >
-                      Join
-                    </Button>
-                  </motion.div>
-                </TooltipTrigger>
-                <TooltipContent className="font-press-start text-sm bg-black/90 border border-neon-pink text-neon-pink px-4 py-2">
-                  Coming Soon
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            <Button
+              onClick={handleAutoplay}
+              variant="outline"
+              className="w-full font-press-start text-sm border-neon-cyan text-neon-cyan h-14 transition hover:bg-neon-cyan/10 hover:text-neon-cyan focus-visible:ring-neon-cyan"
+            >
+              Autoplay
+            </Button>
           </motion.div>
+
+          <p className="font-sans text-sm text-slate-400">Multiplayer — coming soon</p>
         </motion.div>
+        <div className="w-full max-w-[420px] text-left"><LastRunStatsCard /></div>
+      </div>
+      <aside className="mx-auto w-full max-w-[420px]" aria-label="Weekly leaderboards">
+        <LeaderboardPanel />
+      </aside>
       </div>
 
-      <motion.footer
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 2, duration: 1 }}
-        className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20"
-      >
-        <p>Built with ❤️ from Wilsman</p>
-      </motion.footer>
-
+      <footer className="relative z-20 mt-4 text-center font-sans text-xs text-slate-400">
+        Built with ❤️ from Wilsman
+      </footer>
       <Toaster richColors theme="dark" />
-
-      <motion.div
-        initial={{ y: -50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        className="fixed right-4 top-0 z-50"
-      >
-        <SettingsPanel />
-      </motion.div>
+      {!showCharacterSelect && (
+        <div className="fixed right-5 top-4 z-40"><SettingsPanel /></div>
+      )}
     </main>
   );
 }

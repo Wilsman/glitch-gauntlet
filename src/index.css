@@ -55,7 +55,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
   body {
-    @apply bg-background text-foreground font-vt323;
+    @apply bg-background text-foreground font-sans;
     background-color: #0d0221;
     image-rendering: pixelated;
   }
@@ -79,7 +79,7 @@
     background-size: 100% 3px;
     z-index: 9999;
     pointer-events: none;
-    opacity: 0.5;
+    opacity: 0.08;
     will-change: auto;
   }
   body::after {
@@ -99,9 +99,7 @@
     );
     z-index: 9998;
     pointer-events: none;
-    opacity: 0.2;
-    animation: flicker 0.15s infinite;
-    will-change: opacity;
+    opacity: 0.08;
   }
   @keyframes flicker {
     0% {
@@ -174,6 +172,10 @@
     animation:
       ready-pop 0.5s ease-out,
       ready-pulse 2s ease-in-out infinite 0.5s;
+  }
+  :focus-visible {
+    outline: 2px solid #00ffff;
+    outline-offset: 4px;
   }
   @keyframes mapNodePulse {
     0%,

@@ -277,38 +277,16 @@ function hashString(value: string) {
   return hash;
 }
 
-const RADIAL_ROUTE_ORDER: RunMapRouteId[] = ["north", "east", "south", "west"];
-const RADIAL_ROUTE_ANGLES: Record<RunMapRouteId, number> = {
-  north: -Math.PI / 2,
-  east: 0,
-  south: Math.PI / 2,
-  west: Math.PI,
-};
-const RADIAL_ROUTE_SPIN: Record<RunMapRouteId, 1 | -1> = {
-  north: 1,
-  east: -1,
-  south: 1,
-  west: -1,
-};
-const RADIAL_ROUTE_BIASES: Record<RunMapRouteId, RewardBias> = {
-  north: "economy",
-  east: "power",
-  south: "recovery",
-  west: "power",
-};
-const RADIAL_ROUTE_SPECIALS: Record<RunMapRouteId, RunMapEncounterType> = {
-  north: "shop",
-  east: "combat",
-  south: "combat",
-  west: "hellhound",
-};
-const RADIAL_ROUTE_NAMES: Record<RunMapRouteId, string> = {
-  north: "Broker Spoke",
-  east: "War Spoke",
-  south: "Recovery Spoke",
-  west: "Hunt Spoke",
-};
-const RADIAL_BOSS_POOL: BossType[] = [
+const MAP_COLUMNS = 7;
+const MAP_ROOM_ROWS = 15;
+const MAP_BOSS_DEPTH = MAP_ROOM_ROWS + 1;
+const MAP_PATH_COUNT = 6;
+const MAP_MIDDLE_COLUMN = Math.floor(MAP_COLUMNS / 2);
+const ELITE_MIN_DEPTH = 6;
+const SHOP_MIN_DEPTH = 4;
+const MAX_ELITE_NODES = 5;
+const MAX_SHOP_NODES = 4;
+const MAP_BOSS_POOL: BossType[] = [
   "berserker",
   "summoner",
   "architect",
@@ -319,7 +297,6 @@ const RADIAL_BOSS_POOL: BossType[] = [
   "neon-reaper",
   "core-destroyer",
 ];
-const NODE_CLUSTER_SPACING_MULTIPLIER = 2;
 
 type RewardBias = "economy" | "recovery" | "power";
 
@@ -423,7 +400,7 @@ function createDamageBoostReward(
   };
 }
 
-const COMBAT_ROUTE_TITLES = [
+const COMBAT_NODE_TITLES = [
   "Signal Clash",
   "Packet Raid",
   "Kill Switch",
@@ -432,7 +409,7 @@ const COMBAT_ROUTE_TITLES = [
   "Static Clash",
 ];
 
-const SHOP_ROUTE_TITLES = [
+const SHOP_NODE_TITLES = [
   "Black Market",
   "Patch Bazaar",
   "Smuggler Cache",
@@ -442,30 +419,21 @@ const SHOP_ROUTE_TITLES = [
 ];
 
 const HELLHOUND_TITLES = ["Hellhound Pack", "Dog Gauntlet", "Rabid Kennels"];
-const ROUTE_ENTRY_TITLES: Record<RunMapRouteId, string[]> = {
-  north: ["Ledger Gate", "Broker Relay", "Credit Junction"],
-  east: ["Breaker Lane", "Kill Corridor", "Aggressor Gate"],
-  south: ["Patch Relay", "Recovery Bay", "Pulse Shelter"],
-  west: ["Kennel Break", "Predator Track", "Hunt Relay"],
-};
-const ROUTE_FORK_TITLES: Record<RunMapRouteId, string[]> = {
-  north: ["Discount Route", "Stock Route", "Broker Split", "Market Vein"],
-  east: ["Kill Route", "Breach Route", "War Split", "Spike Line"],
-  south: ["Med Route", "Shield Route", "Recovery Split", "Safe Vein"],
-  west: ["Claw Route", "Snare Route", "Dog Split", "Rabid Lane"],
-};
-const ROUTE_SPECIAL_TITLES: Record<RunMapRouteId, string[]> = {
-  north: SHOP_ROUTE_TITLES,
-  east: ["Overdrive Route", "Damage Corridor", "War Engine"],
-  south: ["Repair Lattice", "Patch Node", "Recovery Grid"],
-  west: HELLHOUND_TITLES,
-};
-const ROUTE_PREP_TITLES: Record<RunMapRouteId, string[]> = {
-  north: ["Broker Threshold", "Vault Door", "Final Purchase"],
-  east: ["War Threshold", "Kill Gate", "Pressure Door"],
-  south: ["Recovery Threshold", "Safety Lock", "Final Patch"],
-  west: ["Hunt Threshold", "Kennel Gate", "Predator Door"],
-};
+
+const ENTRY_NODE_TITLES = [
+  "Insertion Point",
+  "Boot Sector",
+  "Entry Gate",
+  "Drop Zone",
+  "Lobby Breach",
+];
+
+const PRE_BOSS_NODE_TITLES = [
+  "Antechamber",
+  "Final Relay",
+  "Boss Door",
+  "Threshold Lock",
+];
 
 function createCombatRewards(
   random: () => number,
@@ -572,26 +540,18 @@ function pickWeightedUnique<T>(
 
 function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
   const random = createSeededRandom(hashString(seed) || Date.now());
-  const shuffledBosses = shuffle(random, RADIAL_BOSS_POOL);
+  const bossType = pickOne(random, MAP_BOSS_POOL);
   const routeId: RunMapRouteId = "north";
-  const bias = pickOne(random, ["economy", "recovery", "power"] as RewardBias[]);
-  const bossType = shuffledBosses[0] || "berserker";
-  const BOSS_DEPTH = 16;
-  const MERGE_DEPTH = 8;
-  const FINAL_ROOM_DEPTH = 15;
-  const LANE_COUNT = 5;
-  const PATH_COUNT = 6;
-  const middleLane = Math.floor(LANE_COUNT / 2);
   const nodes: ProceduralRunMapNode[] = [];
 
   const nodeGrid = new Map<string, ProceduralRunMapNode>();
-  const getOrCreateNode = (depth: number, lane: number, suffix = `l${lane}`) => {
+  const getOrCreateNode = (depth: number, lane: number) => {
     const key = `${depth}-${lane}`;
     const existing = nodeGrid.get(key);
     if (existing) return existing;
 
     const node: ProceduralRunMapNode = {
-      id: `${routeId}-d${depth}-${suffix}`,
+      id: `room-d${depth}-l${lane}`,
       depth,
       lane,
       routeId,
@@ -616,106 +576,50 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
     }
   };
 
-  const startLanes = shuffle(random, [0, 0, 2, 2, 4, 4]);
-  for (let pathIndex = 0; pathIndex < PATH_COUNT; pathIndex++) {
-    let lane = startLanes[pathIndex] ?? middleLane;
-    let previousNode: ProceduralRunMapNode | null = null;
+  // Edges already committed between a row and the row above it, used to
+  // reject steps that would cross an existing connection.
+  const gapEdges: { from: number; to: number }[][] = Array.from(
+    { length: MAP_ROOM_ROWS + 1 },
+    () => [],
+  );
 
-    for (let depth = 1; depth <= MERGE_DEPTH; depth++) {
-      if (depth === MERGE_DEPTH) {
-        lane = middleLane;
-      } else if (depth > 1) {
-        const remainingSteps = MERGE_DEPTH - depth;
-        const drift = Math.sign(middleLane - lane);
-        const needsMergeStep = Math.abs(middleLane - lane) > remainingSteps;
-        lane = clamp(
-          lane + (needsMergeStep ? drift : randomInt(random, -1, 1)),
-          0,
-          LANE_COUNT - 1,
+  const startLanes = new Set<number>();
+  for (let pathIndex = 0; pathIndex < MAP_PATH_COUNT; pathIndex++) {
+    let startLane = randomInt(random, 0, MAP_COLUMNS - 1);
+    if (pathIndex === 1) {
+      while (startLanes.has(startLane)) {
+        startLane = randomInt(random, 0, MAP_COLUMNS - 1);
+      }
+    }
+    startLanes.add(startLane);
+
+    let node = getOrCreateNode(1, startLane);
+    for (let depth = 1; depth < MAP_ROOM_ROWS; depth++) {
+      const lane = node.lane;
+      const directions = shuffle(random, [-1, 0, 1]);
+      let targetLane = lane;
+      for (const direction of directions) {
+        const candidate = clamp(lane + direction, 0, MAP_COLUMNS - 1);
+        const crosses = gapEdges[depth].some(
+          (edge) => (edge.from - lane) * (edge.to - candidate) < 0,
         );
+        if (!crosses) {
+          targetLane = candidate;
+          break;
+        }
       }
 
-      const node = getOrCreateNode(
-        depth,
-        lane,
-        depth === MERGE_DEPTH ? "merge" : `l${lane}`,
-      );
-      if (previousNode) addEdge(previousNode, node);
-      previousNode = node;
+      const nextNode = getOrCreateNode(depth + 1, targetLane);
+      addEdge(node, nextNode);
+      gapEdges[depth].push({ from: lane, to: targetLane });
+      node = nextNode;
     }
   }
-
-  let lane = middleLane;
-  let previousNode = getOrCreateNode(MERGE_DEPTH, middleLane, "merge");
-  for (let depth = MERGE_DEPTH; depth < FINAL_ROOM_DEPTH; depth++) {
-    if (depth > MERGE_DEPTH) {
-      lane = clamp(lane + randomInt(random, -1, 1), 1, 3);
-    }
-    const nextNode = getOrCreateNode(depth + 1, lane);
-    addEdge(previousNode, nextNode);
-    previousNode = nextNode;
-  }
-
-  const shopDepths = new Set(
-    shuffle(random, [3, 5, 7, 10, 12]).slice(0, randomInt(random, 2, 3)),
-  );
-  const eliteDepths = new Set(
-    shuffle(random, [2, 4, 6, 9, 11, 13]).slice(0, randomInt(random, 2, 3)),
-  );
-  const nodesByDepth = new Map<number, ProceduralRunMapNode[]>();
-  nodes.forEach((node) => {
-    if (!nodesByDepth.has(node.depth)) nodesByDepth.set(node.depth, []);
-    nodesByDepth.get(node.depth)!.push(node);
-  });
-
-  nodes.forEach((node) => {
-    const isEntry = node.depth === 1;
-    const isMerge = node.depth === MERGE_DEPTH;
-    const isPrep = node.depth >= FINAL_ROOM_DEPTH - 1;
-    const rowNodes = nodesByDepth.get(node.depth) || [];
-    const rowByRisk = [...rowNodes].sort(
-      (a, b) => Math.abs(b.lane - middleLane) - Math.abs(a.lane - middleLane),
-    );
-    const riskiestNode = rowByRisk[0];
-    const safestNode = rowByRisk[rowByRisk.length - 1];
-
-    if (isMerge) {
-      node.encounterType = "combat";
-    } else if (rowNodes.length > 1 && eliteDepths.has(node.depth) && node.id === riskiestNode?.id) {
-      node.encounterType = "hellhound";
-    } else if (rowNodes.length > 1 && shopDepths.has(node.depth) && node.id === safestNode?.id) {
-      node.encounterType = "shop";
-    } else if (rowNodes.length === 1 && shopDepths.has(node.depth)) {
-      node.encounterType = "shop";
-    } else if (eliteDepths.has(node.depth)) {
-      node.encounterType = "hellhound";
-    }
-
-    node.title = isEntry
-      ? pickOne(random, ROUTE_ENTRY_TITLES[routeId])
-      : node.encounterType === "shop"
-        ? pickOne(random, SHOP_ROUTE_TITLES)
-        : node.encounterType === "hellhound"
-          ? pickOne(random, HELLHOUND_TITLES)
-          : isMerge
-            ? "Convergence Node"
-            : isPrep
-            ? pickOne(random, ROUTE_PREP_TITLES[routeId])
-            : pickOne(random, COMBAT_ROUTE_TITLES);
-
-    node.rewards =
-      node.encounterType === "shop"
-        ? createShopRewards(random, node.depth, bias)
-        : node.encounterType === "hellhound"
-          ? createHellhoundRewards(random, node.depth, bias)
-          : createCombatRewards(random, node.depth, bias);
-
-  });
 
   const bossNode: ProceduralRunMapNode = {
-    id: `${routeId}-boss`,
-    depth: BOSS_DEPTH,
-    lane: middleLane,
+    id: "boss-node",
+    depth: MAP_BOSS_DEPTH,
+    lane: MAP_MIDDLE_COLUMN,
     routeId,
     x: 0,
     y: 0,
@@ -725,9 +629,92 @@ function createRunMapNodes(seed: string): ProceduralRunMapNode[] {
     bossType,
     rewards: [],
   };
-  addEdge(previousNode, bossNode);
 
-  return [...nodes, bossNode].sort((a, b) => a.depth - b.depth || a.lane - b.lane);
+  const parentsById = new Map<string, ProceduralRunMapNode[]>();
+  nodes.forEach((node) => {
+    node.nextNodeIds.forEach((nextNodeId) => {
+      const parents = parentsById.get(nextNodeId) || [];
+      parents.push(node);
+      parentsById.set(nextNodeId, parents);
+    });
+  });
+
+  let elitesPlaced = 0;
+  let shopsPlaced = 0;
+  const rooms = [...nodes].sort((a, b) => a.depth - b.depth || a.lane - b.lane);
+  const canBeElite = (node: ProceduralRunMapNode) =>
+    node.depth >= ELITE_MIN_DEPTH &&
+    node.depth < MAP_ROOM_ROWS &&
+    !(parentsById.get(node.id) || []).some(
+      (parent) => parent.encounterType === "hellhound",
+    );
+  const canBeShop = (node: ProceduralRunMapNode) =>
+    node.depth >= SHOP_MIN_DEPTH &&
+    node.depth < MAP_ROOM_ROWS &&
+    !(parentsById.get(node.id) || []).some(
+      (parent) => parent.encounterType === "shop",
+    );
+
+  rooms.forEach((node) => {
+    const roll = random();
+    if (canBeElite(node) && elitesPlaced < MAX_ELITE_NODES && roll < 0.13) {
+      node.encounterType = "hellhound";
+      elitesPlaced += 1;
+    } else if (canBeShop(node) && shopsPlaced < MAX_SHOP_NODES && roll < 0.24) {
+      node.encounterType = "shop";
+      shopsPlaced += 1;
+    }
+  });
+
+  const topUp = (
+    encounterType: RunMapEncounterType,
+    placed: number,
+    minimum: number,
+    eligible: (node: ProceduralRunMapNode) => boolean,
+  ) => {
+    const pool = shuffle(
+      random,
+      rooms.filter(
+        (node) => node.encounterType === "combat" && eligible(node),
+      ),
+    );
+    for (const node of pool) {
+      if (placed >= minimum) break;
+      node.encounterType = encounterType;
+      placed += 1;
+    }
+    return placed;
+  };
+  elitesPlaced = topUp("hellhound", elitesPlaced, 2, canBeElite);
+  shopsPlaced = topUp("shop", shopsPlaced, 2, canBeShop);
+
+  nodes.forEach((node) => {
+    const bias = pickOne(random, ["economy", "recovery", "power"] as RewardBias[]);
+    node.title =
+      node.depth === 1
+        ? pickOne(random, ENTRY_NODE_TITLES)
+        : node.depth === MAP_ROOM_ROWS
+          ? pickOne(random, PRE_BOSS_NODE_TITLES)
+          : node.encounterType === "shop"
+            ? pickOne(random, SHOP_NODE_TITLES)
+            : node.encounterType === "hellhound"
+              ? pickOne(random, HELLHOUND_TITLES)
+              : pickOne(random, COMBAT_NODE_TITLES);
+
+    node.rewards =
+      node.encounterType === "shop"
+        ? createShopRewards(random, node.depth, bias)
+        : node.encounterType === "hellhound"
+          ? createHellhoundRewards(random, node.depth, bias)
+          : createCombatRewards(random, node.depth, bias);
+  });
+
+  nodes
+    .filter((node) => node.depth === MAP_ROOM_ROWS)
+    .forEach((node) => addEdge(node, bossNode));
+  nodes.push(bossNode);
+
+  return nodes.sort((a, b) => a.depth - b.depth || a.lane - b.lane);
 }
 
 function nodeHash(id: string, salt: number) {
@@ -737,48 +724,19 @@ function nodeHash(id: string, salt: number) {
 }
 
 function pickMysteryNodeIds(nodes: RunMapNode[]): string[] {
-  const maxDepth = nodes.reduce((max, node) => Math.max(max, node.depth), 0);
-  const chosen = new Set<string>();
+  const candidates = nodes.filter(
+    (node) =>
+      node.encounterType !== "boss" &&
+      node.depth >= 3 &&
+      node.depth <= MAP_BOSS_DEPTH - 2,
+  );
+  const target = Math.min(9, Math.max(4, Math.round(candidates.length * 0.2)));
 
-  RADIAL_ROUTE_ORDER.forEach((routeId) => {
-    const candidates = nodes
-      .filter(
-        (node) =>
-          node.routeId === routeId &&
-          node.encounterType !== "boss" &&
-          node.depth >= 3 &&
-          node.depth <= maxDepth - 2,
-      )
-      .sort((a, b) => a.depth - b.depth || a.lane - b.lane);
-
-    if (candidates.length === 0) return;
-
-    const spacedCandidates = candidates.filter((candidate, index) => {
-      if (index === 0) return true;
-      const previous = candidates[index - 1];
-      return candidate.depth - previous.depth >= 2;
-    });
-
-    const primaryPool = spacedCandidates.length > 0 ? spacedCandidates : candidates;
-    const primaryIndex = Math.floor(nodeHash(`${routeId}-mystery-primary`, 11) * primaryPool.length);
-    chosen.add(primaryPool[primaryIndex].id);
-
-    if (candidates.length >= 5 && nodeHash(`${routeId}-mystery-secondary`, 23) > 0.45) {
-      const secondaryPool = candidates.filter(
-        (candidate) =>
-          candidate.id !== primaryPool[primaryIndex].id &&
-          Math.abs(candidate.depth - primaryPool[primaryIndex].depth) >= 2,
-      );
-      if (secondaryPool.length > 0) {
-        const secondaryIndex = Math.floor(
-          nodeHash(`${routeId}-mystery-secondary-pick`, 37) * secondaryPool.length,
-        );
-        chosen.add(secondaryPool[secondaryIndex].id);
-      }
-    }
-  });
-
-  return Array.from(chosen);
+  return candidates
+    .map((node) => ({ id: node.id, roll: nodeHash(node.id, 29) }))
+    .sort((a, b) => a.roll - b.roll)
+    .slice(0, target)
+    .map((entry) => entry.id);
 }
 
 function createInitialRunMap(seed: string): RunMapState {
@@ -844,6 +802,16 @@ export class LocalGameEngine {
   private tookDamageAfterWave5: boolean = false;
   private lastToasterDeployAt: Map<string, number> = new Map();
   private returnToMapAfterUpgrade: boolean = false;
+  private autoplay: boolean = false;
+  private autopilotInput: InputState = {
+    up: false,
+    down: false,
+    left: false,
+    right: false,
+  };
+  private autoplayDecisionAt: number | null = null;
+  private autoplayInteractReadyAt: number = 0;
+  private autoplayShakePhase: boolean = false;
 
   constructor(
     playerId: string,
@@ -1457,6 +1425,17 @@ export class LocalGameEngine {
     this.onUnlock = callback;
   }
 
+  setAutoplay(enabled: boolean) {
+    this.autoplay = enabled;
+    this.autoplayDecisionAt = null;
+    this.autopilotInput = {
+      up: false,
+      down: false,
+      left: false,
+      right: false,
+    };
+  }
+
   updateInput(input: InputState) {
     // Clone the input to avoid reference issues
     this.inputState = { ...input };
@@ -1685,7 +1664,7 @@ export class LocalGameEngine {
 
   private getCurrentInput(player: Player): InputState | undefined {
     if (player.id === this.gameState.players[0]?.id) {
-      return this.inputState;
+      return this.autoplay ? this.autopilotInput : this.inputState;
     }
     return player.lastInput;
   }
@@ -2778,6 +2757,7 @@ export class LocalGameEngine {
 
     return JSON.stringify({
       mode: state.status,
+      autoplay: this.autoplay,
       mapDepth: state.mapDepth || 0,
       threatTier: state.wave || 0,
       currentEncounterType: state.currentEncounterType || null,
@@ -2879,10 +2859,287 @@ export class LocalGameEngine {
     });
   }
 
+  private autoplayReady(now: number, delayMs: number) {
+    if (this.autoplayDecisionAt === null) {
+      this.autoplayDecisionAt = now + delayMs;
+      return false;
+    }
+    if (now < this.autoplayDecisionAt) return false;
+    this.autoplayDecisionAt = null;
+    return true;
+  }
+
+  private autopilotNeutralInput(): InputState {
+    return { up: false, down: false, left: false, right: false };
+  }
+
+  private autopilotMoveToward(player: Player, target: Vector2D): InputState {
+    const input = this.autopilotNeutralInput();
+    const dx = target.x - player.position.x;
+    const dy = target.y - player.position.y;
+    const mag = Math.hypot(dx, dy);
+    if (mag > 4) {
+      input.analogX = dx / mag;
+      input.analogY = dy / mag;
+    }
+    return input;
+  }
+
+  private updateAutopilot(state: GameState, now: number) {
+    const player = state.players[0];
+
+    // Auto-pick an upgrade when the level-up prompt pauses the game
+    if (state.levelingUpPlayerId) {
+      const choices = this.upgradeChoices.get(state.levelingUpPlayerId);
+      if (choices && choices.length > 0 && this.autoplayReady(now, 700)) {
+        this.selectUpgrade(
+          choices[Math.floor(Math.random() * choices.length)].id,
+        );
+      }
+      this.autopilotInput = this.autopilotNeutralInput();
+      return;
+    }
+
+    // Auto-pick the next run map node (prefer boss, then combat, then shop)
+    if (state.status === "mapSelection") {
+      const reachableIds = state.runMap?.reachableNodeIds || [];
+      if (reachableIds.length > 0 && this.autoplayReady(now, 900)) {
+        const nodes = state.runMap?.nodes || [];
+        const priority = (type: RunMapEncounterType) =>
+          type === "boss" ? 0 : type === "shop" ? 2 : 1;
+        const target = reachableIds
+          .map((id) => nodes.find((node) => node.id === id))
+          .filter((node): node is RunMapNode => !!node)
+          .sort(
+            (a, b) => priority(a.encounterType) - priority(b.encounterType),
+          )[0];
+        if (target) this.selectMapNode(target.id);
+      }
+      this.autopilotInput = this.autopilotNeutralInput();
+      return;
+    }
+
+    if (!player || player.status !== "alive") {
+      this.autoplayDecisionAt = null;
+      this.autopilotInput = this.autopilotNeutralInput();
+      return;
+    }
+
+    // Walk into the extraction teleporter after a boss kill; fall back to
+    // extracting directly if there is no teleporter to reach.
+    if (state.status === "bossDefeated") {
+      if (state.teleporter) {
+        this.autoplayDecisionAt = null;
+        this.autopilotInput = this.autopilotMoveToward(
+          player,
+          state.teleporter.position,
+        );
+      } else {
+        this.autopilotInput = this.autopilotNeutralInput();
+        if (this.autoplayReady(now, 1500)) this.extract();
+      }
+      return;
+    }
+
+    this.autoplayDecisionAt = null;
+
+    if (state.isShopRound) {
+      this.autopilotInput = this.computeAutopilotShopInput(state, player, now);
+      return;
+    }
+
+    this.autopilotInput = this.computeAutopilotCombatInput(state, player);
+  }
+
+  private computeAutopilotShopInput(
+    state: GameState,
+    player: Player,
+    now: number,
+  ): InputState {
+    const stands = state.shopStands || [];
+    const coins = player.coins || 0;
+    const affordable = stands.filter(
+      (stand) =>
+        stand.offer &&
+        !stand.offer.purchased &&
+        stand.offer.type !== "leave" &&
+        stand.offer.cost <= coins,
+    );
+
+    let target: ShopStand | null = null;
+    let minDistance = Infinity;
+    affordable.forEach((stand) => {
+      const distance = Math.hypot(
+        stand.position.x - player.position.x,
+        stand.position.y - player.position.y,
+      );
+      if (distance < minDistance) {
+        minDistance = distance;
+        target = stand;
+      }
+    });
+    if (!target) {
+      target = stands.find((stand) => stand.offer?.type === "leave") || null;
+    }
+    if (!target) return this.autopilotNeutralInput();
+
+    const distance = Math.hypot(
+      target.position.x - player.position.x,
+      target.position.y - player.position.y,
+    );
+    const input = this.autopilotMoveToward(player, target.position);
+    if (
+      distance <= SHOP_INTERACT_RADIUS - 15 &&
+      now >= this.autoplayInteractReadyAt
+    ) {
+      input.interact = true;
+      this.autoplayInteractReadyAt = now + 350;
+    }
+    return input;
+  }
+
+  private computeAutopilotCombatInput(
+    state: GameState,
+    player: Player,
+  ): InputState {
+    const input = this.autopilotNeutralInput();
+    const px = player.position.x;
+    const py = player.position.y;
+
+    let ax = 0;
+    let ay = 0;
+    const repel = (
+      x: number,
+      y: number,
+      radius: number,
+      weight: number,
+    ) => {
+      const dx = px - x;
+      const dy = py - y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > 0 && distance < radius) {
+        const force = ((1 - distance / radius) * weight) / distance;
+        ax += dx * force;
+        ay += dy * force;
+      }
+    };
+
+    let nearestEnemy: Enemy | null = null;
+    let nearestEnemyDistance = Infinity;
+    state.enemies.forEach((enemy) => {
+      repel(enemy.position.x, enemy.position.y, 280, 1.6);
+      const distance = Math.hypot(
+        enemy.position.x - px,
+        enemy.position.y - py,
+      );
+      if (distance < nearestEnemyDistance) {
+        nearestEnemyDistance = distance;
+        nearestEnemy = enemy;
+      }
+    });
+
+    // Hunt stragglers once nothing is close enough to be dangerous
+    if (nearestEnemy && nearestEnemyDistance > 320) {
+      ax += ((nearestEnemy.position.x - px) / nearestEnemyDistance) * 0.9;
+      ay += ((nearestEnemy.position.y - py) / nearestEnemyDistance) * 0.9;
+    }
+    if (state.boss) {
+      repel(state.boss.position.x, state.boss.position.y, 340, 2.2);
+    }
+    state.bossProjectiles?.forEach((projectile) =>
+      repel(projectile.position.x, projectile.position.y, 200, 1.4),
+    );
+    state.hazards?.forEach((hazard) =>
+      repel(
+        hazard.position.x,
+        hazard.position.y,
+        (hazard.radius || 60) + 60,
+        1.5,
+      ),
+    );
+    state.explosions?.forEach((explosion) =>
+      repel(
+        explosion.position.x,
+        explosion.position.y,
+        (explosion.radius || 80) + 40,
+        1.5,
+      ),
+    );
+    // Steer away from expanding shockwave rings without crossing the band
+    state.shockwaveRings?.forEach((ring) => {
+      const dx = px - ring.position.x;
+      const dy = py - ring.position.y;
+      const distance = Math.hypot(dx, dy);
+      const bandDistance = Math.abs(distance - ring.currentRadius);
+      if (distance > 0 && bandDistance < 70) {
+        const side = distance >= ring.currentRadius ? 1 : -1;
+        const force =
+          (((70 - bandDistance) / 70) * 1.4 * side) / distance;
+        ax += dx * force;
+        ay += dy * force;
+      }
+    });
+
+    // Drift toward the nearest XP orb or coin
+    let nearestOrb: XpOrb | null = null;
+    let orbDistance = 450;
+    state.xpOrbs.forEach((orb) => {
+      const distance = Math.hypot(
+        orb.position.x - px,
+        orb.position.y - py,
+      );
+      if (distance < orbDistance) {
+        orbDistance = distance;
+        nearestOrb = orb;
+      }
+    });
+    if (nearestOrb && orbDistance > 1) {
+      ax += ((nearestOrb.position.x - px) / orbDistance) * 0.7;
+      ay += ((nearestOrb.position.y - py) / orbDistance) * 0.7;
+    }
+
+    // Gentle pull toward arena center so the bot does not hug walls
+    ax += ((ARENA_WIDTH / 2 - px) / ARENA_WIDTH) * 0.4;
+    ay += ((ARENA_HEIGHT / 2 - py) / ARENA_HEIGHT) * 0.4;
+
+    const mag = Math.hypot(ax, ay);
+    if (mag > 0.05) {
+      const scale = Math.max(1, mag);
+      input.analogX = ax / scale;
+      input.analogY = ay / scale;
+    }
+
+    // Shake off attached bugs (edge-triggered presses)
+    if (player.attachedBug) {
+      this.autoplayShakePhase = !this.autoplayShakePhase;
+      input.shake = this.autoplayShakePhase;
+    } else {
+      this.autoplayShakePhase = false;
+    }
+
+    // Fire defensive abilities when pressured
+    const closeEnemies = state.enemies.filter(
+      (enemy) =>
+        Math.hypot(enemy.position.x - px, enemy.position.y - py) < 160,
+    ).length;
+    if (closeEnemies >= 3 || (player.health < player.maxHealth * 0.4 && closeEnemies >= 1)) {
+      this.useAbility();
+    }
+    if (nearestEnemyDistance < 70) {
+      this.useBlink();
+    }
+
+    return input;
+  }
+
   private runSimulationStep(now: number, delta: number) {
     if (delta <= 0) return;
 
     const state = this.gameState;
+
+    if (this.autoplay) {
+      this.updateAutopilot(state, now);
+    }
 
     // Pause game loop if player is leveling up or explicit pause
     if (state.levelingUpPlayerId || state.isPaused) return;
@@ -2895,7 +3152,9 @@ export class LocalGameEngine {
 
     const localPlayer = state.players[0];
     if (localPlayer) {
-      localPlayer.lastInput = { ...this.inputState };
+      localPlayer.lastInput = this.autoplay
+        ? { ...this.autopilotInput }
+        : { ...this.inputState };
     }
 
     const timeFactor = delta / (1000 / 60);
@@ -5667,12 +5926,15 @@ export class LocalGameEngine {
         // Track level 10 achievement (only once per game per player)
         if (p.level === 10 && !this.level10Tracked.has(p.id)) {
           this.level10Tracked.add(p.id);
-          incrementLevel10Count();
 
-          // Check for unlocks
-          const newlyUnlocked = checkUnlocks();
-          if (newlyUnlocked.length > 0 && this.onUnlock) {
-            newlyUnlocked.forEach((charType) => this.onUnlock!(charType));
+          if (!this.autoplay) {
+            incrementLevel10Count();
+
+            // Check for unlocks
+            const newlyUnlocked = checkUnlocks();
+            if (newlyUnlocked.length > 0 && this.onUnlock) {
+              newlyUnlocked.forEach((charType) => this.onUnlock!(charType));
+            }
           }
         }
 
@@ -5827,6 +6089,8 @@ export class LocalGameEngine {
   }
 
   private saveGameStats(state: GameState) {
+    // Autoplay runs never record score, stats, or unlocks
+    if (this.autoplay) return;
     const survivalTimeMs = Date.now() - this.gameStartTime;
     const stats = {
       characterType: this.characterType,
@@ -5948,7 +6212,7 @@ export class LocalGameEngine {
     if (boss.health <= 0) {
       const currentNode = this.getCurrentMapNode(state);
       this.enemiesKilledCount++;
-      incrementBossDefeats();
+      if (!this.autoplay) incrementBossDefeats();
       state.boss = null;
       if (state.currentEncounterType === "boss" && currentNode?.depth === 10) {
         state.currentEncounterType = null;

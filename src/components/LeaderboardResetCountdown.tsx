@@ -60,16 +60,16 @@ export function LeaderboardResetCountdown() {
     return (
       <span className="text-neon-cyan">
         {value}
-        <span className="text-neon-cyan/60 text-[10px] ml-0.5">{unit}</span>
+        <span className="text-slate-400 text-xs ml-0.5">{unit}</span>
       </span>
     );
   };
 
   return (
-    <div className="flex items-center gap-2 text-xs font-press-start">
+    <div className="flex items-center gap-2 text-sm font-sans tabular-nums">
       <Clock className="h-3 w-3 text-neon-yellow" />
       <div className="flex items-center gap-1">
-        <span className="text-neon-yellow/80">Reset:</span>
+        <span className="text-slate-400">Reset:</span>
         <div className="flex items-center gap-1">
           {timeRemaining.days > 0 && formatTimeUnit(timeRemaining.days, 'd')}
           {formatTimeUnit(timeRemaining.hours, 'h')}

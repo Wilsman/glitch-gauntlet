@@ -97,7 +97,7 @@ export default function TestingArenaPanel({
         </div>
 
         {/* Global Controls Bar */}
-        <div className="flex items-center gap-4 p-4 bg-black/20 border-b border-white/10 overflow-x-auto no-scrollbar">
+        <div className="flex flex-wrap items-center gap-4 p-4 bg-black/20 border-b border-white/10">
           <Button
             onClick={() => engine.debugToggleSandbox(!isSandbox)}
             className={`flex items-center gap-2 font-press-start text-[10px] py-4 h-auto ${

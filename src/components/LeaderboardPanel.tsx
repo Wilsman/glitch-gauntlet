@@ -55,9 +55,9 @@ function LeaderboardEntryRow({ entry, rank, category }: LeaderboardEntryRowProps
   };
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-black/40 border border-neon-cyan/20 rounded hover:border-neon-cyan/50 transition-colors">
+    <div className="flex items-center gap-3 p-3 bg-white/[0.025] border border-white/5 rounded-lg hover:border-white/15 transition-colors">
       {/* Rank */}
-      <div className={`font-press-start text-lg w-8 text-center ${getRankColor(rank)}`}>
+      <div className={`font-sans text-base w-6 shrink-0 text-center ${getRankColor(rank)}`}>
         {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`}
       </div>
 
@@ -68,16 +68,16 @@ function LeaderboardEntryRow({ entry, rank, category }: LeaderboardEntryRowProps
 
       {/* Player Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-press-start text-sm text-white truncate">
+        <p className="font-sans text-sm font-semibold text-white truncate">
           {entry.playerName}
         </p>
-        <p className="font-vt323 text-base text-neon-cyan/70">
+        <p className="font-sans text-xs text-slate-400">
           {formatTimeAgo(entry.createdAt)}
         </p>
       </div>
 
       {/* Primary Stat */}
-      <div className="font-press-start text-base text-neon-yellow text-right">
+      <div className="font-sans text-sm font-semibold tabular-nums text-yellow-200 text-right shrink-0">
         {getPrimaryValue()}
       </div>
     </div>
@@ -85,6 +85,7 @@ function LeaderboardEntryRow({ entry, rank, category }: LeaderboardEntryRowProps
 }
 
 export function LeaderboardPanel() {
+  const [expanded, setExpanded] = useState(false);
   const [activeCategory, setActiveCategory] = useState<LeaderboardCategory>('highest-wave');
   const [entries, setEntries] = useState<Record<LeaderboardCategory, LeaderboardEntry[]>>({
     'highest-wave': [],
@@ -146,12 +147,14 @@ export function LeaderboardPanel() {
   };
 
   return (
-    <div className="bg-black border-2 border-neon-pink p-6 rounded-lg shadow-glow-pink h-full flex flex-col">
+    <div className="bg-[#090b16]/95 border border-white/15 p-5 rounded-xl flex flex-col">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="font-press-start text-lg text-neon-yellow">
+        <h2 className="font-press-start text-xs leading-6 text-slate-100">
           🏆 LEADERBOARDS
         </h2>
         <Button
+          aria-label="Refresh leaderboard"
+          title="Refresh leaderboard"
           onClick={handleRefresh}
           disabled={cooldownRemaining > 0 || loading[activeCategory]}
           size="sm"
@@ -161,46 +164,46 @@ export function LeaderboardPanel() {
         </Button>
       </div>
 
-      <div className="mb-4 pb-3 border-b border-neon-pink/30">
+      <div className="mb-4 pb-3 border-b border-white/10">
         <LeaderboardResetCountdown />
-        <p className="font-vt323 text-sm text-neon-cyan/60 mt-1">
-          Weekly leaderboards reset every Monday at 08:00 UTC
+        <p className="font-sans text-xs leading-5 text-slate-400 mt-1">
+          Weekly reset · Monday, 08:00 UTC
         </p>
       </div>
 
       <Tabs 
         value={activeCategory} 
-        onValueChange={(value) => setActiveCategory(value as LeaderboardCategory)}
+        onValueChange={(value) => { setActiveCategory(value as LeaderboardCategory); setExpanded(false); }}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList className="grid h-auto grid-cols-2 gap-2 bg-transparent mb-4">
+        <TabsList className="grid h-auto grid-cols-2 gap-1 bg-white/5 p-1 mb-3">
           <TabsTrigger 
             value="highest-wave"
-            className="font-press-start text-xs data-[state=active]:bg-neon-cyan data-[state=active]:text-black bg-black border border-neon-cyan text-neon-cyan"
+            className="min-h-9 font-sans text-sm font-medium data-[state=active]:bg-neon-cyan/15 data-[state=active]:text-neon-cyan bg-transparent text-slate-300"
           >
             🏆 Wave
           </TabsTrigger>
           <TabsTrigger 
             value="most-kills"
-            className="font-press-start text-xs data-[state=active]:bg-neon-pink data-[state=active]:text-black bg-black border border-neon-pink text-neon-pink"
+            className="min-h-9 font-sans text-sm font-medium data-[state=active]:bg-neon-cyan/15 data-[state=active]:text-neon-cyan bg-transparent text-slate-300"
           >
             💀 Kills
           </TabsTrigger>
           <TabsTrigger 
             value="longest-survival"
-            className="font-press-start text-xs data-[state=active]:bg-neon-yellow data-[state=active]:text-black bg-black border border-neon-yellow text-neon-yellow"
+            className="min-h-9 font-sans text-sm font-medium data-[state=active]:bg-neon-cyan/15 data-[state=active]:text-neon-cyan bg-transparent text-slate-300"
           >
             ⏱️ Time
           </TabsTrigger>
           <TabsTrigger 
             value="fastest-victory"
-            className="font-press-start text-xs data-[state=active]:bg-green-500 data-[state=active]:text-black bg-black border border-green-500 text-green-500"
+            className="min-h-9 font-sans text-sm font-medium data-[state=active]:bg-neon-cyan/15 data-[state=active]:text-neon-cyan bg-transparent text-slate-300"
           >
             ⚡ Speed
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 overflow-y-auto mt-4 min-h-0">
+        <div className="overflow-y-auto min-h-0 max-h-[360px]">
           {(['highest-wave', 'most-kills', 'longest-survival', 'fastest-victory'] as LeaderboardCategory[]).map(category => (
             <TabsContent key={category} value={category} className="mt-0 space-y-2">
               {loading[category] ? (
@@ -208,11 +211,11 @@ export function LeaderboardPanel() {
                   <Loader2 className="h-8 w-8 animate-spin text-neon-cyan" />
                 </div>
               ) : error ? (
-                <p className="font-vt323 text-xl text-red-500 text-center py-8">
+                <p className="font-sans text-sm text-red-300 text-center py-6">
                   {error}
                 </p>
               ) : entries[category].length > 0 ? (
-                entries[category].map((entry, index) => (
+                entries[category].slice(0, expanded ? undefined : 3).map((entry, index) => (
                   <LeaderboardEntryRow
                     key={entry.id}
                     entry={entry}
@@ -221,7 +224,7 @@ export function LeaderboardPanel() {
                   />
                 ))
               ) : (
-                <p className="font-vt323 text-xl text-neon-cyan/50 text-center py-8">
+                <p className="font-sans text-sm leading-6 text-slate-400 text-center py-6">
                   No entries yet!
                   <br />
                   Be the first to set a record!
@@ -231,6 +234,12 @@ export function LeaderboardPanel() {
           ))}
         </div>
       </Tabs>
+      {entries[activeCategory].length > 3 && !loading[activeCategory] && !error && (
+        <Button variant="ghost" onClick={() => setExpanded(value => !value)} aria-expanded={expanded}
+          className="mt-3 font-sans text-sm text-neon-cyan hover:bg-white/5 hover:text-cyan-100">
+          {expanded ? 'Show top 3' : `View top ${entries[activeCategory].length}`}
+        </Button>
+      )}
     </div>
   );
 }

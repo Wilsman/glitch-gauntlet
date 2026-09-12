@@ -61,9 +61,9 @@ export default {
   			input: 'hsl(var(--input))',
   		},
   		boxShadow: {
-        'glow-pink': '0 0 5px #FF00FF, 0 0 10px #FF00FF, 0 0 20px #FF00FF, 0 0 40px #FF00FF',
-        'glow-cyan': '0 0 5px #00FFFF, 0 0 10px #00FFFF, 0 0 20px #00FFFF, 0 0 40px #00FFFF',
-        'glow-yellow': '0 0 5px #FFFF00, 0 0 10px #FFFF00, 0 0 20px #FFFF00, 0 0 40px #FFFF00',
+        'glow-pink': '0 0 16px rgba(255,0,255,0.16)',
+        'glow-cyan': '0 0 16px rgba(0,255,255,0.16)',
+        'glow-yellow': '0 0 20px rgba(255,255,0,0.2)',
   			soft: '0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04)',
   			primary: '0 0 20px -5px hsl(var(--primary) / 0.4)',
   			glass: '0 8px 32px 0 rgba(31, 38, 135, 0.37)'
