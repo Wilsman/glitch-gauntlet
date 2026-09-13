@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import type { CollectedUpgrade, GameState, Pet, Player } from "@shared/types";
+import ExplorationHUD from "./ExplorationHUD";
 import { Coins, Heart, Shield, Sparkles, Star } from "lucide-react";
 import { getCharacter } from "@shared/characterConfig";
 import { SPRITE_MAP } from "@/lib/spriteMap";
@@ -66,7 +67,7 @@ export default function UnifiedHUD({
 
   const avatarSrc = spriteConfig?.framePath
     ? spriteConfig.framePath.replace("{i}", avatarFrame.toString())
-    : spriteConfig?.url;
+    : spriteConfig && "url" in spriteConfig && typeof spriteConfig.url === "string" ? spriteConfig.url : undefined;
 
   const xpPercentage = Math.max(
     0,
@@ -82,7 +83,7 @@ export default function UnifiedHUD({
 
   const isDead = localPlayer.status === "dead";
   const totalMapDepth = runMap?.nodes.reduce((max, node) => Math.max(max, node.depth), 10) || 10;
-  const statusText = status === "mapSelection"
+  const statusText = gameState.exploration ? "EXPLORE THE YARD" : status === "mapSelection"
     ? "CHOOSE PATH"
     : isShopRound
       ? "SHOP ROUND"
@@ -94,7 +95,7 @@ export default function UnifiedHUD({
             ? "CLEAR THE PACKS"
             : "SURVIVE";
   const showCombatProgress =
-    currentEncounterType === "combat" && status === "playing" && !isHellhoundRound;
+    currentEncounterType === "combat" && status === "playing" && !isHellhoundRound && !gameState.exploration;
   const combatProgressPercentage =
     encounterEnemiesTotal > 0
       ? Math.min(
@@ -119,6 +120,7 @@ export default function UnifiedHUD({
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 p-4 font-press-start">
+      <ExplorationHUD gameState={gameState} player={localPlayer} />
       <div className="absolute left-3 top-3 w-[min(420px,calc(100vw-1.5rem))]">
         <div className="rounded-2xl border border-neon-cyan/55 bg-black/78 p-3.5 backdrop-blur-md shadow-[0_0_30px_rgba(0,255,255,0.22)]">
           <div className="flex items-center gap-3.5">
@@ -282,7 +284,7 @@ export default function UnifiedHUD({
         </div>
       </div>
 
-      <div className="absolute left-1/2 top-4 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2">
+      <div className={`absolute left-1/2 top-4 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 ${gameState.exploration ? "hidden" : ""}`}>
         <div className="rounded-xl border border-neon-cyan/45 bg-black/65 px-4 py-2 backdrop-blur-md shadow-[0_0_18px_rgba(0,255,255,0.15)]">
           <div className="flex items-center justify-between gap-3 text-[10px]">
             <span className="text-neon-cyan/90">

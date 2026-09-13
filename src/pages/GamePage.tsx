@@ -37,6 +37,7 @@ export default function GamePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const isLocalMode = gameId === "local";
+  const isExplorationPrototype = isLocalMode && searchParams.get("explorationPrototype") === "1";
   const isAutoplay = isLocalMode && searchParams.get("autoplay") === "1";
 
   const setGameState = useGameStore((state) => state.setGameState);
@@ -92,6 +93,12 @@ export default function GamePage() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isExplorationPrototype && e.key.toLowerCase() === 'f' && !(e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName))) {
+        e.preventDefault();
+        const action = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+        void action.catch(() => toast.error('Fullscreen is unavailable in this browser.'));
+        return;
+      }
       if (e.key === "Escape" && isLocalMode) {
         if (
           isUpgradeModalOpen ||
@@ -125,6 +132,7 @@ export default function GamePage() {
     isPauseMenuOpen,
     isTestingArenaOpen,
     isUpgradeModalOpen,
+    isExplorationPrototype,
   ]);
 
   // Sync engine pause state with overlay visibility
@@ -137,10 +145,11 @@ export default function GamePage() {
   useEffect(() => {
     if (!gameStatus || !gameId) return;
 
+    if (isExplorationPrototype) return;
     if (gameStatus === "gameOver" || gameStatus === "won") {
       // Submit to leaderboard if in local mode and player has a name
       // Autoplay runs never submit scores
-      if (isLocalMode && !isAutoplay) {
+      if (isLocalMode && !isAutoplay && !isExplorationPrototype) {
         const playerName = getPlayerName();
         const lastRun = getLastRunStats();
 
@@ -176,7 +185,7 @@ export default function GamePage() {
         navigate(`/gamewon/${gameId}${autoplaySuffix}`);
       }
     }
-  }, [gameStatus, navigate, gameId, isLocalMode, isAutoplay]);
+  }, [gameStatus, navigate, gameId, isLocalMode, isAutoplay, isExplorationPrototype]);
 
   useEffect(() => {
     if (!gameId) {
@@ -205,7 +214,7 @@ export default function GamePage() {
       const characterFromUrl = searchParams.get(
         "character"
       ) as CharacterType | null;
-      const characterType = characterFromUrl || "pet-pal-percy";
+      const characterType = isExplorationPrototype ? (characterFromUrl === "turret-tina" ? "turret-tina" : "dash-dynamo") : characterFromUrl || "pet-pal-percy";
       const playerName = getPlayerName();
 
       const engine = new LocalGameEngine(
@@ -213,7 +222,8 @@ export default function GamePage() {
         characterType,
         playerName
       );
-      engine.setAutoplay(isAutoplay);
+      if (isExplorationPrototype) engine.configureExploration(Number(searchParams.get("seed") || 0));
+      engine.setAutoplay(isAutoplay && !isExplorationPrototype);
       localEngineRef.current = engine;
 
       // Set unlock callback
@@ -264,6 +274,7 @@ export default function GamePage() {
     isLocalMode,
     isAutoplay,
     searchParams,
+    isExplorationPrototype,
     localRunNonce,
   ]);
 
@@ -506,6 +517,15 @@ export default function GamePage() {
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
       <GameCanvas />
+      {isExplorationPrototype && <div className="fixed bottom-2 left-3 z-30 text-[10px] text-slate-400">EXPLORATION PROTOTYPE · no saved progression · testing controls: backslash</div>}
+      {isExplorationPrototype && (gameStatus === 'gameOver' || gameStatus === 'won') && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+        <div className="rounded-xl border border-slate-600 bg-slate-900 p-8 text-center text-white">
+          <h2 className="mb-2 text-xl">{gameStatus === 'gameOver' ? 'Run ended' : 'Prototype complete'}</h2>
+          <p className="mb-5 text-slate-300">Your normal run history is unchanged.</p>
+          <Button onClick={handleRestartRun}>Restart prototype</Button>
+          <Button className="ml-3" onClick={handleExitToMenu}>Return to menu</Button>
+        </div>
+      </div>}
       {localPlayer && <StatsPanel player={localPlayer} />}
       <SettingsPanel className="fixed right-4 top-1 z-40" />
       {isLocalMode && (

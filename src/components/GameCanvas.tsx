@@ -11,6 +11,7 @@ import {
   Group,
   Image as KonvaImage,
 } from "react-konva";
+import ExplorationWorld from "./ExplorationWorld";
 import { SPRITE_MAP } from "@/lib/spriteMap";
 import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
@@ -1720,7 +1721,7 @@ function getDisplaySize() {
   };
 }
 
-const selectGameState = (state: any) => ({
+const selectGameState = (state: ReturnType<typeof useGameStore.getState>) => ({
   gameState: state.gameState,
   localPlayerId: state.localPlayerId,
 });
@@ -1731,9 +1732,9 @@ export default function GameCanvas() {
   );
   const {
     players = [],
-    enemies = [],
-    projectiles = [],
-    xpOrbs = [],
+    enemies: allEnemies = [],
+    projectiles: allProjectiles = [],
+    xpOrbs: allXpOrbs = [],
     gameId = "",
     teleporter = null,
     explosions = [],
@@ -1753,22 +1754,28 @@ export default function GameCanvas() {
     isShopRound = false,
     shopStands = [],
     shopPrompt = null,
-    particles = [],
+    particles: allParticles = [],
     screenShake = null,
     hazards = [],
     trailSegments = [],
     binaryDrops = [],
   } = gameState || {};
 
-  const now = Date.now();
+  const world = gameState?.exploration;
+  const inView = (p: { x: number; y: number }) => !world || (p.x >= world.camera.x - 160 && p.x <= world.camera.x + 1440 && p.y >= world.camera.y - 160 && p.y <= world.camera.y + 880);
+  const enemies = world ? allEnemies.filter(e => inView(e.position)) : allEnemies;
+  const projectiles = world ? allProjectiles.filter(p => inView(p.position)) : allProjectiles;
+  const xpOrbs = world ? allXpOrbs.filter(p => inView(p.position)) : allXpOrbs;
+  const particles = world ? allParticles.filter(p => inView(p.position)) : allParticles;
+  const now = gameState?.simulationTime || Date.now();
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
   const playersById = useMemo(
     () => new Map(players.map((player) => [player.id, player])),
     [players],
   );
   const enemyOwnerIds = useMemo(
-    () => new Set(enemies.map((enemy) => enemy.id)),
-    [enemies],
+    () => new Set(allEnemies.map((enemy) => enemy.id)),
+    [allEnemies],
   );
   const hasTimeWarp = useMemo(
     () => players.some((player) => player.hasTimeWarp),
@@ -1843,10 +1850,12 @@ export default function GameCanvas() {
       listening={false}
     >
       <Layer>
+        <Group x={world ? -world.camera.x : 0} y={world ? -world.camera.y : 0}>
+        {world && <ExplorationWorld world={world} player={localPlayer} />}
         {/* Render Trail Segments (behind everything) */}
         <RenderTrailSegments segments={trailSegments} now={now} />
         {/* Background Grid */}
-        <BackgroundGrid isSandbox={gameState?.isSandboxMode} />
+        {!world && <BackgroundGrid isSandbox={gameState?.isSandboxMode} />}
         {/* Hellhound Round Dim Overlay */}
         {isHellhoundRound && (
           <Rect
@@ -2365,7 +2374,7 @@ export default function GameCanvas() {
                     y={turret.position.y}
                     radius={15}
                     fill="#8B4513"
-                    stroke="#FFA500"
+                    stroke={world?.established && localPlayer && Math.hypot(turret.position.x - localPlayer.position.x, turret.position.y - localPlayer.position.y) <= 160 ? "#a7f3d0" : "#FFA500"}
                     strokeWidth={2}
                     shadowColor="#FFA500"
                     shadowBlur={15}
@@ -3785,6 +3794,7 @@ export default function GameCanvas() {
               })}
           {/* Game ID Text */}
           <Text
+            visible={!world}
             text={`Game Code: ${gameId}`}
             x={20}
             y={SERVER_ARENA_HEIGHT - 30}
@@ -3822,6 +3832,7 @@ export default function GameCanvas() {
               )}
             </Group>
           )}
+        </Group>
         </Group>
       </Layer>
       {/* Post-processing Layer for UI Overlays */}

@@ -130,6 +130,18 @@ export function HomePage() {
     setShowCharacterSelect(true);
   };
 
+  const handlePrototype = () => {
+    if (showNameDialog) return;
+    const playerId = `local-${Date.now()}`;
+    setLocalPlayerId(playerId);
+    toast.success("Entering the Playground", {
+      description: "Unstable beta build — expect weirdness.",
+    });
+    navigate(
+      `/game/local?playerId=${playerId}&character=dash-dynamo&explorationPrototype=1`
+    );
+  };
+
   const handleNameSubmit = (name: string) => {
     setPlayerName(name);
     setShowNameDialog(false);
@@ -268,6 +280,45 @@ export function HomePage() {
       <Toaster richColors theme="dark" />
       {!showCharacterSelect && (
         <div className="fixed right-5 top-4 z-40"><SettingsPanel /></div>
+      )}
+
+      {/* Beta playtest access */}
+      {!showCharacterSelect && (
+        <motion.div
+          initial={{ opacity: 0, y: 20, rotate: -4 }}
+          animate={{ opacity: 1, y: 0, rotate: -2 }}
+          transition={{ delay: 1.6, duration: 0.6, type: "spring" }}
+          whileHover={{ rotate: 0, scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="fixed bottom-5 left-5 z-40"
+        >
+          <button
+            onClick={handlePrototype}
+            className="group relative block w-48 sm:w-56 overflow-hidden rounded-md border-2 border-dashed border-neon-pink/60 bg-black/80 text-left shadow-glow-pink backdrop-blur-sm transition-colors hover:border-neon-pink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neon-pink"
+          >
+            <div className="h-2 w-full bg-[repeating-linear-gradient(45deg,#FFFF00_0_10px,#000_10px_20px)]" />
+            <div className="space-y-1.5 p-3">
+              <div className="flex items-center justify-between">
+                <span className="font-press-start text-[8px] tracking-wider text-neon-pink">
+                  BETA PLAYTEST
+                </span>
+                <span className="flex items-center gap-1 font-vt323 text-sm leading-none text-red-500">
+                  <span className="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-red-500" />
+                  REC
+                </span>
+              </div>
+              <p className="font-press-start text-xs text-neon-yellow group-hover:animate-glitch">
+                THE PLAYGROUND
+              </p>
+              <p className="font-vt323 text-sm leading-tight text-slate-400">
+                open map proto v0.1 — unstable, probably haunted
+              </p>
+            </div>
+            <span className="absolute -right-1 top-6 rotate-12 rounded-sm border border-neon-cyan/70 bg-black/60 px-1.5 py-0.5 font-press-start text-[7px] text-neon-cyan/80">
+              WIP
+            </span>
+          </button>
+        </motion.div>
       )}
     </main>
   );

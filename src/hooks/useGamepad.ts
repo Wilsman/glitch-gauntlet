@@ -90,6 +90,7 @@ export function useGamepad() {
             right: cleanX > THRESHOLD || buttons[15]?.pressed,
             analogX: Math.abs(cleanX) > DEADZONE ? cleanX : 0,
             analogY: Math.abs(cleanY) > DEADZONE ? cleanY : 0,
+            interact: buttons[7]?.pressed || false, // RT is dedicated interaction in exploration
             blink,
             ability,
             shake

@@ -34,6 +34,9 @@ export default function TestingArenaPanel({
   isInvulnerable,
 }: TestingArenaPanelProps) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [prototypeSeed, setPrototypeSeed] = useState(0);
+  const prototype = engine?.getGameState()?.explorationPrototype;
+  const prototypeInvulnerable = !!engine?.getGameState()?.exploration?.debugInvulnerable;
   const [activeTab, setActiveTab] = useState<
     "enemies" | "bosses" | "upgrades" | "player"
   >("enemies");
@@ -96,6 +99,26 @@ export default function TestingArenaPanel({
           </button>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 border-b border-white/10 bg-slate-950/60 px-4 py-3 text-xs text-slate-200">
+          <span className="mr-2 text-cyan-200">OPEN-MAP PROTOTYPE</span>
+          {prototype ? <>
+            <label>Seed <input aria-label="Prototype seed" type="number" min="0" value={prototypeSeed} onChange={e => setPrototypeSeed(Number(e.target.value))} className="ml-1 w-16 rounded bg-slate-800 p-1" /></label>
+            <Button size="sm" onClick={() => { engine.restartExploration('dash-dynamo', prototypeSeed); onClose(); }}>Restart as Dynamo</Button>
+            <Button size="sm" onClick={() => { engine.restartExploration('turret-tina', prototypeSeed); onClose(); }}>Restart as Tina</Button>
+            <Button size="sm" onClick={() => engine.debugExploration('spawns')}>Stage spawns: {engine?.getGameState()?.exploration?.spawnsEnabled ? "on" : "off"}</Button>
+            <Button size="sm" onClick={() => engine.debugSetInvulnerability(!prototypeInvulnerable)}>Invulnerability: {prototypeInvulnerable ? "on" : "off"}</Button>
+            <Button size="sm" onClick={() => { engine.debugExploration('anchor'); onClose(); }}>Go to anchor</Button>
+            <Button size="sm" onClick={() => { engine.debugExploration('cache'); onClose(); }}>Go to cache</Button>
+            <Button size="sm" onClick={() => { engine.debugExploration('exit'); onClose(); }}>Return to route map</Button>
+          </> : <a className="rounded bg-cyan-950 px-3 py-2 text-cyan-100" href="/game/local?playerId=exploration-test&character=dash-dynamo&explorationPrototype=1">Launch exploration</a>}
+        </div>
+        {prototype && <div className="flex-1 space-y-4 overflow-y-auto p-6 text-sm text-slate-300">
+          <p>Walk with WASD / arrows or the left stick. Interact with E / RT. Dynamo slides with Shift / A; Q / X activates the character ability.</p>
+          <p>Find the anchor, activate it, defeat the guardian and charge the field. Claim its upgrade, then interact again to return to the route map.</p>
+          <p>Press F for fullscreen. Opening these controls pauses the simulation. Restarting resets the region, discoveries, loadout and timers. Seeds 0–2 select the three anchor placements.</p>
+          <p className="text-cyan-200">{engine?.getGameState()?.exploration ? `Phase: ${engine.getGameState().exploration.phase} · position: ${Math.round(engine.getGameState().players[0].position.x)}, ${Math.round(engine.getGameState().players[0].position.y)}` : 'Select a combat node or restart to enter the yard.'}</p>
+        </div>}
+        {!prototype && <>
         {/* Global Controls Bar */}
         <div className="flex flex-wrap items-center gap-4 p-4 bg-black/20 border-b border-white/10">
           <Button
@@ -347,6 +370,7 @@ export default function TestingArenaPanel({
           )}
         </div>
 
+        </>}
         {/* Footer */}
         <div className="p-4 bg-black/60 border-t border-white/10 flex justify-between items-center text-[10px] font-vt323 tracking-widest text-gray-600">
           <div className="flex gap-4 uppercase">

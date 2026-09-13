@@ -294,6 +294,8 @@ export interface Enemy {
   history?: Vector2D[];
 }
 export interface Projectile {
+  isPrism?: boolean;
+  isGravity?: boolean;
   id: string;
   position: Vector2D;
   velocity: Vector2D;
@@ -715,6 +717,9 @@ export interface LeaderboardResponse {
 export type CombatEncounterPhase = 'spawning' | 'clearing' | 'intermission';
 
 export interface GameState {
+  explorationPrototype?: boolean;
+  exploration?: import('./exploration').ExplorationState | null;
+  simulationTime?: number;
   gameId: string;
   status: GameStatus;
   runMap?: RunMapState | null;

@@ -113,6 +113,9 @@ import {
   PROJECTILE_BOMB_DELAY,
 } from "@shared/bossConfig";
 
+import { ExplorationStage } from './ExplorationStage';
+import { createExploration, SPAWN, distance, isWalkable, lineClear, moveWorld, WorldNavigator } from './explorationWorld';
+
 const MAX_PLAYERS = 4;
 const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
@@ -780,6 +783,95 @@ function createInitialRunMap(seed: string): RunMapState {
 
 export class LocalGameEngine {
   private gameState: GameState;
+  private prototypeEnabled = false;
+  private prototypeUsed = false;
+  private prototypeSeed = 0;
+  private prototypeTime = Date.now();
+  private explorationController = new ExplorationStage();
+  private enemyNavigator = new WorldNavigator();
+  private bossNavigator = new WorldNavigator();
+  private get arenaWidth() { return this.gameState?.exploration?.width || ARENA_WIDTH; }
+  private get arenaHeight() { return this.gameState?.exploration?.height || ARENA_HEIGHT; }
+  private now() { return this.prototypeEnabled ? this.prototypeTime : Date.now(); }
+
+  configureExploration(seed = 0) {
+    this.prototypeEnabled = true;
+    this.prototypeSeed = seed;
+    this.gameState.explorationPrototype = true;
+    this.markStateDirty();
+  }
+
+  private startExploration(state: GameState) {
+    this.resetArenaForEncounter(state);
+    this.prototypeUsed = true;
+    this.explorationController = new ExplorationStage();
+    this.enemyNavigator = new WorldNavigator();
+    this.bossNavigator = new WorldNavigator();
+    state.exploration = createExploration(this.prototypeSeed);
+    state.status = 'playing'; state.currentEncounterType = 'combat';
+    const player = state.players[0];
+    player.position = { ...SPAWN };
+    player.health = player.maxHealth;
+    player.projectileDamage = getCharacter(player.characterType!).baseDamage * 1.5;
+    player.attackCooldown = 0;
+    player.abilityCooldown = 0;
+    state.turrets = []; state.pets = []; state.clones = [];
+  }
+
+  restartExploration(character: 'dash-dynamo' | 'turret-tina' = 'dash-dynamo', seed = this.prototypeSeed) {
+    if (!this.prototypeEnabled) return;
+    const fresh = new LocalGameEngine(this.gameState.players[0].id, character, this.gameState.players[0].name);
+    const runMap = this.gameState.runMap;
+    fresh.configureExploration(seed);
+    this.gameState = fresh.gameState;
+    if (runMap?.currentNodeId) this.gameState.runMap = runMap;
+    this.prototypeSeed = seed;
+    this.upgradeChoices.clear();
+    this.lastToasterDeployAt.clear();
+    this.level10Tracked.clear();
+    this.enemiesKilledCount = 0;
+    this.inputState = { up: false, down: false, left: false, right: false };
+    if (!this.gameState.runMap?.currentNodeId) {
+      const node = this.gameState.runMap?.nodes.find(n => n.encounterType === 'combat' && this.gameState.runMap?.reachableNodeIds.includes(n.id));
+      if (node) { this.prototypeUsed = false; this.selectMapNode(node.id); }
+    } else this.startExploration(this.gameState);
+    this.markStateDirty();
+  }
+
+  debugExploration(action: 'spawns' | 'exit' | 'anchor' | 'cache' | 'elite' | 'guardian' | 'charge') {
+    const state = this.gameState, world = state.exploration;
+    if (!world) return;
+    if (action === 'spawns') world.spawnsEnabled = !world.spawnsEnabled;
+    if (action === 'exit') this.finishExploration(state);
+    if (action === 'anchor' || action === 'cache' || action === 'elite') {
+      state.players[0].position = { ...world[action].position };
+      world.camera = { x: Math.max(0, Math.min(world.width - 1280, state.players[0].position.x - 640)), y: Math.max(0, Math.min(world.height - 720, state.players[0].position.y - 360)) };
+    }
+    if (action === 'guardian' && state.boss) state.boss.health = 0;
+    if (action === 'charge') world.anchor.chargeMs = 45000;
+    this.markStateDirty();
+  }
+
+  private finishExploration(state: GameState) {
+    this.applyRunMapRewards(state, this.getCurrentNodeRewards(state));
+    state.exploration = null;
+    state.players.forEach(p => { p.position = { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 }; });
+    state.turrets = []; state.pets = []; state.clones = [];
+    this.enterMapSelection(state);
+  }
+
+  private explorationReward() {
+    const player = this.gameState.players[0];
+    this.openUpgradePrompt(player.id, this.rollUpgrades(3).map(o => ({ ...o, id: uuidv4(), source: 'levelUp' as const })));
+  }
+
+  private rollUpgrades(...args: Parameters<typeof getRandomUpgrades>) {
+    if (!this.gameState.exploration) return getRandomUpgrades(...args);
+    const safe = new Set(['playerSpeed', 'projectileDamage', 'attackSpeed', 'multiShot', 'critChance', 'maxHealth', 'pickupRadius', 'regeneration', 'turret', 'armor', 'pierce']);
+    const pool = ALL_UPGRADES.filter(o => safe.has(o.type));
+    return [...pool].sort(() => Math.random() - 0.5).filter((o, i, all) => all.findIndex(v => v.type === o.type) === i).slice(0, args[0] ?? 3);
+  }
+
   private stateVersion: number = 0;
   private snapshotVersion: number = -1;
   private cachedSnapshot: GameState | null = null;
@@ -820,15 +912,15 @@ export class LocalGameEngine {
   ) {
     const character = getCharacter(characterType);
     this.characterType = characterType;
-    this.gameStartTime = Date.now();
+    this.gameStartTime = this.now();
     const initialRunMap = createInitialRunMap(
-      `${playerId}-${characterType}-${Date.now()}`,
+      `${playerId}-${characterType}-${this.now()}`,
     );
 
     const initialPlayer: Player = {
       id: playerId,
       name: playerName,
-      position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+      position: { x: this.arenaWidth / 2, y: this.arenaHeight / 2 },
       health: character.baseHealth,
       maxHealth: character.baseHealth,
       level: 1,
@@ -944,7 +1036,7 @@ export class LocalGameEngine {
     );
     if (alivePlayers.length === 0 || rewards.length === 0) return;
 
-    const now = Date.now();
+    const now = this.now();
     rewards.forEach((reward) => {
       if (reward.type === "coins") {
         alivePlayers.forEach((player) => {
@@ -1074,6 +1166,7 @@ export class LocalGameEngine {
   }
 
   private startCombatEncounter(state: GameState) {
+    if (this.prototypeEnabled && !this.prototypeUsed) { this.startExploration(state); return; }
     this.resetArenaForEncounter(state);
     state.status = "playing";
     state.currentEncounterType = "combat";
@@ -1333,7 +1426,7 @@ export class LocalGameEngine {
     const bossType = currentNode?.bossType || getBossForWave(10) || "berserker";
     state.boss = createBoss(
       uuidv4(),
-      { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+      { x: this.arenaWidth / 2, y: this.arenaHeight / 2 },
       bossType,
       Math.max(10, state.wave || 10),
     );
@@ -1450,7 +1543,11 @@ export class LocalGameEngine {
   }
 
   handleBlinkForPlayer(player: Player) {
-    const now = Date.now();
+    if (this.gameState.exploration) {
+      if (!this.gameState.isPaused && !this.gameState.levelingUpPlayerId) this.explorationController.slide(this.gameState.exploration, player);
+      return;
+    }
+    const now = this.now();
 
     // Dash (Boss Upgrade) logic
     if (player.canDash) {
@@ -1499,11 +1596,11 @@ export class LocalGameEngine {
       // Apply blink with bounds checking
       player.position.x = Math.max(
         15,
-        Math.min(ARENA_WIDTH - 15, player.position.x + dx),
+        Math.min(this.arenaWidth - 15, player.position.x + dx),
       );
       player.position.y = Math.max(
         15,
-        Math.min(ARENA_HEIGHT - 15, player.position.y + dy),
+        Math.min(this.arenaHeight - 15, player.position.y + dy),
       );
 
       // Set cooldown (5 seconds)
@@ -1530,11 +1627,11 @@ export class LocalGameEngine {
 
     player.position.x = Math.max(
       15,
-      Math.min(ARENA_WIDTH - 15, player.position.x + dx),
+      Math.min(this.arenaWidth - 15, player.position.x + dx),
     );
     player.position.y = Math.max(
       15,
-      Math.min(ARENA_HEIGHT - 15, player.position.y + dy),
+      Math.min(this.arenaHeight - 15, player.position.y + dy),
     );
 
     this.spawnParticles(
@@ -1613,7 +1710,7 @@ export class LocalGameEngine {
         this.spawnParticles(player.position, "#00FFFF", 40, "glitch", 12);
         // Overdrive: Invulnerability handled in updateAbilities if we add it
         player.isInvulnerable = true;
-        player.invulnerableUntil = Date.now() + 3000;
+        player.invulnerableUntil = this.now() + 3000;
         break;
       case "vampire-vex":
         player.isAbilityActive = true;
@@ -1634,7 +1731,7 @@ export class LocalGameEngine {
       case "null-ronin": {
         const angle = this.getTargetAngleForPlayer(player);
         this.dashPlayer(player, angle, NULL_RONIN_ABILITY_DASH_DISTANCE);
-        this.performMeleeSlash(this.gameState, player, angle, Date.now(), {
+        this.performMeleeSlash(this.gameState, player, angle, this.now(), {
           damageMultiplier: 2.25,
           range: NULL_RONIN_FINISHER_RANGE + 18,
           arcDegrees: 160,
@@ -1645,7 +1742,7 @@ export class LocalGameEngine {
         player.abilityDuration = NULL_RONIN_ABILITY_INVULN_MS;
         player.abilityCooldown = 12000;
         player.isInvulnerable = true;
-        player.invulnerableUntil = Date.now() + NULL_RONIN_ABILITY_INVULN_MS;
+        player.invulnerableUntil = this.now() + NULL_RONIN_ABILITY_INVULN_MS;
         player.meleeComboStep = 0;
         player.maxShield = Math.max(player.maxShield || 0, 18);
         player.shield = Math.min(player.maxShield, (player.shield || 0) + 18);
@@ -1714,12 +1811,12 @@ export class LocalGameEngine {
   private dashPlayer(player: Player, angle: number, distance: number) {
     player.position.x = Math.max(
       24,
-      Math.min(ARENA_WIDTH - 24, player.position.x + Math.cos(angle) * distance),
+      Math.min(this.arenaWidth - 24, player.position.x + Math.cos(angle) * distance),
     );
     player.position.y = Math.max(
       24,
       Math.min(
-        ARENA_HEIGHT - 24,
+        this.arenaHeight - 24,
         player.position.y + Math.sin(angle) * distance,
       ),
     );
@@ -2071,7 +2168,7 @@ export class LocalGameEngine {
       return; // Cannot place more turrets until one expires
     }
 
-    const now = Date.now();
+    const now = this.now();
     const turretAttackSpeed =
       style === "toaster"
         ? Math.max(280, player.attackSpeed * 1.25)
@@ -2086,7 +2183,7 @@ export class LocalGameEngine {
               x: Math.max(
                 20,
                 Math.min(
-                  ARENA_WIDTH - 20,
+                  this.arenaWidth - 20,
                   player.position.x +
                     Math.cos(Math.random() * Math.PI * 2) * 65,
                 ),
@@ -2094,7 +2191,7 @@ export class LocalGameEngine {
               y: Math.max(
                 20,
                 Math.min(
-                  ARENA_HEIGHT - 20,
+                  this.arenaHeight - 20,
                   player.position.y +
                     Math.sin(Math.random() * Math.PI * 2) * 65,
                 ),
@@ -2110,6 +2207,11 @@ export class LocalGameEngine {
       expiresAt: now + 20000, // 20 seconds duration
       style,
     };
+    if (this.gameState.exploration) {
+      const angle = this.gameState.turrets.filter(t => t.ownerId === player.id).length * Math.PI * 2 / 3 - Math.PI / 2;
+      const spot = { x: player.position.x + Math.cos(angle) * 65, y: player.position.y + Math.sin(angle) * 65 };
+      newTurret.position = isWalkable(this.gameState.exploration, spot, 18) && lineClear(this.gameState.exploration, player.position, spot, 18) ? spot : { ...player.position };
+    }
     this.gameState.turrets.push(newTurret);
     if (style === "toaster") {
       this.lastToasterDeployAt.set(player.id, now);
@@ -2274,8 +2376,8 @@ export class LocalGameEngine {
     wave: number,
     modifiers: { discountPercent?: number; extraStock?: number } = {},
   ): ShopStand[] {
-    const centerX = ARENA_WIDTH / 2;
-    const centerY = ARENA_HEIGHT / 2;
+    const centerX = this.arenaWidth / 2;
+    const centerY = this.arenaHeight / 2;
     const basePositions: { x: number; y: number }[] = [
       { x: centerX - 320, y: centerY + 32 },
       { x: centerX - 180, y: centerY - 64 },
@@ -2289,11 +2391,11 @@ export class LocalGameEngine {
     const extraStock = Math.max(0, Math.min(2, modifiers.extraStock || 0));
     const priceMultiplier = Math.max(0.55, 1 - discountPercent / 100);
     const averagePlayerLevel = this.getAveragePlayerLevel(this.gameState);
-    const rolled = getRandomUpgrades(2 + extraStock);
+    const rolled = this.rollUpgrades(2 + extraStock);
     const offers: ShopOffer[] = [
       ...rolled.map((option) => ({
         id: uuidv4(),
-        type: "upgrade",
+        type: "upgrade" as const,
         title: option.title,
         description: option.description,
         emoji: option.emoji,
@@ -2406,7 +2508,7 @@ export class LocalGameEngine {
       state.enemies = [];
       state.boss = createBoss(
         uuidv4(),
-        { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+        { x: this.arenaWidth / 2, y: this.arenaHeight / 2 },
         pendingBossType,
         state.wave,
       );
@@ -2538,8 +2640,8 @@ export class LocalGameEngine {
     const spawnY = player.position.y + Math.sin(angle) * 200;
 
     // Clamp to arena bounds
-    const clampedX = Math.max(20, Math.min(ARENA_WIDTH - 20, spawnX));
-    const clampedY = Math.max(20, Math.min(ARENA_HEIGHT - 20, spawnY));
+    const clampedX = Math.max(20, Math.min(this.arenaWidth - 20, spawnX));
+    const clampedY = Math.max(20, Math.min(this.arenaHeight - 20, spawnY));
 
     const newEnemy = createEnemy(
       uuidv4(),
@@ -2566,8 +2668,8 @@ export class LocalGameEngine {
     const player = this.gameState.players[0];
     if (!player) return;
 
-    const spawnX = ARENA_WIDTH / 2;
-    const spawnY = ARENA_HEIGHT / 2;
+    const spawnX = this.arenaWidth / 2;
+    const spawnY = this.arenaHeight / 2;
 
     this.gameState.status = "bossFight";
     this.gameState.boss = createBoss(
@@ -2709,11 +2811,12 @@ export class LocalGameEngine {
   }
 
   debugSetInvulnerability(toggle: boolean) {
+    if (this.gameState.exploration) this.gameState.exploration.debugInvulnerable = toggle;
     const player = this.gameState.players[0];
     if (!player) return;
     player.isInvulnerable = toggle;
     if (toggle) {
-      player.invulnerableUntil = Date.now() + 999999999;
+      player.invulnerableUntil = this.now() + 999999999;
     } else {
       player.invulnerableUntil = 0;
     }
@@ -2730,14 +2833,14 @@ export class LocalGameEngine {
 
   private tick() {
     const now = Date.now();
-    const delta = now - this.lastTick;
+    const delta = Math.min(100, Math.max(0, now - this.lastTick));
     this.lastTick = now;
     this.runSimulationStep(now, delta);
   }
 
   advanceTime(ms: number) {
     let remaining = Math.max(0, ms);
-    let simulatedNow = this.lastTick || Date.now();
+    let simulatedNow = this.lastTick || this.now();
 
     while (remaining > 0) {
       const step = Math.min(TICK_RATE, remaining);
@@ -2746,17 +2849,24 @@ export class LocalGameEngine {
       remaining -= step;
     }
 
-    this.lastTick = simulatedNow;
+    this.lastTick = Date.now();
   }
 
   renderGameToText() {
     const state = this.gameState;
     const localPlayer = state.players[0];
     const runMap = state.runMap;
-    const now = Date.now();
+    const now = this.now();
 
     return JSON.stringify({
       mode: state.status,
+      input: this.inputState,
+      coordinates: "World units; origin top left; x right, y down",
+      exploration: state.exploration || null,
+      boss: state.boss ? { type: state.boss.type, health: state.boss.health, maxHealth: state.boss.maxHealth, position: state.boss.position } : null,
+      turrets: state.turrets?.map(t => ({ position: t.position, expiresAt: t.expiresAt, attackCooldown: t.attackCooldown })),
+      levelingUp: !!state.levelingUpPlayerId,
+      simulationTime: state.simulationTime,
       autoplay: this.autoplay,
       mapDepth: state.mapDepth || 0,
       threatTier: state.wave || 0,
@@ -3099,8 +3209,8 @@ export class LocalGameEngine {
     }
 
     // Gentle pull toward arena center so the bot does not hug walls
-    ax += ((ARENA_WIDTH / 2 - px) / ARENA_WIDTH) * 0.4;
-    ay += ((ARENA_HEIGHT / 2 - py) / ARENA_HEIGHT) * 0.4;
+    ax += ((this.arenaWidth / 2 - px) / this.arenaWidth) * 0.4;
+    ay += ((this.arenaHeight / 2 - py) / this.arenaHeight) * 0.4;
 
     const mag = Math.hypot(ax, ay);
     if (mag > 0.05) {
@@ -3133,7 +3243,7 @@ export class LocalGameEngine {
   }
 
   private runSimulationStep(now: number, delta: number) {
-    if (delta <= 0) return;
+    if (delta <= 0 || (typeof document !== "undefined" && document.hidden)) return;
 
     const state = this.gameState;
 
@@ -3150,6 +3260,8 @@ export class LocalGameEngine {
       state.status === "bossDefeated";
     if (!shouldSimulate) return;
 
+    if (this.prototypeEnabled) { this.prototypeTime += delta; now = this.prototypeTime; state.simulationTime = now; }
+    const previousPositions = state.exploration ? new Map([...state.players, ...state.enemies, ...(state.boss ? [state.boss] : [])].map(p => [p.id, { ...p.position }])) : null;
     const localPlayer = state.players[0];
     if (localPlayer) {
       localPlayer.lastInput = this.autoplay
@@ -3161,7 +3273,8 @@ export class LocalGameEngine {
 
     // Only update game mechanics if still playing or in boss fight
     if (state.status === "playing" || state.status === "bossFight") {
-      this.updatePlayerMovement(state, timeFactor, now);
+      if (state.exploration && localPlayer?.status === 'alive') this.explorationController.move(state.exploration, localPlayer, this.inputState, delta);
+      else this.updatePlayerMovement(state, timeFactor, now);
       this.updatePlayerEffects(state, delta, now);
       this.updateVampireDrain(state, delta, now);
       this.updateBlinkCooldown(state, delta);
@@ -3176,7 +3289,12 @@ export class LocalGameEngine {
       if (state.isShopRound) {
         this.updateShopRound(state);
       } else {
-        if (state.status === "bossFight") {
+        if (state.exploration) {
+          this.updateEnemyAI(state, now, delta, timeFactor);
+          if (state.boss) this.updateBoss(state, now, delta, timeFactor);
+          this.updateShockwaveRings(state, delta);
+          this.updateBossProjectiles(state, delta);
+        } else if (state.status === "bossFight") {
           this.updateBoss(state, now, delta, timeFactor);
           this.updateShockwaveRings(state, delta);
           this.updateBossProjectiles(state, delta);
@@ -3207,6 +3325,14 @@ export class LocalGameEngine {
       this.updateExtraction(state, delta);
     }
 
+    if (state.exploration) {
+      const world = state.exploration;
+      for (const actor of [...state.players, ...state.enemies, ...(state.boss ? [state.boss] : [])]) {
+        const old = previousPositions?.get(actor.id);
+        if (old) actor.position = moveWorld(world, old, actor.position, actor.id === state.boss?.id ? 40 : 18);
+      }
+      this.explorationController.update(state, delta, () => this.explorationReward(), () => this.finishExploration(state));
+    }
     // Always check game status to save stats when game ends
     this.updateGameStatus(state);
 
@@ -3227,7 +3353,7 @@ export class LocalGameEngine {
     };
 
     state.players.forEach((player) => {
-      sanitizeVector(player.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(player.position, this.arenaWidth / 2, this.arenaHeight / 2);
       player.history?.forEach((point) =>
         sanitizeVector(point, player.position.x, player.position.y),
       );
@@ -3253,57 +3379,57 @@ export class LocalGameEngine {
     });
 
     state.xpOrbs.forEach((orb) =>
-      sanitizeVector(orb.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(orb.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.pets?.forEach((pet) =>
-      sanitizeVector(pet.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(pet.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.turrets?.forEach((turret) =>
-      sanitizeVector(turret.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(turret.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.clones?.forEach((clone) =>
-      sanitizeVector(clone.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(clone.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.hazards?.forEach((hazard) =>
-      sanitizeVector(hazard.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(hazard.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.particles?.forEach((particle) => {
-      sanitizeVector(particle.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(particle.position, this.arenaWidth / 2, this.arenaHeight / 2);
       sanitizeVector(particle.velocity, 0, 0);
     });
     state.trailSegments?.forEach((segment) =>
-      sanitizeVector(segment.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(segment.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.binaryDrops?.forEach((drop) =>
-      sanitizeVector(drop.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(drop.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.fireTrails?.forEach((trail) =>
-      sanitizeVector(trail.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(trail.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.explosions?.forEach((explosion) =>
-      sanitizeVector(explosion.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(explosion.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.chainLightning?.forEach((chain) => {
-      sanitizeVector(chain.from, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
-      sanitizeVector(chain.to, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(chain.from, this.arenaWidth / 2, this.arenaHeight / 2);
+      sanitizeVector(chain.to, this.arenaWidth / 2, this.arenaHeight / 2);
     });
     state.shockwaveRings?.forEach((ring) =>
-      sanitizeVector(ring.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2),
+      sanitizeVector(ring.position, this.arenaWidth / 2, this.arenaHeight / 2),
     );
     state.bossProjectiles?.forEach((projectile) => {
-      sanitizeVector(projectile.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(projectile.position, this.arenaWidth / 2, this.arenaHeight / 2);
       sanitizeVector(projectile.velocity, 0, 0);
     });
     if (state.teleporter) {
       sanitizeVector(
         state.teleporter.position,
-        ARENA_WIDTH / 2,
-        ARENA_HEIGHT / 2,
+        this.arenaWidth / 2,
+        this.arenaHeight / 2,
       );
     }
 
     if (state.boss) {
-      sanitizeVector(state.boss.position, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+      sanitizeVector(state.boss.position, this.arenaWidth / 2, this.arenaHeight / 2);
       if (state.boss.currentAttack?.targetPosition) {
         sanitizeVector(
           state.boss.currentAttack.targetPosition,
@@ -3449,15 +3575,15 @@ export class LocalGameEngine {
 
         // Screen Wrap
         if (p.hasScreenWrap) {
-          if (p.position.x < 0) p.position.x = ARENA_WIDTH;
-          if (p.position.x > ARENA_WIDTH) p.position.x = 0;
-          if (p.position.y < 0) p.position.y = ARENA_HEIGHT;
-          if (p.position.y > ARENA_HEIGHT) p.position.y = 0;
+          if (p.position.x < 0) p.position.x = this.arenaWidth;
+          if (p.position.x > this.arenaWidth) p.position.x = 0;
+          if (p.position.y < 0) p.position.y = this.arenaHeight;
+          if (p.position.y > this.arenaHeight) p.position.y = 0;
         } else {
-          p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
+          p.position.x = Math.max(15, Math.min(this.arenaWidth - 15, p.position.x));
           p.position.y = Math.max(
             15,
-            Math.min(ARENA_HEIGHT - 15, p.position.y),
+            Math.min(this.arenaHeight - 15, p.position.y),
           );
         }
 
@@ -3650,7 +3776,8 @@ export class LocalGameEngine {
 
     // Update turret attacks
     state.turrets.forEach((turret) => {
-      turret.attackCooldown -= delta;
+      const established = state.exploration?.established && state.players.some(p => p.id === turret.ownerId && distance(p.position, turret.position) <= 160);
+      turret.attackCooldown -= delta * (established ? 1.3 : 1);
       // Check if there are enemies or a boss to attack
       const hasTargets = state.enemies.length > 0 || state.boss !== null;
       if (turret.attackCooldown <= 0 && hasTargets) {
@@ -3678,7 +3805,7 @@ export class LocalGameEngine {
             target.position.x - turret.position.x,
             target.position.y - turret.position.y,
           );
-          return dist <= turret.range;
+          return dist <= turret.range && (!state.exploration || lineClear(state.exploration, turret.position, target.position));
         });
 
         if (targetsInRange.length > 0) {
@@ -4006,11 +4133,11 @@ export class LocalGameEngine {
     enemy.position.y += (direction.y / magnitude) * speed * timeFactor;
     enemy.position.x = Math.max(
       18,
-      Math.min(ARENA_WIDTH - 18, enemy.position.x),
+      Math.min(this.arenaWidth - 18, enemy.position.x),
     );
     enemy.position.y = Math.max(
       18,
-      Math.min(ARENA_HEIGHT - 18, enemy.position.y),
+      Math.min(this.arenaHeight - 18, enemy.position.y),
     );
   }
 
@@ -4020,11 +4147,11 @@ export class LocalGameEngine {
     player.position.y += (direction.y / magnitude) * distance;
     player.position.x = Math.max(
       20,
-      Math.min(ARENA_WIDTH - 20, player.position.x),
+      Math.min(this.arenaWidth - 20, player.position.x),
     );
     player.position.y = Math.max(
       20,
-      Math.min(ARENA_HEIGHT - 20, player.position.y),
+      Math.min(this.arenaHeight - 20, player.position.y),
     );
   }
 
@@ -4103,27 +4230,27 @@ export class LocalGameEngine {
   private getPackSpawnOrigin(side: 0 | 1 | 2 | 3) {
     if (side === 0) {
       return {
-        anchor: { x: 140 + Math.random() * (ARENA_WIDTH - 280), y: -34 },
+        anchor: { x: 140 + Math.random() * (this.arenaWidth - 280), y: -34 },
         normal: { x: 0, y: 1 },
       };
     }
 
     if (side === 1) {
       return {
-        anchor: { x: 140 + Math.random() * (ARENA_WIDTH - 280), y: ARENA_HEIGHT + 34 },
+        anchor: { x: 140 + Math.random() * (this.arenaWidth - 280), y: this.arenaHeight + 34 },
         normal: { x: 0, y: -1 },
       };
     }
 
     if (side === 2) {
       return {
-        anchor: { x: -34, y: 120 + Math.random() * (ARENA_HEIGHT - 240) },
+        anchor: { x: -34, y: 120 + Math.random() * (this.arenaHeight - 240) },
         normal: { x: 1, y: 0 },
       };
     }
 
     return {
-      anchor: { x: ARENA_WIDTH + 34, y: 120 + Math.random() * (ARENA_HEIGHT - 240) },
+      anchor: { x: this.arenaWidth + 34, y: 120 + Math.random() * (this.arenaHeight - 240) },
       normal: { x: -1, y: 0 },
     };
   }
@@ -4225,17 +4352,17 @@ export class LocalGameEngine {
             let spawnX, spawnY;
 
             if (side === 0) {
-              spawnX = Math.random() * ARENA_WIDTH;
+              spawnX = Math.random() * this.arenaWidth;
               spawnY = -20 - Math.random() * 30;
             } else if (side === 1) {
-              spawnX = Math.random() * ARENA_WIDTH;
-              spawnY = ARENA_HEIGHT + 20 + Math.random() * 30;
+              spawnX = Math.random() * this.arenaWidth;
+              spawnY = this.arenaHeight + 20 + Math.random() * 30;
             } else if (side === 2) {
               spawnX = -20 - Math.random() * 30;
-              spawnY = Math.random() * ARENA_HEIGHT;
+              spawnY = Math.random() * this.arenaHeight;
             } else {
-              spawnX = ARENA_WIDTH + 20 + Math.random() * 30;
-              spawnY = Math.random() * ARENA_HEIGHT;
+              spawnX = this.arenaWidth + 20 + Math.random() * 30;
+              spawnY = Math.random() * this.arenaHeight;
             }
 
             const newHellhound = createEnemy(
@@ -4288,6 +4415,11 @@ export class LocalGameEngine {
       let targetPosition = { ...targetPlayer.position };
       let targetDistance = closestPlayer.dist;
       let effectiveSpeed = this.getEnemyEffectiveSpeed(state, enemy, now);
+      if (state.exploration && !lineClear(state.exploration, enemy.position, targetPosition, 22)) {
+        const point = this.enemyNavigator.waypoint(state.exploration, enemy.position, targetPosition);
+        this.moveEnemyAlong(enemy, { x: point.x - enemy.position.x, y: point.y - enemy.position.y }, effectiveSpeed, timeFactor);
+        return;
+      }
 
       if (enemy.type === "hellhound" && enemy.isPackAlpha) {
         enemy.packMarkPlayerId = targetPlayer.id;
@@ -4656,7 +4788,11 @@ export class LocalGameEngine {
       let targetPosition: { x: number; y: number } | null = null;
       let targetDistance = Infinity;
 
-      if (state.status === "bossFight" && state.boss) {
+      if (state.exploration) {
+        const targets = [...state.enemies, ...(state.boss ? [state.boss] : [])].filter(e => this.explorationController.canTarget(state.exploration!, p.position, e.position));
+        targets.sort((a, b) => distance(a.position, p.position) - distance(b.position, p.position));
+        if (targets[0]) { targetPosition = targets[0].position; targetDistance = distance(p.position, targetPosition); }
+      } else if (state.status === "bossFight" && state.boss) {
         targetPosition = state.boss.position;
         targetDistance = Math.hypot(
           state.boss.position.x - p.position.x,
@@ -5065,15 +5201,17 @@ export class LocalGameEngine {
         });
       }
 
+      const previousProjectilePosition = { ...proj.position };
       proj.position.x += proj.velocity.x * timeFactor;
       proj.position.y += proj.velocity.y * timeFactor;
+      if (state.exploration && !lineClear(state.exploration, previousProjectilePosition, proj.position, Math.max(3, proj.radius || 3))) return false;
 
       // Screen Wrap Projectiles
       if (owner && owner.hasScreenWrap) {
-        if (proj.position.x < -20) proj.position.x = ARENA_WIDTH + 10;
-        if (proj.position.x > ARENA_WIDTH + 20) proj.position.x = -10;
-        if (proj.position.y < -20) proj.position.y = ARENA_HEIGHT + 10;
-        if (proj.position.y > ARENA_HEIGHT + 20) proj.position.y = -10;
+        if (proj.position.x < -20) proj.position.x = this.arenaWidth + 10;
+        if (proj.position.x > this.arenaWidth + 20) proj.position.x = -10;
+        if (proj.position.y < -20) proj.position.y = this.arenaHeight + 10;
+        if (proj.position.y > this.arenaHeight + 20) proj.position.y = -10;
       }
 
       // Legenday: Ghost Bullets
@@ -5081,9 +5219,9 @@ export class LocalGameEngine {
         // Ghost bullets ignore bounds or have much larger bounds
         return (
           proj.position.x > -500 &&
-          proj.position.x < ARENA_WIDTH + 500 &&
+          proj.position.x < this.arenaWidth + 500 &&
           proj.position.y > -500 &&
-          proj.position.y < ARENA_HEIGHT + 500
+          proj.position.y < this.arenaHeight + 500
         );
       }
 
@@ -5133,7 +5271,7 @@ export class LocalGameEngine {
 
       if (!isEnemyProjectile) {
         // Check boss collision first
-        if (state.boss && state.status === "bossFight") {
+        if (state.boss && (state.status === "bossFight" || !!state.exploration)) {
           // Check shield generators first (Architect)
           if (
             state.boss.shieldGenerators &&
@@ -5470,9 +5608,9 @@ export class LocalGameEngine {
 
       const inBounds =
         proj.position.x > -40 &&
-        proj.position.x < ARENA_WIDTH + 40 &&
+        proj.position.x < this.arenaWidth + 40 &&
         proj.position.y > -40 &&
-        proj.position.y < ARENA_HEIGHT + 40;
+        proj.position.y < this.arenaHeight + 40;
       return inBounds;
     });
 
@@ -5834,22 +5972,23 @@ export class LocalGameEngine {
     player: Player,
     state: GameState,
   ): number {
+    const momentum = state.exploration && player.characterType === 'dash-dynamo' ? 1 + state.exploration.momentum * 0.25 : 1;
     const multiplier = player.temporaryDamageMultiplier || 1;
-    if (multiplier <= 1) return 1;
+    if (multiplier <= 1) return momentum;
     if (
       player.temporaryDamageExpiresWave !== undefined &&
       state.wave > player.temporaryDamageExpiresWave
     ) {
       player.temporaryDamageMultiplier = 1;
       player.temporaryDamageExpiresWave = undefined;
-      return 1;
+      return momentum;
     }
-    return multiplier;
+    return multiplier * momentum;
   }
 
   private updateXPOrbs(state: GameState, timeFactor: number, now: number) {
     state.xpOrbs = state.xpOrbs.filter((orb) => {
-      if (orb.kind !== "coin") return true;
+      if (state.exploration || orb.kind !== "coin") return true;
       if (!orb.timestamp) {
         orb.timestamp = now;
         return true;
@@ -5927,7 +6066,7 @@ export class LocalGameEngine {
         if (p.level === 10 && !this.level10Tracked.has(p.id)) {
           this.level10Tracked.add(p.id);
 
-          if (!this.autoplay) {
+          if (!this.autoplay && !this.prototypeEnabled) {
             incrementLevel10Count();
 
             // Check for unlocks
@@ -5940,7 +6079,7 @@ export class LocalGameEngine {
 
         p.xp -= p.xpToNextLevel;
         p.xpToNextLevel = Math.floor(p.xpToNextLevel * 1.5);
-        const choices = getRandomUpgrades(3).map((o) => ({
+        const choices = this.rollUpgrades(3).map((o) => ({
           ...o,
           id: uuidv4(),
           source: "levelUp" as const,
@@ -5987,7 +6126,7 @@ export class LocalGameEngine {
   }
 
   private updateWaves(state: GameState, delta: number) {
-    if (state.isSandboxMode) return;
+    if (state.exploration || state.isSandboxMode) return;
     if (state.isShopRound) return;
 
     if (state.currentEncounterType === "hellhound") {
@@ -5995,7 +6134,7 @@ export class LocalGameEngine {
         this.applyRunMapRewards(state, this.getCurrentNodeRewards(state));
         const player = state.players.find((p) => p.status === "alive");
         if (player) {
-          const legendaryUpgrades = getRandomUpgrades(3, "legendary");
+          const legendaryUpgrades = this.rollUpgrades(3, "legendary");
           this.openUpgradePrompt(
             player.id,
             legendaryUpgrades.map((option) => ({
@@ -6090,15 +6229,15 @@ export class LocalGameEngine {
 
   private saveGameStats(state: GameState) {
     // Autoplay runs never record score, stats, or unlocks
-    if (this.autoplay) return;
-    const survivalTimeMs = Date.now() - this.gameStartTime;
+    if (this.autoplay || this.prototypeEnabled) return;
+    const survivalTimeMs = this.now() - this.gameStartTime;
     const stats = {
       characterType: this.characterType,
       waveReached: state.wave,
       enemiesKilled: this.enemiesKilledCount,
       survivalTimeMs,
       isVictory: state.status === "won",
-      timestamp: Date.now(),
+      timestamp: this.now(),
     };
     console.log("Saving game stats:", stats, "Game status:", state.status);
     saveLastRunStats(stats);
@@ -6210,9 +6349,10 @@ export class LocalGameEngine {
 
     // Check if boss is defeated
     if (boss.health <= 0) {
+      if (state.exploration) { state.exploration.anchor.guardianDefeated = true; state.boss = null; this.enemiesKilledCount++; return; }
       const currentNode = this.getCurrentMapNode(state);
       this.enemiesKilledCount++;
-      if (!this.autoplay) incrementBossDefeats();
+      if (!this.autoplay && !this.prototypeEnabled) incrementBossDefeats();
       state.boss = null;
       if (state.currentEncounterType === "boss" && currentNode?.depth === 10) {
         state.currentEncounterType = null;
@@ -6224,7 +6364,7 @@ export class LocalGameEngine {
         // Spawn teleporter at center
         state.teleporter = {
           id: "teleporter",
-          position: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+          position: { x: this.arenaWidth / 2, y: this.arenaHeight / 2 },
           radius: 50,
         };
       }
@@ -6413,22 +6553,22 @@ export class LocalGameEngine {
 
         switch (edge) {
           case 0: // top
-            targetPos = { x: Math.random() * ARENA_WIDTH, y: 100 };
+            targetPos = { x: Math.random() * this.arenaWidth, y: 100 };
             break;
           case 1: // right
             targetPos = {
-              x: ARENA_WIDTH - 100,
-              y: Math.random() * ARENA_HEIGHT,
+              x: this.arenaWidth - 100,
+              y: Math.random() * this.arenaHeight,
             };
             break;
           case 2: // bottom
             targetPos = {
-              x: Math.random() * ARENA_WIDTH,
-              y: ARENA_HEIGHT - 100,
+              x: Math.random() * this.arenaWidth,
+              y: this.arenaHeight - 100,
             };
             break;
           case 3: // left
-            targetPos = { x: 100, y: Math.random() * ARENA_HEIGHT };
+            targetPos = { x: 100, y: Math.random() * this.arenaHeight };
             break;
         }
 
@@ -6470,9 +6610,9 @@ export class LocalGameEngine {
         // Spawn shield generators at corners
         const positions = [
           { x: 150, y: 150 },
-          { x: ARENA_WIDTH - 150, y: 150 },
-          { x: ARENA_WIDTH - 150, y: ARENA_HEIGHT - 150 },
-          { x: 150, y: ARENA_HEIGHT - 150 },
+          { x: this.arenaWidth - 150, y: 150 },
+          { x: this.arenaWidth - 150, y: this.arenaHeight - 150 },
+          { x: 150, y: this.arenaHeight - 150 },
         ];
 
         for (let i = 0; i < ARCHITECT_SHIELD_GENERATOR_COUNT; i++) {
@@ -6731,11 +6871,11 @@ export class LocalGameEngine {
       // Clamp to arena
       boss.position.x = Math.max(
         40,
-        Math.min(ARENA_WIDTH - 40, boss.position.x),
+        Math.min(this.arenaWidth - 40, boss.position.x),
       );
       boss.position.y = Math.max(
         40,
-        Math.min(ARENA_HEIGHT - 40, boss.position.y),
+        Math.min(this.arenaHeight - 40, boss.position.y),
       );
 
       // Leave fire trail
@@ -6900,7 +7040,7 @@ export class LocalGameEngine {
       const elapsed = (now - attack.executeTime!) / 1000;
       for (let i = 0; i < ARCHITECT_LASER_COUNT; i++) {
         const angle = (i * Math.PI) / 2 + elapsed * rotationSpeed;
-        const laserLength = Math.max(ARENA_WIDTH, ARENA_HEIGHT);
+        const laserLength = Math.max(this.arenaWidth, this.arenaHeight);
         state.players.forEach((p) => {
           if (p.status !== "alive") return;
           const dx = p.position.x - boss.position.x;
@@ -7040,8 +7180,8 @@ export class LocalGameEngine {
               }
             : { ...boss.position };
           attack.targetPosition = {
-            x: Math.max(60, Math.min(ARENA_WIDTH - 60, nextTarget.x)),
-            y: Math.max(60, Math.min(ARENA_HEIGHT - 60, nextTarget.y)),
+            x: Math.max(60, Math.min(this.arenaWidth - 60, nextTarget.x)),
+            y: Math.max(60, Math.min(this.arenaHeight - 60, nextTarget.y)),
           };
           attack.telegraphStartTime = now;
           attack.executeTime = now + GOLEM_BUILDER_DROP_CHAIN_DELAY;
@@ -7097,8 +7237,8 @@ export class LocalGameEngine {
         const force = GOLEM_GLITCH_ZONE_PULL_FORCE * pullScale * timeFactor;
         p.position.x += (dx / dist) * force;
         p.position.y += (dy / dist) * force;
-        p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
-        p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+        p.position.x = Math.max(15, Math.min(this.arenaWidth - 15, p.position.x));
+        p.position.y = Math.max(15, Math.min(this.arenaHeight - 15, p.position.y));
       });
 
       if (now >= attack.executeTime! + zoneDuration) {
@@ -7163,8 +7303,8 @@ export class LocalGameEngine {
         const force = (isPush ? 1.5 : -1.5) * (1 - dist / 600) * 6 * timeFactor;
         p.position.x += (dx / dist) * force;
         p.position.y += (dy / dist) * force;
-        p.position.x = Math.max(15, Math.min(ARENA_WIDTH - 15, p.position.x));
-        p.position.y = Math.max(15, Math.min(ARENA_HEIGHT - 15, p.position.y));
+        p.position.x = Math.max(15, Math.min(this.arenaWidth - 15, p.position.x));
+        p.position.y = Math.max(15, Math.min(this.arenaHeight - 15, p.position.y));
       });
       if (now >= attack.executeTime! + duration) {
         boss.currentAttack = undefined;
@@ -7519,8 +7659,8 @@ export class LocalGameEngine {
     const clamp = (value: number, min: number, max: number) =>
       Math.max(min, Math.min(max, value));
     const safePosition = {
-      x: clamp(position.x, 70, ARENA_WIDTH - 70),
-      y: clamp(position.y, 70, ARENA_HEIGHT - 70),
+      x: clamp(position.x, 70, this.arenaWidth - 70),
+      y: clamp(position.y, 70, this.arenaHeight - 70),
     };
     const radius = options?.radius ?? GOLEM_BUILDER_DROP_RADIUS;
     const damage =
@@ -7637,8 +7777,9 @@ export class LocalGameEngine {
     const target = this.getNearestPlayer(state, boss.position);
     if (!target) return;
 
-    const dx = target.position.x - boss.position.x;
-    const dy = target.position.y - boss.position.y;
+    const goal = state.exploration ? this.bossNavigator.waypoint(state.exploration, boss.position, target.position, 42) : target.position;
+    const dx = goal.x - boss.position.x;
+    const dy = goal.y - boss.position.y;
     const dist = Math.hypot(dx, dy);
 
     if (dist > 50) {
@@ -7680,7 +7821,7 @@ export class LocalGameEngine {
   private updateShockwaveRings(state: GameState, delta: number) {
     if (!state.shockwaveRings) return;
 
-    const now = Date.now();
+    const now = this.now();
 
     state.shockwaveRings.forEach((ring) => {
       // Expand ring
@@ -7715,7 +7856,7 @@ export class LocalGameEngine {
   private updateBossProjectiles(state: GameState, delta: number) {
     if (!state.bossProjectiles) return;
 
-    const now = Date.now();
+    const now = this.now();
     const projectilesToRemove = new Set<string>();
 
     state.bossProjectiles.forEach((projectile) => {
@@ -7760,9 +7901,9 @@ export class LocalGameEngine {
     state.bossProjectiles = state.bossProjectiles.filter((proj) => {
       const isOut =
         proj.position.x < -100 ||
-        proj.position.x > ARENA_WIDTH + 100 ||
+        proj.position.x > this.arenaWidth + 100 ||
         proj.position.y < -100 ||
-        proj.position.y > ARENA_HEIGHT + 100;
+        proj.position.y > this.arenaHeight + 100;
 
       return !projectilesToRemove.has(proj.id) && !isOut;
     });
@@ -7783,7 +7924,7 @@ export class LocalGameEngine {
     // Grant reward - legendary upgrade choice
     const player = state.players.find((p) => p.status === "alive");
     if (player) {
-      const legendaryUpgrades = getRandomUpgrades(3, "legendary");
+      const legendaryUpgrades = this.rollUpgrades(3, "legendary");
       this.openUpgradePrompt(
         player.id,
         legendaryUpgrades.map((o) => ({
@@ -8070,14 +8211,14 @@ export class LocalGameEngine {
             : "spike-trap";
 
       let spawnPosition = {
-        x: 100 + Math.random() * (ARENA_WIDTH - 200),
-        y: 100 + Math.random() * (ARENA_HEIGHT - 200),
+        x: 100 + Math.random() * (this.arenaWidth - 200),
+        y: 100 + Math.random() * (this.arenaHeight - 200),
       };
       // Try a few times to avoid popping hazards directly under players.
       for (let i = 0; i < 6; i++) {
         const candidate = {
-          x: 100 + Math.random() * (ARENA_WIDTH - 200),
-          y: 100 + Math.random() * (ARENA_HEIGHT - 200),
+          x: 100 + Math.random() * (this.arenaWidth - 200),
+          y: 100 + Math.random() * (this.arenaHeight - 200),
         };
         const isNearAlivePlayer = state.players.some(
           (p) =>
@@ -8342,7 +8483,7 @@ export class LocalGameEngine {
         size: type === "glitch" ? 3 + Math.random() * 5 : 2 + Math.random() * 2,
         life: 1.0,
         maxLife,
-        timestamp: Date.now(),
+        timestamp: this.now(),
         type,
       });
     }
@@ -8352,7 +8493,7 @@ export class LocalGameEngine {
     this.gameState.screenShake = {
       intensity,
       duration,
-      startTime: Date.now(),
+      startTime: this.now(),
     };
   }
 
@@ -8420,7 +8561,7 @@ export class LocalGameEngine {
 
     if (finalAmount <= 0) return;
 
-    const heartDamage = Math.max(1, player.maxHealth / PLAYER_HEART_SLOTS);
+    const heartDamage = Math.max(1, player.maxHealth / (this.gameState.exploration ? PLAYER_HEART_SLOTS * 2 : PLAYER_HEART_SLOTS));
 
     // Legenday: God Mode logic
     if (player.hasGodMode && player.health <= heartDamage + 1) {

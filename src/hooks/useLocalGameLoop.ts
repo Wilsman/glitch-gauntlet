@@ -14,30 +14,56 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
   const lastSnapshotRef = useRef<ReturnType<LocalGameEngine['getGameState']> | null>(null);
   const { getGamepadInput } = useGamepad();
 
+  const isExploration = !!engine?.getGameState().exploration;
+
   // Keyboard input handling
-  useHotkeys('w,arrowup', (e) => { e?.preventDefault(); inputRef.current.up = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('w,arrowup', (e) => { e?.preventDefault(); inputRef.current.up = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('s,arrowdown', (e) => { e?.preventDefault(); inputRef.current.down = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('s,arrowdown', (e) => { e?.preventDefault(); inputRef.current.down = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('a,arrowleft', (e) => { e?.preventDefault(); inputRef.current.left = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('a,arrowleft', (e) => { e?.preventDefault(); inputRef.current.left = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = true; }, { keydown: true, enabled: !isPaused, preventDefault: true });
-  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = false; }, { keyup: true, enabled: !isPaused, preventDefault: true });
+  useHotkeys('w,arrowup', (e) => { e?.preventDefault(); inputRef.current.up = true; }, { keydown: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('w,arrowup', (e) => { e?.preventDefault(); inputRef.current.up = false; }, { keyup: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('s,arrowdown', (e) => { e?.preventDefault(); inputRef.current.down = true; }, { keydown: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('s,arrowdown', (e) => { e?.preventDefault(); inputRef.current.down = false; }, { keyup: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('a,arrowleft', (e) => { e?.preventDefault(); inputRef.current.left = true; }, { keydown: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('a,arrowleft', (e) => { e?.preventDefault(); inputRef.current.left = false; }, { keyup: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = true; }, { keydown: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('d,arrowright', (e) => { e?.preventDefault(); inputRef.current.right = false; }, { keyup: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = true; }, { keydown: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('space', (e) => { e?.preventDefault(); inputRef.current.shake = false; }, { keyup: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = true; }, { keydown: true, enabled: !isPaused && !isExploration, preventDefault: true });
+  useHotkeys('e', (e) => { e?.preventDefault(); inputRef.current.interact = false; }, { keyup: true, enabled: !isPaused && !isExploration, preventDefault: true });
 
   // Character abilities
   useHotkeys('shift', (e) => {
     e?.preventDefault();
     if (engine && !lastSnapshotRef.current?.isShopRound) engine.useBlink();
-  }, { enabled: !isPaused, preventDefault: true });
+  }, { enabled: !isPaused && !isExploration, preventDefault: true });
 
   useHotkeys('q', (e) => {
     e?.preventDefault();
     if (engine && !lastSnapshotRef.current?.isShopRound) engine.useAbility();
-  }, { enabled: !isPaused, preventDefault: true });
+  }, { enabled: !isPaused && !isExploration, preventDefault: true });
+
+  useEffect(() => {
+    if (!isExploration) return;
+    const keys: Record<string, 'up' | 'down' | 'left' | 'right' | 'interact' | 'shake'> = {
+      KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', KeyE: 'interact', Space: 'shake',
+    };
+    const held = new Set<string>();
+    const handle = (event: KeyboardEvent) => {
+      if (isPaused || (event.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName))) return;
+      const down = event.type === 'keydown';
+      if (keys[event.code]) {
+        event.preventDefault();
+        if (down) held.add(event.code); else held.delete(event.code);
+        const action = keys[event.code];
+        inputRef.current[action] = [...held].some(code => keys[code] === action);
+      }
+      if (down && !event.repeat && (event.code === 'ShiftLeft' || event.code === 'ShiftRight')) { event.preventDefault(); engine?.useBlink(); }
+      if (down && !event.repeat && event.code === 'KeyQ') { event.preventDefault(); engine?.useAbility(); }
+    };
+    const clear = () => { held.clear(); inputRef.current = createNeutralInput(); };
+    window.addEventListener('keydown', handle); window.addEventListener('keyup', handle);
+    window.addEventListener('blur', clear); document.addEventListener('visibilitychange', clear);
+    return () => { clear(); window.removeEventListener('keydown', handle); window.removeEventListener('keyup', handle); window.removeEventListener('blur', clear); document.removeEventListener('visibilitychange', clear); };
+  }, [engine, isPaused, isExploration]);
 
   useEffect(() => {
     if (isPaused) {
@@ -83,7 +109,7 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
           analogX: gamepadInput.analogX,
           analogY: gamepadInput.analogY,
           shake: activeInput.shake || !!gamepadInput.shake,
-          interact: activeInput.interact || !!gamepadInput.blink || !!gamepadInput.ability,
+          interact: activeInput.interact || (lastSnapshotRef.current?.exploration ? !!gamepadInput.interact : !!gamepadInput.blink || !!gamepadInput.ability),
         };
 
         // Handle one-shot triggers
