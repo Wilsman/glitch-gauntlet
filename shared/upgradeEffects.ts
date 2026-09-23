@@ -216,5 +216,85 @@ export function applyUpgradeEffect(player: Player, upgrade: UpgradeEffectInput):
         ];
       }
       break;
+
+    // ===== RUN-CHANGING RELICS =====
+    case 'autoAbility':
+      player.autoAbilityStacks = Math.min(5, (player.autoAbilityStacks || 0) + 1);
+      break;
+    case 'missilePrinter':
+      player.missilePrinterStacks = Math.min(5, (player.missilePrinterStacks || 0) + 1);
+      break;
+    case 'daggerSwarm':
+      player.daggerSwarmStacks = Math.min(5, (player.daggerSwarmStacks || 0) + 1);
+      break;
+    case 'glassProtocol':
+      player.glassProtocolStacks = Math.min(5, (player.glassProtocolStacks || 0) + 1);
+      // Halve max HP on pickup (glass cannon switch), keep at least 1 HP
+      player.maxHealth = Math.max(10, Math.floor(player.maxHealth / 2));
+      player.health = Math.min(player.health, player.maxHealth);
+      break;
+    case 'killCooldown':
+      player.killCooldownStacks = Math.min(5, (player.killCooldownStacks || 0) + 1);
+      break;
+    case 'droneSwarm':
+      player.droneSwarmStacks = Math.min(5, (player.droneSwarmStacks || 0) + 1);
+      player.droneSwarmTimer = 0;
+      break;
+    case 'shieldMissiles':
+      player.shieldMissilesStacks = Math.min(5, (player.shieldMissilesStacks || 0) + 1);
+      break;
+    case 'teslaChords':
+      player.teslaChordsStacks = Math.min(5, (player.teslaChordsStacks || 0) + 1);
+      player.chainCount = (player.chainCount || 0) + 3;
+      break;
+    case 'slamBoots':
+      player.slamBootsStacks = Math.min(5, (player.slamBootsStacks || 0) + 1);
+      player.canDash = true;
+      break;
+    case 'behemothBlast':
+      player.behemothBlastStacks = Math.min(5, (player.behemothBlastStacks || 0) + 1);
+      break;
+    case 'cloudBody':
+      player.cloudBodyStacks = Math.min(5, (player.cloudBodyStacks || 0) + 1);
+      // Convert half of current max HP into shield on pickup
+      {
+        const convert = Math.floor(player.maxHealth / 2);
+        player.maxHealth = Math.max(10, player.maxHealth - convert);
+        player.health = Math.min(player.health, player.maxHealth);
+        player.maxShield = (player.maxShield || 0) + convert;
+        player.shield = player.maxShield;
+      }
+      player.cloudBodyTimer = 0;
+      break;
+    case 'perfectDodge':
+      player.perfectDodgeStacks = Math.min(5, (player.perfectDodgeStacks || 0) + 1);
+      player.perfectDodgeReadyAt = 0;
+      break;
+    case 'ghostArmy':
+      player.ghostArmyStacks = Math.min(5, (player.ghostArmyStacks || 0) + 1);
+      break;
+    case 'eliteOverdrive':
+      player.eliteOverdriveStacks = Math.min(5, (player.eliteOverdriveStacks || 0) + 1);
+      break;
+    case 'chaosAbility':
+      player.chaosAbilityStacks = Math.min(5, (player.chaosAbilityStacks || 0) + 1);
+      break;
+    case 'expenseAccount':
+      player.expenseAccountStacks = Math.min(5, (player.expenseAccountStacks || 0) + 1);
+      break;
+    case 'egoBombs':
+      player.egoBombsStacks = Math.min(5, (player.egoBombsStacks || 0) + 1);
+      player.orbitalCount = (player.orbitalCount || 0) + 2;
+      break;
+    case 'firewallWyrm':
+      player.firewallWyrmStacks = Math.min(5, (player.firewallWyrmStacks || 0) + 1);
+      break;
+    case 'sprintSurge':
+      player.sprintSurgeStacks = Math.min(5, (player.sprintSurgeStacks || 0) + 1);
+      player.sprintSurgeCharge = 0;
+      break;
+    case 'hotPotato':
+      player.hotPotatoStacks = Math.min(5, (player.hotPotatoStacks || 0) + 1);
+      break;
   }
 }

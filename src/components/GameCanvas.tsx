@@ -11,7 +11,8 @@ import {
   Group,
   Image as KonvaImage,
 } from "react-konva";
-import ExplorationWorld from "./ExplorationWorld";
+import ExplorationWorld, { ExplorationFX } from "./ExplorationWorld";
+import ExplorationScreenFX from "./ExplorationScreenFX";
 import { SPRITE_MAP } from "@/lib/spriteMap";
 import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
@@ -34,6 +35,7 @@ const SHOP_INTERACT_RADIUS = 90;
 
 const VAMPIRE_DRAIN_STOPS = [0, "#FF000055", 0.7, "#FF000022", 1, "#FF000000"];
 const LOW_HEALTH_VIGNETTE_STOPS = [0, "transparent", 1, "rgba(255, 0, 0, 0.2)"];
+const ELITE_AFFIX_COLORS: Record<string, string> = { blazing: "#fb923c", overloading: "#38bdf8", glacial: "#e0f2fe" };
 const SHOP_RARITY_COLORS: Record<UpgradeRarity, string> = {
   common: "#22d3ee",
   uncommon: "#34d399",
@@ -600,6 +602,466 @@ const RenderTrailSegments = memo(({ segments, now }: { segments: any[]; now: num
   );
 });
 
+const RELIC_BADGES: { key: string; emoji: string }[] = [
+  { key: "autoAbilityStacks", emoji: "🤖" },
+  { key: "missilePrinterStacks", emoji: "🚀" },
+  { key: "daggerSwarmStacks", emoji: "🗡️" },
+  { key: "glassProtocolStacks", emoji: "🔷" },
+  { key: "killCooldownStacks", emoji: "✂️" },
+  { key: "droneSwarmStacks", emoji: "🛸" },
+  { key: "shieldMissilesStacks", emoji: "🍤" },
+  { key: "teslaChordsStacks", emoji: "🎸" },
+  { key: "slamBootsStacks", emoji: "🥾" },
+  { key: "behemothBlastStacks", emoji: "🍿" },
+  { key: "cloudBodyStacks", emoji: "☁️" },
+  { key: "perfectDodgeStacks", emoji: "🫧" },
+  { key: "ghostArmyStacks", emoji: "👻" },
+  { key: "eliteOverdriveStacks", emoji: "🥫" },
+  { key: "chaosAbilityStacks", emoji: "🎰" },
+  { key: "expenseAccountStacks", emoji: "💳" },
+  { key: "egoBombsStacks", emoji: "💣" },
+  { key: "firewallWyrmStacks", emoji: "🐉" },
+  { key: "sprintSurgeStacks", emoji: "🧦" },
+  { key: "hotPotatoStacks", emoji: "🥔" },
+];
+
+// Unique in-game visuals for the 20 run-changing relics. Player-relative
+// coordinates; rendered inside the player's inner group.
+const RelicAuras = memo(({ player, now }: { player: any; now: number }) => {
+  const badges = RELIC_BADGES.filter((b) => (player[b.key] || 0) > 0);
+  const orbit = (count: number, radius: number, speed: number, phase = 0) =>
+    Array.from({ length: count }, (_, i) => {
+      const a = now / speed + phase + (i * Math.PI * 2) / Math.max(1, count);
+      return { x: Math.cos(a) * radius, y: Math.sin(a) * radius, angle: a };
+    });
+  const abilityReady = !player.abilityCooldown || player.abilityCooldown <= 0;
+  const dodgeReady =
+    (player.perfectDodgeStacks || 0) > 0 &&
+    (!player.perfectDodgeReadyAt || now >= player.perfectDodgeReadyAt);
+  const overdriveActive =
+    (player.eliteOverdriveStacks || 0) > 0 &&
+    player.eliteOverdriveUntil &&
+    now < player.eliteOverdriveUntil;
+  const chaosHue = Math.floor(now / 120) % 360;
+
+  return (
+    <Group listening={false}>
+      {/* Build strip: mini emoji badges for owned relics */}
+      {badges.length > 0 && (
+        <Group y={-50}>
+          {badges.map((b, i) => (
+            <Text
+              key={b.key}
+              text={b.emoji}
+              x={(i - (badges.length - 1) / 2) * 16}
+              y={0}
+              fontSize={13}
+              offsetX={6.5}
+              offsetY={6.5}
+              opacity={0.95}
+              shadowColor="#FFFFFF"
+              shadowBlur={4}
+            />
+          ))}
+        </Group>
+      )}
+
+      {/* Autoclicker Daemon: rotating dashed command ring + orbiting bot core */}
+      {!!player.autoAbilityStacks && (
+        <Group>
+          <Ring
+            innerRadius={24}
+            outerRadius={26.5}
+            fill={abilityReady ? "#22d3ee" : "#155e75"}
+            opacity={abilityReady ? 0.85 : 0.35}
+            rotation={now / 12}
+            dash={[8, 6]}
+          />
+          <Circle
+            x={Math.cos(now / 280) * 25}
+            y={Math.sin(now / 280) * 25}
+            radius={3.5}
+            fill="#22d3ee"
+            shadowColor="#22d3ee"
+            shadowBlur={10}
+          />
+        </Group>
+      )}
+
+      {/* Missile Printer: twin rocket pods bolted to the hull */}
+      {!!player.missilePrinterStacks && (
+        <Group>
+          {[-1, 1].map((side) => (
+            <Group key={side}>
+              <Rect
+                x={side * 20 - 4}
+                y={-6}
+                width={8}
+                height={12}
+                cornerRadius={2}
+                fill="#7c2d12"
+                stroke="#fb923c"
+                strokeWidth={1.5}
+                shadowColor="#fb923c"
+                shadowBlur={8}
+              />
+              <Circle
+                x={side * 20}
+                y={-8}
+                radius={2.5 + Math.sin(now / 90) * 1}
+                fill="#fdba74"
+                shadowColor="#fb923c"
+                shadowBlur={10}
+              />
+            </Group>
+          ))}
+        </Group>
+      )}
+
+      {/* Funeral Dagger Fan Club: orbiting silver daggers */}
+      {!!player.daggerSwarmStacks &&
+        orbit(Math.min(10, player.daggerSwarmStacks * 2), 31, 380).map(
+          (o, i) => (
+            <Rect
+              key={i}
+              x={o.x}
+              y={o.y}
+              width={3}
+              height={10}
+              offsetX={1.5}
+              offsetY={5}
+              rotation={(o.angle * 180) / Math.PI + 90}
+              fill="#e2e8f0"
+              stroke="#94a3b8"
+              strokeWidth={1}
+              shadowColor="#cbd5e1"
+              shadowBlur={8}
+            />
+          ),
+        )}
+
+      {/* Glass Cannon Warranty Void: cracked-glass diamond */}
+      {!!player.glassProtocolStacks && (
+        <Group rotation={now / 40}>
+          <Line
+            points={[0, -26, 18, 0, 0, 26, -18, 0]}
+            closed
+            stroke="#67e8f9"
+            strokeWidth={2}
+            shadowColor="#22d3ee"
+            shadowBlur={14}
+            opacity={0.9}
+          />
+          <Circle x={10} y={-12} radius={2} fill="#ffffff" opacity={0.9} />
+          <Circle x={-8} y={10} radius={1.5} fill="#ffffff" opacity={0.7} />
+        </Group>
+      )}
+
+      {/* Cooldown Coupon Clipper: magenta ready-ring flashes when ability is up */}
+      {!!player.killCooldownStacks && (
+        <Ring
+          innerRadius={19}
+          outerRadius={22}
+          fill="#f472b6"
+          opacity={abilityReady ? 0.55 + Math.sin(now / 110) * 0.25 : 0.12}
+          shadowColor="#f472b6"
+          shadowBlur={abilityReady ? 12 : 0}
+        />
+      )}
+
+      {/* Drone Union Local 404: combat drones on a wide patrol orbit */}
+      {!!player.droneSwarmStacks &&
+        orbit(player.droneSwarmStacks * 2, 46, -520).map((o, i) => (
+          <Group key={i} x={o.x} y={o.y} rotation={(o.angle * 180) / Math.PI}>
+            <Line
+              points={[6, 0, -4, 4, -4, -4]}
+              closed
+              fill="#0ea5e9"
+              stroke="#bae6fd"
+              strokeWidth={1}
+              shadowColor="#0ea5e9"
+              shadowBlur={10}
+              opacity={0.6 + Math.sin(now / 130 + i) * 0.3}
+            />
+          </Group>
+        ))}
+
+      {/* Shield Shrimp Buffet: shrimp-pink bubble while shielded */}
+      {!!player.shieldMissilesStacks && (player.shield || 0) > 0 && (
+        <Group>
+          <Circle
+            radius={21}
+            stroke="#fb7185"
+            strokeWidth={2}
+            opacity={0.55 + Math.sin(now / 140) * 0.2}
+            shadowColor="#fb7185"
+            shadowBlur={14}
+          />
+          <Circle
+            radius={24}
+            stroke="#fdba74"
+            strokeWidth={1}
+            opacity={0.3}
+            dash={[5, 7]}
+            rotation={now / 20}
+          />
+        </Group>
+      )}
+
+      {/* Overclocked Ukulele: violet static-charged strings */}
+      {!!player.teslaChordsStacks && (
+        <Group>
+          <Circle
+            radius={29}
+            stroke="#a78bfa"
+            strokeWidth={1.5}
+            opacity={0.5 + Math.sin(now / 100) * 0.25}
+            dash={[10, 6]}
+            rotation={now / 16}
+            shadowColor="#8b5cf6"
+            shadowBlur={12}
+          />
+          {orbit(3, 29, 300, 1).map((o, i) => (
+            <Circle
+              key={i}
+              x={o.x}
+              y={o.y}
+              radius={2.5}
+              fill="#ede9fe"
+              shadowColor="#a78bfa"
+              shadowBlur={12}
+            />
+          ))}
+        </Group>
+      )}
+
+      {/* Concrete Diving Boots: heavy ground-ring + dust pulse */}
+      {!!player.slamBootsStacks && (
+        <Group>
+          <Circle
+            radius={23 + Math.sin(now / 220) * 2}
+            stroke="#d97706"
+            strokeWidth={2.5}
+            opacity={0.55}
+            shadowColor="#d97706"
+            shadowBlur={10}
+          />
+          <Circle
+            radius={27}
+            stroke="#78350f"
+            strokeWidth={1}
+            opacity={0.3}
+            dash={[4, 8]}
+            rotation={-now / 24}
+          />
+        </Group>
+      )}
+
+      {/* Glitch Popcorn Kernel: warm ember glow + popping kernels */}
+      {!!player.behemothBlastStacks && (
+        <Group>
+          <Circle
+            radius={19}
+            fill="#fbbf24"
+            opacity={0.12 + Math.sin(now / 130) * 0.05}
+            shadowColor="#f59e0b"
+            shadowBlur={22}
+          />
+          {orbit(3, 20, 420, 2).map((o, i) => (
+            <Circle
+              key={i}
+              x={o.x}
+              y={o.y}
+              radius={2.2}
+              fill="#fde68a"
+              shadowColor="#f59e0b"
+              shadowBlur={10}
+            />
+          ))}
+        </Group>
+      )}
+
+      {/* Cloud Backup Body: fluffy backup-shell over the body */}
+      {!!player.cloudBodyStacks && (
+        <Group opacity={0.75}>
+          <Circle x={-10} y={-6} radius={10} fill="#bae6fd" opacity={0.35} />
+          <Circle x={10} y={-6} radius={10} fill="#bae6fd" opacity={0.35} />
+          <Circle x={0} y={-10} radius={12} fill="#e0f2fe" opacity={0.35} />
+          <Circle
+            radius={22}
+            stroke="#7dd3fc"
+            strokeWidth={1.5}
+            opacity={0.5 + Math.sin(now / 160) * 0.2}
+            shadowColor="#38bdf8"
+            shadowBlur={12}
+          />
+        </Group>
+      )}
+
+      {/* Bubble-Wrap Insurance: bright when the perfect block is ready */}
+      {!!player.perfectDodgeStacks && (
+        <Circle
+          radius={25}
+          stroke={dodgeReady ? "#f0fdff" : "#475569"}
+          strokeWidth={dodgeReady ? 2.5 : 1.5}
+          opacity={dodgeReady ? 0.9 : 0.3}
+          dash={[6, 5]}
+          rotation={now / 30}
+          shadowColor="#a5f3fc"
+          shadowBlur={dodgeReady ? 16 : 0}
+        />
+      )}
+
+      {/* Haunted Halloween Mask: recruited ghosts drift around you */}
+      {!!player.ghostArmyStacks &&
+        orbit(Math.min(5, player.ghostArmyStacks * 2), 35, 600, 3).map(
+          (o, i) => (
+            <Text
+              key={i}
+              text="👻"
+              x={o.x}
+              y={o.y + Math.sin(now / 200 + i) * 2}
+              fontSize={13}
+              offsetX={6.5}
+              offsetY={6.5}
+              opacity={0.65}
+            />
+          ),
+        )}
+
+      {/* Elite Energy Drink: green overdrive surge while the window is live */}
+      {!!player.eliteOverdriveStacks &&
+        (overdriveActive ? (
+          <Group>
+            <Ring
+              innerRadius={22}
+              outerRadius={30 + ((now / 40) % 14)}
+              fill="#4ade80"
+              opacity={0.55}
+              shadowColor="#22c55e"
+              shadowBlur={20}
+            />
+            <Circle
+              radius={20}
+              stroke="#bbf7d0"
+              strokeWidth={2}
+              opacity={0.8 + Math.sin(now / 70) * 0.2}
+              shadowColor="#4ade80"
+              shadowBlur={18}
+            />
+          </Group>
+        ) : (
+          <Circle
+            radius={3}
+            x={-24}
+            y={18}
+            fill="#166534"
+            opacity={0.8}
+            shadowColor="#4ade80"
+            shadowBlur={6}
+          />
+        ))}
+
+      {/* Chaos Vending Machine: strobing slot-machine halo */}
+      {!!player.chaosAbilityStacks && (
+        <Circle
+          radius={27}
+          stroke={`hsl(${chaosHue}, 100%, 65%)`}
+          strokeWidth={2}
+          opacity={0.7}
+          dash={[12, 7]}
+          rotation={-now / 14}
+          shadowColor={`hsl(${chaosHue}, 100%, 60%)`}
+          shadowBlur={14}
+        />
+      )}
+
+      {/* Unlimited Expense Account: golden coin sparkles */}
+      {!!player.expenseAccountStacks &&
+        orbit(4, 24, -340, 4).map((o, i) => (
+          <Circle
+            key={i}
+            x={o.x}
+            y={o.y}
+            radius={2.4}
+            fill="#fde047"
+            shadowColor="#eab308"
+            shadowBlur={12}
+          />
+        ))}
+
+      {/* Clingy Orbit Bombs: pink warning tether inside the bomb ring */}
+      {!!player.egoBombsStacks && (
+        <Circle
+          radius={60}
+          stroke="#f0abfc"
+          strokeWidth={1}
+          opacity={0.25 + Math.sin(now / 180) * 0.1}
+          dash={[3, 9]}
+          rotation={now / 40}
+        />
+      )}
+
+      {/* Fried Firewall Wyrm: baby wyrm familiar with a flame tail */}
+      {!!player.firewallWyrmStacks &&
+        orbit(1, 37, 460, 5).map((o, i) => (
+          <Group key={i} x={o.x} y={o.y}>
+            <Circle
+              x={-Math.cos(o.angle) * 6}
+              y={-Math.sin(o.angle) * 6}
+              radius={3.5}
+              fill="#fb923c"
+              opacity={0.7}
+              shadowColor="#f97316"
+              shadowBlur={12}
+            />
+            <Circle
+              radius={5}
+              fill="#4ade80"
+              stroke="#bbf7d0"
+              strokeWidth={1.5}
+              shadowColor="#22c55e"
+              shadowBlur={14}
+            />
+          </Group>
+        ))}
+
+      {/* Static Sprint Socks: charge arc fills as you move */}
+      {!!player.sprintSurgeStacks && (
+        <Group>
+          <Ring
+            innerRadius={20}
+            outerRadius={23}
+            fill="#1e293b"
+            opacity={0.5}
+            rotation={-90}
+          />
+          <Ring
+            innerRadius={20}
+            outerRadius={23}
+            fill={(player.sprintSurgeCharge || 0) >= 100 ? "#fef08a" : "#facc15"}
+            opacity={0.85}
+            angle={Math.max(4, ((player.sprintSurgeCharge || 0) / 100) * 360)}
+            rotation={-90}
+            shadowColor="#facc15"
+            shadowBlur={8}
+          />
+          {(player.sprintSurgeCharge || 0) >= 100 && (
+            <Circle
+              radius={28}
+              stroke="#fef9c3"
+              strokeWidth={2}
+              opacity={0.7 + Math.sin(now / 60) * 0.3}
+              shadowColor="#facc15"
+              shadowBlur={18}
+            />
+          )}
+        </Group>
+      )}
+    </Group>
+  );
+});
+
 const PlayerVisuals = memo(
   ({
     player,
@@ -1046,6 +1508,9 @@ const PlayerVisuals = memo(
             />
           )}
 
+          {/* Run-changing relic auras */}
+          {!isDead && <RelicAuras player={player} now={now} />}
+
           {/* Satellite Ring Orbs */}
           {player.hasSatelliteRing &&
             (player.satelliteOrbs || []).map((orb: any, i: number) => {
@@ -1218,6 +1683,41 @@ const EnemyVisuals = memo(
               opacity={0.5 + Math.sin(now / 200) * 0.3}
               dash={[4, 4]}
             />
+          )}
+
+          {enemy.eliteAffix && (
+            <Group>
+              <Circle radius={size + 10} fill={ELITE_AFFIX_COLORS[enemy.eliteAffix]} opacity={0.14 + Math.sin(now / 140) * 0.06} />
+              <Circle radius={size / 2 + 12} stroke={ELITE_AFFIX_COLORS[enemy.eliteAffix]} strokeWidth={3} dash={[8, 6]} rotation={now / 6} />
+              <Text text="♛" x={-9} y={-size / 2 - 30} fontSize={18} fill={ELITE_AFFIX_COLORS[enemy.eliteAffix]} />
+            </Group>
+          )}
+
+          {/* Hot Potato Protocol: marked enemies take bonus damage */}
+          {enemy.statusEffects?.some((e) => e.type === "potatoMarked") && (
+            <Group>
+              <Circle
+                radius={size / 2 + 7}
+                fillEnabled={false}
+                stroke="#C6893B"
+                strokeWidth={2}
+                opacity={0.65 + Math.sin(now / 120) * 0.25}
+                dash={[5, 4]}
+                rotation={now / 25}
+                shadowColor="#C6893B"
+                shadowBlur={10}
+              />
+              <Text
+                text="🥔"
+                x={0}
+                y={-size / 2 - 24}
+                fontSize={15}
+                offsetX={7.5}
+                offsetY={7.5}
+                shadowColor="#C6893B"
+                shadowBlur={8}
+              />
+            </Group>
           )}
 
           {isPulseTelegraphing && (
@@ -1781,6 +2281,10 @@ export default function GameCanvas() {
     () => players.some((player) => player.hasTimeWarp),
     [players],
   );
+  const teslaActive = useMemo(
+    () => players.some((player) => (player.teslaChordsStacks || 0) > 0),
+    [players],
+  );
   const localPlayer = useMemo(
     () => (localPlayerId ? playersById.get(localPlayerId) : undefined),
     [playersById, localPlayerId],
@@ -1851,7 +2355,7 @@ export default function GameCanvas() {
     >
       <Layer>
         <Group x={world ? -world.camera.x : 0} y={world ? -world.camera.y : 0}>
-        {world && <ExplorationWorld world={world} player={localPlayer} />}
+        {world && <ExplorationWorld world={world} player={localPlayer} now={now} />}
         {/* Render Trail Segments (behind everything) */}
         <RenderTrailSegments segments={trailSegments} now={now} />
         {/* Background Grid */}
@@ -2474,6 +2978,11 @@ export default function GameCanvas() {
               const owner = playersById.get(clone.ownerId);
               if (!owner) return null;
 
+              // Haunted Halloween Mask: ghost recruits render pale and spooky
+              const isGhost = (owner.ghostArmyStacks || 0) > 0;
+              const ghostAura = isGhost ? "#c4b5fd" : "#9333EA";
+              const ghostBody = isGhost ? "#ede9fe" : owner.color || "#00FFFF";
+
                 // Character-specific emoji for clone
                 const legacyCharacterEmoji =
                   owner.characterType === "spray-n-pray"
@@ -2518,9 +3027,9 @@ export default function GameCanvas() {
                       x={clone.position.x}
                       y={clone.position.y}
                       radius={20}
-                      fill="#9333EA"
-                      opacity={clone.opacity * 0.2}
-                      shadowColor="#9333EA"
+                      fill={ghostAura}
+                      opacity={clone.opacity * (isGhost ? 0.35 : 0.2)}
+                      shadowColor={ghostAura}
                       shadowBlur={20}
                     />
                     {/* Clone body */}
@@ -2528,16 +3037,16 @@ export default function GameCanvas() {
                       x={clone.position.x}
                       y={clone.position.y}
                       radius={15}
-                      fill={owner.color || "#00FFFF"}
-                      opacity={clone.opacity * 0.5}
-                      stroke="#9333EA"
+                      fill={ghostBody}
+                      opacity={clone.opacity * (isGhost ? 0.35 : 0.5)}
+                      stroke={ghostAura}
                       strokeWidth={2}
-                      shadowColor="#9333EA"
+                      shadowColor={ghostAura}
                       shadowBlur={10}
                     />
                     {/* Clone emoji (semi-transparent) */}
                     <Text
-                      text={characterEmoji}
+                      text={isGhost ? "👻" : characterEmoji}
                       x={clone.position.x}
                       y={clone.position.y}
                       fontSize={18}
@@ -2547,7 +3056,7 @@ export default function GameCanvas() {
                     />
                     {/* Afterimage effect indicator */}
                     <Text
-                      text="👯"
+                      text={isGhost ? "✨" : "👯"}
                       x={clone.position.x}
                       y={clone.position.y - 25}
                       fontSize={12}
@@ -3384,6 +3893,147 @@ export default function GameCanvas() {
                 );
               }
 
+              // Relic-flavored projectiles get unique looks
+              if (p.flavor === "missile") {
+                const angleDeg =
+                  (Math.atan2(p.velocity.y, p.velocity.x) * 180) / Math.PI;
+                return (
+                  <Group
+                    key={p.id}
+                    x={p.position.x}
+                    y={p.position.y}
+                    rotation={angleDeg}
+                  >
+                    <Circle
+                      x={-9}
+                      y={0}
+                      radius={4 + Math.sin(now / 50) * 1.2}
+                      fill="#fef08a"
+                      shadowColor="#fb923c"
+                      shadowBlur={14}
+                    />
+                    <Rect
+                      x={-7}
+                      y={-3.5}
+                      width={13}
+                      height={7}
+                      cornerRadius={3}
+                      fill="#ea580c"
+                      stroke="#fed7aa"
+                      strokeWidth={1.5}
+                      shadowColor="#fb923c"
+                      shadowBlur={14}
+                    />
+                    <Line
+                      points={[6, -3, 11, 0, 6, 3]}
+                      closed
+                      fill="#7c2d12"
+                    />
+                  </Group>
+                );
+              }
+
+              if (p.flavor === "dagger") {
+                const angleDeg =
+                  (Math.atan2(p.velocity.y, p.velocity.x) * 180) / Math.PI;
+                return (
+                  <Group
+                    key={p.id}
+                    x={p.position.x}
+                    y={p.position.y}
+                    rotation={angleDeg}
+                  >
+                    <Line
+                      points={[-8, 0, 2, -3, 9, 0, 2, 3]}
+                      closed
+                      fill="#e2e8f0"
+                      stroke="#f8fafc"
+                      strokeWidth={1}
+                      shadowColor="#cbd5e1"
+                      shadowBlur={12}
+                    />
+                    <Circle
+                      x={-7}
+                      y={0}
+                      radius={2}
+                      fill="#f472b6"
+                      shadowColor="#f472b6"
+                      shadowBlur={8}
+                    />
+                  </Group>
+                );
+              }
+
+              if (p.flavor === "wyrm") {
+                return (
+                  <Group key={p.id}>
+                    <Circle
+                      x={p.position.x}
+                      y={p.position.y}
+                      radius={(p.radius || 8) + 6}
+                      fill="#fb923c"
+                      opacity={0.3}
+                      shadowColor="#f97316"
+                      shadowBlur={22}
+                    />
+                    <Circle
+                      x={p.position.x}
+                      y={p.position.y}
+                      radius={p.radius || 8}
+                      fill="#4ade80"
+                      shadowColor="#22c55e"
+                      shadowBlur={18}
+                    />
+                    <Circle
+                      x={p.position.x}
+                      y={p.position.y}
+                      radius={(p.radius || 8) * 0.45}
+                      fill="#ecfdf5"
+                      opacity={0.9}
+                    />
+                    <Text
+                      text="🐉"
+                      x={p.position.x}
+                      y={p.position.y - 20}
+                      fontSize={12}
+                      offsetX={6}
+                      offsetY={6}
+                      opacity={0.9}
+                    />
+                  </Group>
+                );
+              }
+
+              if (p.flavor === "shrimp") {
+                return (
+                  <Group key={p.id}>
+                    <Circle
+                      x={p.position.x}
+                      y={p.position.y}
+                      radius={(p.radius || 5) + 4}
+                      fill="#fb7185"
+                      opacity={0.35}
+                      shadowColor="#fb7185"
+                      shadowBlur={18}
+                    />
+                    <Circle
+                      x={p.position.x}
+                      y={p.position.y}
+                      radius={p.radius || 5}
+                      fill="#fda4af"
+                      shadowColor="#fb7185"
+                      shadowBlur={14}
+                    />
+                    <Circle
+                      x={p.position.x}
+                      y={p.position.y}
+                      radius={(p.radius || 5) * 0.4}
+                      fill="#fff1f2"
+                    />
+                  </Group>
+                );
+              }
+
               // Enhanced bullet visuals for upgrades
               let bulletColor = p.isCrit ? "#FF3B3B" : "#FFFFFF";
               let bulletRadius = p.radius || (p.isCrit ? 5 : 4);
@@ -3475,15 +4125,19 @@ export default function GameCanvas() {
 
                 points.push(chain.to.x, chain.to.y);
 
+                // Overclocked Ukulele: tesla-charged chains burn violet
+                const boltOuter = teslaActive ? "#a78bfa" : "#FFFF00";
+                const boltInner = teslaActive ? "#ede9fe" : "#FFFFFF";
+
                 return (
                   <Group key={chain.id}>
                     {/* Outer glow */}
                     <Line
                       points={points}
-                      stroke="#FFFF00"
-                      strokeWidth={4}
+                      stroke={boltOuter}
+                      strokeWidth={teslaActive ? 6 : 4}
                       opacity={opacity * 0.3}
-                      shadowColor="#FFFF00"
+                      shadowColor={boltOuter}
                       shadowBlur={20}
                       lineCap="round"
                       lineJoin="round"
@@ -3492,10 +4146,10 @@ export default function GameCanvas() {
                     {/* Inner bolt */}
                     <Line
                       points={points}
-                      stroke="#FFFFFF"
+                      stroke={boltInner}
                       strokeWidth={2}
                       opacity={opacity * 0.8}
-                      shadowColor="#FFFF00"
+                      shadowColor={boltOuter}
                       shadowBlur={10}
                       lineCap="round"
                       lineJoin="round"
@@ -3557,6 +4211,13 @@ export default function GameCanvas() {
               // Pulsing fire glow effect
               const pulseIntensity = 0.7 + Math.sin(now / 150) * 0.3;
 
+              // Clingy Orbit Bombs: owner's skulls render as live bombs
+              const isEgoBomb = (owner.egoBombsStacks || 0) > 0;
+              const auraFill = isEgoBomb ? "#d946ef" : "#FF6600";
+              const auraShadow = isEgoBomb ? "#f0abfc" : "#FF3300";
+              const coreFill = isEgoBomb ? "#f0abfc" : "#FF9900";
+              const coreShadow = isEgoBomb ? "#e879f9" : "#FFAA00";
+
               return (
                 <Group key={skull.id}>
                   {/* Fire aura around skull */}
@@ -3564,9 +4225,9 @@ export default function GameCanvas() {
                     x={skullX}
                     y={skullY}
                     radius={18}
-                    fill="#FF6600"
+                    fill={auraFill}
                     opacity={pulseIntensity * 0.4}
-                    shadowColor="#FF3300"
+                    shadowColor={auraShadow}
                     shadowBlur={30}
                   />
                   {/* Inner fire glow */}
@@ -3574,20 +4235,32 @@ export default function GameCanvas() {
                     x={skullX}
                     y={skullY}
                     radius={12}
-                    fill="#FF9900"
+                    fill={coreFill}
                     opacity={pulseIntensity * 0.6}
-                    shadowColor="#FFAA00"
+                    shadowColor={coreShadow}
                     shadowBlur={20}
                   />
+                  {isEgoBomb && (
+                    <Circle
+                      x={skullX}
+                      y={skullY}
+                      radius={22}
+                      stroke="#f5d0fe"
+                      strokeWidth={1.5}
+                      opacity={0.5 + Math.sin(now / 110) * 0.25}
+                      dash={[4, 6]}
+                      rotation={now / 20}
+                    />
+                  )}
                   {/* Skull emoji */}
                   <Text
-                    text="💀"
+                    text={isEgoBomb ? "💣" : "💀"}
                     x={skullX}
                     y={skullY}
                     fontSize={24}
                     offsetX={12}
                     offsetY={12}
-                    shadowColor="#FF0000"
+                    shadowColor={isEgoBomb ? "#f0abfc" : "#FF0000"}
                     shadowBlur={15}
                   />
                 </Group>
@@ -3610,6 +4283,234 @@ export default function GameCanvas() {
                   explosion.radius * (0.3 + progress * 0.7),
                 );
                 const opacity = 1 - progress;
+
+                // Relic-flavored blasts get unique looks
+                if (explosion.flavor === "popcorn") {
+                  const kernels = [0, 72, 144, 216, 288].map((deg) => {
+                    const rad = ((deg + progress * 60) * Math.PI) / 180;
+                    return {
+                      x: explosion.position.x + Math.cos(rad) * currentRadius * 0.7,
+                      y: explosion.position.y + Math.sin(rad) * currentRadius * 0.7,
+                    };
+                  });
+                  return (
+                    <Group key={explosion.id}>
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius}
+                        fill="#f59e0b"
+                        opacity={opacity * 0.35}
+                        shadowColor="#fbbf24"
+                        shadowBlur={30}
+                      />
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius * 0.55}
+                        fillEnabled={false}
+                        stroke="#fde68a"
+                        strokeWidth={4}
+                        opacity={opacity}
+                        shadowColor="#fde68a"
+                        shadowBlur={18}
+                      />
+                      {kernels.map((k, i) => (
+                        <Circle
+                          key={i}
+                          x={k.x}
+                          y={k.y}
+                          radius={4}
+                          fill="#fef3c7"
+                          opacity={opacity}
+                          shadowColor="#fbbf24"
+                          shadowBlur={10}
+                        />
+                      ))}
+                      <Text
+                        text="🍿"
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        fontSize={Math.max(14, currentRadius * 0.5)}
+                        offsetX={10}
+                        offsetY={10}
+                        opacity={opacity}
+                      />
+                    </Group>
+                  );
+                }
+
+                if (explosion.flavor === "slam") {
+                  return (
+                    <Group key={explosion.id}>
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius}
+                        fill="#b45309"
+                        opacity={opacity * 0.3}
+                        shadowColor="#d97706"
+                        shadowBlur={28}
+                      />
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius * (0.4 + progress * 0.6)}
+                        fillEnabled={false}
+                        stroke="#fcd34d"
+                        strokeWidth={5}
+                        opacity={opacity}
+                        shadowColor="#f59e0b"
+                        shadowBlur={20}
+                      />
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius * (0.15 + progress * 0.85)}
+                        fillEnabled={false}
+                        stroke="#78350f"
+                        strokeWidth={2}
+                        opacity={opacity * 0.7}
+                        dash={[8, 8]}
+                      />
+                      <Text
+                        text="🥾"
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        fontSize={Math.max(16, currentRadius * 0.45)}
+                        offsetX={11}
+                        offsetY={11}
+                        opacity={opacity}
+                      />
+                    </Group>
+                  );
+                }
+
+                if (explosion.flavor === "chaos") {
+                  const strobe = Math.floor(now / 90) % 2 === 0 ? "#f0abfc" : "#67e8f9";
+                  return (
+                    <Group key={explosion.id} rotation={(now / 8) % 360}>
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius}
+                        fill="#a855f7"
+                        opacity={opacity * 0.3}
+                        shadowColor={strobe}
+                        shadowBlur={34}
+                      />
+                      <Ring
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        innerRadius={currentRadius * 0.55}
+                        outerRadius={currentRadius * 0.7}
+                        fill={strobe}
+                        opacity={opacity * 0.8}
+                      />
+                      <Ring
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        innerRadius={currentRadius * 0.8}
+                        outerRadius={currentRadius * 0.9}
+                        fill="#ffffff"
+                        opacity={opacity * 0.5}
+                        dash={[10, 8]}
+                      />
+                      <Text
+                        text="🎰"
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        fontSize={Math.max(16, currentRadius * 0.4)}
+                        offsetX={11}
+                        offsetY={11}
+                        opacity={opacity}
+                      />
+                    </Group>
+                  );
+                }
+
+                if (explosion.flavor === "sprint") {
+                  const spokes: number[] = [];
+                  for (let s = 0; s < 6; s++) {
+                    const a = (s * Math.PI) / 3 + progress * 0.8;
+                    spokes.push(
+                      explosion.position.x,
+                      explosion.position.y,
+                      explosion.position.x + Math.cos(a) * currentRadius * 1.1,
+                      explosion.position.y + Math.sin(a) * currentRadius * 1.1,
+                    );
+                  }
+                  return (
+                    <Group key={explosion.id}>
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius}
+                        fillEnabled={false}
+                        stroke="#fef08a"
+                        strokeWidth={4}
+                        opacity={opacity}
+                        shadowColor="#facc15"
+                        shadowBlur={26}
+                      />
+                      <Line
+                        points={spokes}
+                        stroke="#fde047"
+                        strokeWidth={3}
+                        opacity={opacity * 0.9}
+                        shadowColor="#facc15"
+                        shadowBlur={16}
+                        lineCap="round"
+                      />
+                      <Text
+                        text="⚡"
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        fontSize={Math.max(16, currentRadius * 0.4)}
+                        offsetX={10}
+                        offsetY={10}
+                        opacity={opacity}
+                      />
+                    </Group>
+                  );
+                }
+
+                if (explosion.flavor === "egobomb") {
+                  const pop = 1 + Math.sin(progress * Math.PI) * 0.3;
+                  return (
+                    <Group key={explosion.id}>
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius}
+                        fill="#d946ef"
+                        opacity={opacity * 0.35}
+                        shadowColor="#f0abfc"
+                        shadowBlur={30}
+                      />
+                      <Circle
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        radius={currentRadius * 0.6}
+                        fillEnabled={false}
+                        stroke="#f5d0fe"
+                        strokeWidth={3}
+                        opacity={opacity}
+                        dash={[6, 6]}
+                        rotation={now / 10}
+                      />
+                      <Text
+                        text="💣"
+                        x={explosion.position.x}
+                        y={explosion.position.y}
+                        fontSize={Math.max(14, currentRadius * 0.5) * pop}
+                        offsetX={10 * pop}
+                        offsetY={10 * pop}
+                        opacity={opacity}
+                      />
+                    </Group>
+                  );
+                }
 
                 if (explosion.type === "void") {
                   const pulse = Math.sin(now / 80) * 6;
@@ -3792,6 +4693,7 @@ export default function GameCanvas() {
                   />
                 );
               })}
+          {world && <ExplorationFX world={world} />}
           {/* Game ID Text */}
           <Text
             visible={!world}
@@ -3837,6 +4739,7 @@ export default function GameCanvas() {
       </Layer>
       {/* Post-processing Layer for UI Overlays */}
       <Layer>
+        {world && localPlayer && <ExplorationScreenFX world={world} player={localPlayer} now={now} />}
         {/* Low Health Vignette */}
         {localPlayer && localPlayer.health / localPlayer.maxHealth < 0.3 && (
             <Group key="low-health-vignette-group">

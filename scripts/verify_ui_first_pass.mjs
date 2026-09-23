@@ -17,7 +17,7 @@ const state = async () => JSON.parse(await page.evaluate(() => window.render_gam
 const advance = async ms => page.evaluate(t => window.advanceTime(t), ms);
 
 try {
-  await page.goto('http://localhost:3000');
+  await page.goto('http://localhost:5173');
   await page.locator('#player-name').fill('UI Review');
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
   await page.evaluate(async () => {

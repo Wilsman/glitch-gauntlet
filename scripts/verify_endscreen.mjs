@@ -6,7 +6,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
 
-await page.goto("http://localhost:3000/", { waitUntil: "domcontentloaded" });
+await page.goto("http://localhost:5173/", { waitUntil: "domcontentloaded" });
 await page.evaluate(() => {
   localStorage.setItem(
     "glitch-gauntlet-progression",
@@ -29,7 +29,7 @@ await page.evaluate(() => {
 });
 
 for (const route of ["gameover", "gamewon"]) {
-  await page.goto(`http://localhost:3000/${route}/local`, {
+  await page.goto(`http://localhost:5173/${route}/local`, {
     waitUntil: "domcontentloaded",
   });
   await page.waitForTimeout(2500);

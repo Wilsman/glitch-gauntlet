@@ -1,6 +1,10 @@
-import type { Vector2D } from './types';
+import type { UpgradeRarity, Vector2D } from './types';
 
 export interface WorldWall { id: string; x: number; y: number; width: number; height: number }
+export interface WorldChest { id: string; kind: 'small' | 'large' | 'shrine'; position: Vector2D; cost: number; opened: boolean; uses: number; openedMs: number }
+export interface BoostPad { id: string; position: Vector2D; angle: number }
+export interface WorldFx { id: number; kind: 'ring' | 'text' | 'burst' | 'beam'; position: Vector2D; color: string; ms: number; maxMs: number; size: number; text?: string }
+export interface ItemFeedEntry { id: number; title: string; emoji: string; rarity: UpgradeRarity; description: string; ms: number }
 export interface ExplorationState {
   seed: number;
   width: number;
@@ -29,4 +33,14 @@ export interface ExplorationState {
   debugInvulnerable?: boolean;
   spawnWarnings?: { position: Vector2D; remainingMs: number }[];
   metrics: { discoveryMs: number | null; damageTaken: number; outsideChargeMs: number; detourRewards: number };
+  chests: WorldChest[];
+  pads: BoostPad[];
+  boostMs: number;
+  boostAngle: number;
+  combo: { count: number; timerMs: number; best: number; milestone: string; milestoneMs: number };
+  kills: number;
+  hitStopMs: number;
+  hurtMs: number;
+  fx: WorldFx[];
+  itemFeed: ItemFeedEntry[];
 }

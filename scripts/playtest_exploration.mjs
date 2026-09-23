@@ -3,7 +3,7 @@ import fs from 'node:fs';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 try {
-  await page.goto('http://localhost:3000');
+  await page.goto(process.env.BASE_URL || 'http://localhost:5173');
   const results = await page.evaluate(async () => {
     const { LocalGameEngine } = await import('/src/lib/LocalGameEngine.ts');
     const { WorldNavigator, distance } = await import('/src/lib/explorationWorld.ts');

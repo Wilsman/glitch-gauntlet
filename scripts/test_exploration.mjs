@@ -3,7 +3,7 @@ import fs from 'node:fs';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 try {
-  await page.goto('http://localhost:3000');
+  await page.goto(process.env.BASE_URL || 'http://localhost:5173');
   const results = await page.evaluate(async () => {
     const { LocalGameEngine } = await import('/src/lib/LocalGameEngine.ts');
     const { createExploration, isWalkable, moveWorld, WorldNavigator, ANCHOR_SOCKETS, SPAWN, distance } = await import('/src/lib/explorationWorld.ts');
@@ -71,6 +71,29 @@ try {
     check(w.elite.defeated && e.gameState.players[0].coins >= 70, 'Elite defeat grants one reward'); choose(e); const eliteCoins = e.gameState.players[0].coins;
     e.advanceTime(100); check(e.gameState.players[0].coins === eliteCoins, 'Elite does not pay twice');
     e = make(); w = e.gameState.exploration;
+    for (const chest of w.chests) check(isWalkable(w, chest.position, 22), `Chest ${chest.id} sits on walkable floor`);
+    for (const pad of w.pads) check(isWalkable(w, pad.position, 22), `Boost pad ${pad.id} sits on walkable floor`);
+    const player = e.gameState.players[0], chest = w.chests.find(c => c.kind === 'small');
+    player.position = { ...chest.position }; player.coins = 10; interact(e);
+    check(!chest.opened && player.coins === 10, 'Chest cannot open without enough coins');
+    player.coins = 40; const items = player.collectedUpgrades?.length || 0; interact(e);
+    check(chest.opened && player.coins === 15 && (player.collectedUpgrades?.length || 0) === items + 1 && w.itemFeed.length === 1, 'Chest charges coins and grants an item instantly');
+    interact(e); check(player.coins === 15, 'Opened chest cannot pay twice');
+    const vault = w.chests.find(c => c.kind === 'large'); player.position = { ...vault.position }; player.coins = 60; interact(e);
+    check(['legendary', 'boss'].includes(w.itemFeed[0].rarity), 'Legendary vault grants a legendary or boss item');
+    const shrine = w.chests.find(c => c.kind === 'shrine'); player.position = { ...shrine.position }; player.coins = 15; interact(e);
+    check(player.coins === 0 && shrine.cost > 15, 'Shrine of Chance charges and escalates its price');
+    player.position = { x: w.pads[0].position.x + 20, y: w.pads[0].position.y }; input(e, { left: true }, 50);
+    check(w.boostMs === 0, 'Boost pad ignores players travelling against its arrow');
+    player.position = { ...w.pads[0].position }; input(e, { right: true }, 50);
+    check(w.boostMs > 0 && w.momentum === 1, 'Boost pad launches the player and fills momentum');
+    e.advanceTime(1000); const enemyForCombo = createEnemy('combo-test', { x: player.position.x + 40, y: player.position.y }, 'grunt', 1);
+    enemyForCombo.health = 0; e.gameState.enemies.push(enemyForCombo); e.advanceTime(50);
+    check(w.kills === 1 && w.combo.count === 1 && w.combo.timerMs > 0, 'Kills start a combo window');
+    e.advanceTime(3200); check(w.combo.count === 0 && w.combo.best === 1, 'Combo expires after its window');
+    w.elapsedMs = 230000; const { difficultyTier } = await import('/src/lib/explorationWorld.ts');
+    check(difficultyTier(w.elapsedMs).label === 'IMPOSSIBLE', 'Difficulty ladder escalates with stage time');
+    e = make(); w = e.gameState.exploration;
     e.debugExploration('anchor'); e.advanceTime(50); check(w.phase === 'exploring' && !e.gameState.boss, 'Discovery alone does not activate anchor');
     interact(e); check(w.phase === 'anchorActive' && e.gameState.boss?.id === 'anchor-guardian', 'Interaction activates guardian and charge');
     e.advanceTime(500); const charged = w.anchor.chargeMs;
@@ -88,14 +111,15 @@ try {
     const turret = e.gameState.turrets[0]; turret.attackCooldown = 1000; e.advanceTime(100);
     check(Math.abs(turret.attackCooldown - 870) < 1, 'Established turrets receive derived 30% rate bonus');
     input(e, { right: true }, 100); check(!e.gameState.exploration.established, 'Moving immediately ends established bonus');
-    e = make(); e.debugExploration('anchor'); interact(e); e.debugExploration('guardian'); e.advanceTime(50);
+    e = make(); e.debugExploration('anchor'); interact(e); e.debugExploration('guardian'); e.advanceTime(200);
     check(e.gameState.exploration.phase === 'anchorActive' && e.gameState.exploration.anchor.guardianDefeated, 'Guardian defeat alone cannot complete event');
     e = make(); e.gameState.exploration.spawnsEnabled = true;
     const t = performance.now(); for (let i = 0; i < 240; i++) { e.advanceTime(1000); choose(e); } timings.push({ scenario: 'four active minutes capped exploration', ms: performance.now() - t });
-    check(e.gameState.enemies.length <= 24, 'Exploration enemy count remains capped');
-    check(e.gameState.exploration.pressure > 1 && e.gameState.exploration.pressure <= 1.75, 'Pressure rises gradually within cap');
+    check(e.gameState.enemies.length <= 55, 'Exploration enemy count remains capped');
+    check(e.gameState.exploration.pressure > 1 && e.gameState.exploration.pressure <= 3.5, 'Pressure rises gradually within cap');
+    check(e.gameState.exploration.kills > 0 && e.gameState.exploration.combo.best > 0, 'Kills feed the combo counter');
     e = make(); e.debugExploration('anchor'); interact(e); e.gameState.exploration.spawnsEnabled = true;
-    for (let i = 0; i < 120; i++) { e.advanceTime(1000); choose(e); if (e.gameState.enemies.length > 40) throw new Error('Event enemy cap exceeded'); }
+    for (let i = 0; i < 120; i++) { e.advanceTime(1000); choose(e); if (e.gameState.enemies.length > 80) throw new Error('Event enemy cap exceeded'); }
     check(true, 'Event enemy cap holds over two simulated minutes');
     e = make(); e.debugSetInvulnerability(false); e.damagePlayer(e.gameState.players[0], 10, e.now()); e.advanceTime(50); e.gameState.players[0].health = 0; e.gameState.players[0].status = 'dead'; e.advanceTime(50);
     check(e.gameState.status === 'gameOver', 'Death transitions to game over');

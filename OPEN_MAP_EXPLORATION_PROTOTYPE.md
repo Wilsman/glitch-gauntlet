@@ -6,7 +6,7 @@ Implementation updated: 2026-09-13.
 
 ## Play the prototype
 
-Use **Open Map Prototype** on the home menu, or open [the local Dynamo prototype](http://localhost:3000/game/local?playerId=exploration-playtest&character=dash-dynamo&explorationPrototype=1). Select a reachable combat node to enter the yard. Only the first combat node becomes an open region; completing it returns to the existing route map.
+Use **Open Map Prototype** on the home menu, or open [the local Dynamo prototype](http://localhost:5173/game/local?playerId=exploration-playtest&character=dash-dynamo&explorationPrototype=1). Select a reachable combat node to enter the yard. Only the first combat node becomes an open region; completing it returns to the existing route map.
 
 - Move: WASD / arrow keys / left stick.
 - Interact: E / right trigger. Discovering an anchor does not activate it automatically.

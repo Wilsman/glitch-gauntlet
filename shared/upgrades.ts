@@ -103,6 +103,28 @@ export const ALL_UPGRADES: Omit<UpgradeOption, 'id'>[] = [
   { type: 'gravityBullets', title: 'Event Horizon in a Box', description: 'Bullets pull nearby enemies toward them. Gravity is a harsh mistress.', rarity: 'void', emoji: '🕳️' },
   { type: 'glitchPatch', title: 'System Recovery Tool', description: '20% chance to heal 1 HP when dealing damage. Re-compiling...', rarity: 'boss', emoji: '🩹' },
   { type: 'satelliteRing', title: 'Saturn\'s Jewelry Collection', description: 'Orbs of energy orbit you, striking enemies they touch.', rarity: 'boss', emoji: '🪐' },
+
+  // ========== RUN-CHANGING RELICS (adapted + renamed) ==========
+  { type: 'autoAbility', title: 'Autoclicker Daemon', description: 'Your active ability auto-casts the moment it is ready. Build the ability-spam machine.', rarity: 'legendary', emoji: '🤖' },
+  { type: 'missilePrinter', title: 'Missile Printer Go Brrr', description: 'Every volley prints +2 homing micro-missiles. Missile factory online.', rarity: 'legendary', emoji: '🚀' },
+  { type: 'daggerSwarm', title: 'Funeral Dagger Fan Club', description: 'Kills launch homing daggers that hunt the next victims. Kill chains go brrr.', rarity: 'legendary', emoji: '🗡️' },
+  { type: 'glassProtocol', title: 'Glass Cannon Warranty Void', description: 'Double ALL damage, halve max HP per stack. This is a different run now.', rarity: 'lunar', emoji: '🔷' },
+  { type: 'killCooldown', title: 'Cooldown Coupon Clipper', description: 'Kills shave 2s off your ability cooldown. Abilities become the build.', rarity: 'legendary', emoji: '✂️' },
+  { type: 'droneSwarm', title: 'Drone Union Local 404', description: 'Command orbiting combat drones that zap nearby enemies. Union dues paid in kills.', rarity: 'boss', emoji: '🛸' },
+  { type: 'shieldMissiles', title: 'Shield Shrimp Buffet', description: 'While you have shield, every hit fires a bonus homing shrimp missile.', rarity: 'legendary', emoji: '🍤' },
+  { type: 'teslaChords', title: 'Overclocked Ukulele Cover Band', description: 'Chain lightning hits +3 targets and zaps 50% harder per stack.', rarity: 'legendary', emoji: '🎸' },
+  { type: 'slamBoots', title: 'Concrete Diving Boots', description: 'Dash and gain a ground-pound slam: your ability and dash detonate an AoE blast.', rarity: 'boss', emoji: '🥾' },
+  { type: 'behemothBlast', title: 'Glitch Popcorn Kernel', description: 'Every hit pops a small explosion for 60% damage. Everything is popcorn.', rarity: 'legendary', emoji: '🍿' },
+  { type: 'cloudBody', title: 'Cloud Backup Body', description: 'Convert half your HP into a fast-recharging shield. Rethink healing entirely.', rarity: 'lunar', emoji: '☁️' },
+  { type: 'perfectDodge', title: 'Bubble-Wrap Insurance Policy', description: 'Gain a guaranteed perfect block every 12s (faster per stack). Pop!', rarity: 'boss', emoji: '🫧' },
+  { type: 'ghostArmy', title: 'Haunted Halloween Mask', description: 'Kills have a 15% chance to recruit a temporary ghost ally. Spooky squad!', rarity: 'legendary', emoji: '👻' },
+  { type: 'eliteOverdrive', title: 'Elite Energy Drink', description: 'Elite and boss kills trigger 4s of zero-cooldown ability spam. CHEAT CODES!', rarity: 'boss', emoji: '🥫' },
+  { type: 'chaosAbility', title: 'Chaos Vending Machine', description: 'Firing your ability also dispenses a RANDOM bonus effect. Screen go nonsense.', rarity: 'lunar', emoji: '🎰' },
+  { type: 'expenseAccount', title: 'Unlimited Expense Account', description: 'Shops cost 25% less, coin drops worth 50% more. Vacuum up everything.', rarity: 'boss', emoji: '💳' },
+  { type: 'egoBombs', title: 'Clingy Orbit Bombs', description: 'Orbiting bombs circle you and detonate on contact. You surrendered control. Worth it.', rarity: 'void', emoji: '💣' },
+  { type: 'firewallWyrm', title: 'Fried Firewall Wyrm', description: 'Hits can summon a spectral wyrm that hunts and ignites enemies. Very tasty.', rarity: 'legendary', emoji: '🐉' },
+  { type: 'sprintSurge', title: 'Static Sprint Socks', description: 'Moving charges static; at full charge you burst with speed and a lightning blast.', rarity: 'boss', emoji: '🧦' },
+  { type: 'hotPotato', title: 'Hot Potato Protocol', description: 'Hits mark enemies to take +15% damage; marks spread to nearby foes on kill.', rarity: 'void', emoji: '🥔' },
 ];
 
 // Weighted rarity chances

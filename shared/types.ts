@@ -213,6 +213,32 @@ export interface Player {
   hasGlitchPatch?: boolean;
   hasSatelliteRing?: boolean;
   satelliteOrbs?: SatelliteOrb[];
+  // ===== Run-changing relic set (adapted, renamed) =====
+  autoAbilityStacks?: number; // Autoclicker Daemon: auto-cast ability off cooldown
+  missilePrinterStacks?: number; // Missile Printer: extra homing micro-missiles per volley
+  daggerSwarmStacks?: number; // Funeral Dagger Fan Club: kills launch homing daggers
+  glassProtocolStacks?: number; // Glass Cannon Warranty Void: 2x dmg per stack, HP halved
+  killCooldownStacks?: number; // Cooldown Coupon Clipper: kills cut ability cooldown
+  droneSwarmStacks?: number; // Drone Union Local 404: orbiting combat drones
+  droneSwarmTimer?: number;
+  shieldMissilesStacks?: number; // Shield Shrimp Buffet: shielded hits fire bonus missile
+  teslaChordsStacks?: number; // Overclocked Ukulele: supercharged chain lightning
+  slamBootsStacks?: number; // Concrete Diving Boots: dash/ability slams AoE
+  behemothBlastStacks?: number; // Glitch Popcorn Kernel: hits explode small AoE
+  cloudBodyStacks?: number; // Cloud Backup Body: HP converted to recharging shield
+  cloudBodyTimer?: number;
+  perfectDodgeStacks?: number; // Bubble-Wrap Insurance: timed perfect block
+  perfectDodgeReadyAt?: number;
+  ghostArmyStacks?: number; // Haunted Halloween Mask: kills may spawn ghost ally
+  eliteOverdriveStacks?: number; // Elite Energy Drink: elite kills = spam window
+  eliteOverdriveUntil?: number;
+  chaosAbilityStacks?: number; // Chaos Vending Machine: ability triggers random bonus
+  expenseAccountStacks?: number; // Unlimited Expense Account: cheaper shops, richer drops
+  egoBombsStacks?: number; // Clingy Orbit Bombs: orbiting detonating bombs
+  firewallWyrmStacks?: number; // Fried Firewall Wyrm: hits summon hunting wyrm
+  sprintSurgeStacks?: number; // Static Sprint Socks: movement charges lightning
+  sprintSurgeCharge?: number;
+  hotPotatoStacks?: number; // Hot Potato Protocol: hits mark enemies for bonus damage
   // Visual history
   history?: Vector2D[];
   statusEffects?: StatusEffect[];
@@ -234,7 +260,7 @@ export interface DamageNumber {
   timestamp: number;
 }
 export interface StatusEffect {
-  type: 'burning' | 'poisoned' | 'frozen' | 'slowed';
+  type: 'burning' | 'poisoned' | 'frozen' | 'slowed' | 'potatoMarked';
   damage?: number; // DoT damage per tick
   duration: number; // remaining duration in ms
   slowAmount?: number; // movement speed multiplier (0-1)
@@ -290,6 +316,7 @@ export interface Enemy {
   explodeTelegraphUntil?: number;
   explodeRadius?: number;
   lastDamagedByPlayerId?: string;
+  eliteAffix?: 'blazing' | 'overloading' | 'glacial';
   // Visual history
   history?: Vector2D[];
 }
@@ -324,6 +351,8 @@ export interface Projectile {
   growthBaseDamage?: number;
   pullRadius?: number;
   timestamp?: number;
+  // Relic visual flavor (which run-changing relic spawned this projectile)
+  flavor?: 'missile' | 'dagger' | 'wyrm' | 'shrimp';
 }
 export interface XpOrb {
   id: string;
@@ -388,7 +417,27 @@ export type UpgradeType =
   | 'echoShots'
   | 'gravityBullets'
   | 'glitchPatch'
-  | 'satelliteRing';
+  | 'satelliteRing'
+  | 'autoAbility'
+  | 'missilePrinter'
+  | 'daggerSwarm'
+  | 'glassProtocol'
+  | 'killCooldown'
+  | 'droneSwarm'
+  | 'shieldMissiles'
+  | 'teslaChords'
+  | 'slamBoots'
+  | 'behemothBlast'
+  | 'cloudBody'
+  | 'perfectDodge'
+  | 'ghostArmy'
+  | 'eliteOverdrive'
+  | 'chaosAbility'
+  | 'expenseAccount'
+  | 'egoBombs'
+  | 'firewallWyrm'
+  | 'sprintSurge'
+  | 'hotPotato';
 
 export interface UpgradeOption {
   id: string;
@@ -449,6 +498,8 @@ export interface Explosion {
   pullRadius?: number;
   pullStrength?: number;
   damagedEnemyIds?: string[];
+  // Relic visual flavor (which run-changing relic spawned this blast)
+  flavor?: 'popcorn' | 'slam' | 'chaos' | 'sprint' | 'egobomb';
 }
 
 export interface ChainLightning {
@@ -731,6 +782,7 @@ export interface GameState {
   xpOrbs: XpOrb[];
   levelingUpPlayerId?: string | null;
   upgradePromptType?: 'levelUp' | 'shop' | null;
+  upgradePromptSerial?: number;
   isShopRound?: boolean;
   shopStands?: ShopStand[];
   shopPrompt?: string | null;

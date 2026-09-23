@@ -13,7 +13,7 @@ const advance = ms => page.evaluate(t => window.advanceTime(t), ms);
 const shot = name => page.screenshot({ path: `${out}/${name}.png` });
 const button = text => page.getByRole('button', { name: text, exact: true });
 async function choose() {
-  if ((await state()).levelingUp) {
+  for (let i = 0; i < 6 && (await state()).levelingUp; i++) {
     const choices = page.locator('button').filter({ has: page.locator('h3') });
     await choices.first().click({ force: true });
     await page.waitForTimeout(650);
@@ -21,7 +21,7 @@ async function choose() {
 }
 async function key(key, duration = 120) { await page.keyboard.down(key); await page.waitForTimeout(duration); await page.keyboard.up(key); await page.waitForTimeout(70); }
 async function start(character) {
-  await page.goto(`http://localhost:3000/game/local?playerId=browser-prototype&character=${character}&explorationPrototype=1`);
+  await page.goto(`${process.env.BASE_URL || 'http://localhost:5173'}/game/local?playerId=browser-prototype&character=${character}&explorationPrototype=1`);
   await page.locator('[data-map-node-selectable="true"]').first().click();
   await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).exploration);
   await page.mouse.move(800, 800);

@@ -27,6 +27,7 @@ export function HomePage() {
   const navigate = useNavigate();
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
   const [autoplayPending, setAutoplayPending] = useState(false);
+  const [prototypePending, setPrototypePending] = useState(false);
   const [showNameDialog, setShowNameDialog] = useState(false);
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
@@ -132,14 +133,9 @@ export function HomePage() {
 
   const handlePrototype = () => {
     if (showNameDialog) return;
-    const playerId = `local-${Date.now()}`;
-    setLocalPlayerId(playerId);
-    toast.success("Entering the Playground", {
-      description: "Unstable beta build — expect weirdness.",
-    });
-    navigate(
-      `/game/local?playerId=${playerId}&character=dash-dynamo&explorationPrototype=1`
-    );
+    setAutoplayPending(false);
+    setPrototypePending(true);
+    setShowCharacterSelect(true);
   };
 
   const handleNameSubmit = (name: string) => {
@@ -154,6 +150,16 @@ export function HomePage() {
     const playerId = `local-${Date.now()}`;
     setLocalPlayerId(playerId);
     setShowCharacterSelect(false);
+    if (prototypePending) {
+      setPrototypePending(false);
+      toast.success("Entering the Playground", {
+        description: "Unstable beta build — expect weirdness.",
+      });
+      navigate(
+        `/game/local?playerId=${playerId}&character=${characterType}&explorationPrototype=1`
+      );
+      return;
+    }
     if (autoplayPending) {
       setAutoplayPending(false);
       toast.success("Autoplay started", {
@@ -206,7 +212,9 @@ export function HomePage() {
             onCancel={() => {
               setShowCharacterSelect(false);
               setAutoplayPending(false);
+              setPrototypePending(false);
             }}
+            unlockAll={prototypePending}
           />
         )}
       </AnimatePresence>

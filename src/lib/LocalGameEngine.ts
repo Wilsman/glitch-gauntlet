@@ -35,8 +35,13 @@ import type {
   UpgradeType,
   ShopOffer,
   ShopStand,
+  UpgradeRarity,
 } from "@shared/types";
 import { ALL_UPGRADES, getRandomUpgrades } from "@shared/upgrades";
+
+// Open-map item pool: excludes effects whose arena-only behavior is undefined in the world (wrap, blink, roaming allies).
+const EXPLORATION_EXCLUDED_ITEMS = new Set<UpgradeType>(["screenWrap", "dash", "pet", "clone", "expenseAccount"]);
+const EXPLORATION_ITEM_POOL = ALL_UPGRADES.filter((o) => !EXPLORATION_EXCLUDED_ITEMS.has(o.type));
 import { applyUpgradeEffect } from "@shared/upgradeEffects";
 import { createEnemy } from "@shared/enemyConfig";
 import { getCharacter } from "@shared/characterConfig";
@@ -818,7 +823,7 @@ export class LocalGameEngine {
     state.turrets = []; state.pets = []; state.clones = [];
   }
 
-  restartExploration(character: 'dash-dynamo' | 'turret-tina' = 'dash-dynamo', seed = this.prototypeSeed) {
+  restartExploration(character: CharacterType = 'dash-dynamo', seed = this.prototypeSeed) {
     if (!this.prototypeEnabled) return;
     const fresh = new LocalGameEngine(this.gameState.players[0].id, character, this.gameState.players[0].name);
     const runMap = this.gameState.runMap;
@@ -867,9 +872,19 @@ export class LocalGameEngine {
 
   private rollUpgrades(...args: Parameters<typeof getRandomUpgrades>) {
     if (!this.gameState.exploration) return getRandomUpgrades(...args);
-    const safe = new Set(['playerSpeed', 'projectileDamage', 'attackSpeed', 'multiShot', 'critChance', 'maxHealth', 'pickupRadius', 'regeneration', 'turret', 'armor', 'pierce']);
-    const pool = ALL_UPGRADES.filter(o => safe.has(o.type));
-    return [...pool].sort(() => Math.random() - 0.5).filter((o, i, all) => all.findIndex(v => v.type === o.type) === i).slice(0, args[0] ?? 3);
+    return [...EXPLORATION_ITEM_POOL].sort(() => Math.random() - 0.5).filter((o, i, all) => all.findIndex(v => v.type === o.type) === i).slice(0, args[0] ?? 3);
+  }
+
+  private grantExplorationItem(tier: 'small' | 'large' | 'shrine') {
+    const player = this.gameState.players[0];
+    const rarities: UpgradeRarity[] = tier === 'large' ? ['legendary', 'boss'] : Math.random() < 0.7 ? ['common'] : ['uncommon', 'void', 'lunar'];
+    const pool = EXPLORATION_ITEM_POOL.filter(o => rarities.includes(o.rarity));
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    if (!player || !pick) return null;
+    const item: UpgradeOption = { ...pick, id: uuidv4() };
+    this.applyUpgradeChoice(player, item);
+    this.markStateDirty();
+    return item;
   }
 
   private stateVersion: number = 0;
@@ -1642,6 +1657,24 @@ export class LocalGameEngine {
       10,
     );
     this.triggerScreenShake(5, 200);
+
+    // Concrete Diving Boots: dash landing detonates a ground-pound slam
+    if (player.slamBootsStacks && player.slamBootsStacks > 0) {
+      const stacks = player.slamBootsStacks;
+      if (!this.gameState.explosions) this.gameState.explosions = [];
+      this.gameState.explosions.push({
+        id: uuidv4(),
+        position: { ...player.position },
+        radius: 80 + stacks * 25,
+        timestamp: this.now(),
+        damage: player.projectileDamage * (1 + stacks * 0.75),
+        ownerId: player.id,
+        type: "normal",
+        damagedEnemyIds: [],
+        flavor: "slam",
+      });
+      this.triggerScreenShake(6 + stacks * 2, 250);
+    }
   }
 
   useAbility() {
@@ -1663,6 +1696,30 @@ export class LocalGameEngine {
       if (this.gameState.boss) {
         this.gameState.boss.health -= this.gameState.boss.maxHealth * 0.1;
       }
+    }
+
+    // Concrete Diving Boots: ability cast detonates a ground-pound slam
+    if (player.slamBootsStacks && player.slamBootsStacks > 0) {
+      const stacks = player.slamBootsStacks;
+      if (!this.gameState.explosions) this.gameState.explosions = [];
+      this.gameState.explosions.push({
+        id: uuidv4(),
+        position: { ...player.position },
+        radius: 90 + stacks * 25,
+        timestamp: this.now(),
+        damage: player.projectileDamage * (1 + stacks * 0.75),
+        ownerId: player.id,
+        type: "normal",
+        damagedEnemyIds: [],
+        flavor: "slam",
+      });
+      this.triggerScreenShake(8 + stacks * 2, 300);
+      this.spawnParticles(player.position, "#FFAA00", 25, "pixel", 12);
+    }
+
+    // Chaos Vending Machine: ability also dispenses a random bonus effect
+    if (player.chaosAbilityStacks && player.chaosAbilityStacks > 0) {
+      this.triggerChaosVendingMachine(player, player.chaosAbilityStacks);
     }
 
     switch (player.characterType) {
@@ -1757,6 +1814,77 @@ export class LocalGameEngine {
       this.placeTurretForPlayer(player);
       this.markStateDirty();
     }
+  }
+
+  private triggerChaosVendingMachine(player: Player, stacks: number) {
+    const now = this.now();
+    const state = this.gameState;
+    const roll = Math.floor(Math.random() * 5);
+    if (roll === 0) {
+      // Missile volley: ring of homing missiles
+      const count = 4 + stacks * 2;
+      for (let i = 0; i < count; i++) {
+        const angle = (i * Math.PI * 2) / count;
+        state.projectiles.push({
+          id: uuidv4(),
+          ownerId: player.id,
+          position: { ...player.position },
+          velocity: { x: Math.cos(angle) * 9, y: Math.sin(angle) * 9 },
+          damage: player.projectileDamage * 1.5,
+          kind: "bullet",
+          radius: 6,
+          hitEnemies: [],
+          pierceRemaining: 1,
+          flavor: "missile",
+        });
+      }
+    } else if (roll === 1) {
+      // Explosion nova around player
+      if (!state.explosions) state.explosions = [];
+      state.explosions.push({
+        id: uuidv4(),
+        position: { ...player.position },
+        radius: 110 + stacks * 20,
+        timestamp: now,
+        damage: player.projectileDamage * (2 + stacks),
+        ownerId: player.id,
+        type: "normal",
+        damagedEnemyIds: [],
+        flavor: "chaos",
+      });
+    } else if (roll === 2) {
+      // Heal + shield refill
+      player.health = Math.min(player.maxHealth, player.health + 10 * stacks);
+      if (player.maxShield) player.shield = player.maxShield;
+      player.lastHealedTimestamp = now;
+    } else if (roll === 3) {
+      // Chain zap to nearest enemies
+      const targets = [...state.enemies]
+        .sort((a, b) => Math.hypot(a.position.x - player.position.x, a.position.y - player.position.y) - Math.hypot(b.position.x - player.position.x, b.position.y - player.position.y))
+        .slice(0, 3 + stacks);
+      let from = { ...player.position };
+      if (!state.chainLightning) state.chainLightning = [];
+      targets.forEach((t) => {
+        t.health -= player.projectileDamage * 2;
+        this.markEnemyDamagedBySource(state, t, player.id);
+        t.lastHitTimestamp = now;
+        state.chainLightning!.push({ id: uuidv4(), from: { ...from }, to: { ...t.position }, timestamp: now });
+        from = { ...t.position };
+      });
+    } else {
+      // Cooldown refund + burst of speed: heal ability timer and push enemies back
+      player.abilityCooldown = 0;
+      state.enemies.forEach((e) => {
+        const dx = e.position.x - player.position.x;
+        const dy = e.position.y - player.position.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d < 200) {
+          e.position.x += (dx / d) * 60;
+          e.position.y += (dy / d) * 60;
+        }
+      });
+    }
+    this.spawnParticles(player.position, "#FF00FF", 30, "glitch", 14);
   }
 
   private getCurrentInput(player: Player): InputState | undefined {
@@ -2274,18 +2402,21 @@ export class LocalGameEngine {
     }
 
     // Spawn orbital skull if orbital upgrade selected
-    if (choice.type === "orbital") {
+    if (choice.type === "orbital" || choice.type === "egoBombs") {
       if (!this.gameState.orbitalSkulls) this.gameState.orbitalSkulls = [];
+      const skullsToAdd = choice.type === "egoBombs" ? 2 : 1;
       const orbitalCount = player.orbitalCount || 0;
-      const angleOffset = (Math.PI * 2) / orbitalCount;
-      const newSkull: OrbitalSkull = {
-        id: uuidv4(),
-        ownerId: player.id,
-        angle: angleOffset * (orbitalCount - 1),
-        radius: 60,
-        damage: 10 + player.level * 2,
-      };
-      this.gameState.orbitalSkulls.push(newSkull);
+      for (let s = 0; s < skullsToAdd; s++) {
+        const angleOffset = (Math.PI * 2) / Math.max(1, orbitalCount);
+        const newSkull: OrbitalSkull = {
+          id: uuidv4(),
+          ownerId: player.id,
+          angle: angleOffset * (orbitalCount - skullsToAdd + s),
+          radius: 60,
+          damage: 10 + player.level * 2,
+        };
+        this.gameState.orbitalSkulls.push(newSkull);
+      }
     }
 
     // Spawn toaster turret if turret upgrade selected
@@ -2458,6 +2589,7 @@ export class LocalGameEngine {
   private openUpgradePrompt(playerId: string, choices: UpgradeOption[]) {
     this.gameState.levelingUpPlayerId = playerId;
     this.gameState.upgradePromptType = "levelUp";
+    this.gameState.upgradePromptSerial = (this.gameState.upgradePromptSerial || 0) + 1;
     this.upgradeChoices.set(playerId, choices);
   }
 
@@ -2539,12 +2671,17 @@ export class LocalGameEngine {
     }
 
     const coins = player.coins || 0;
-    if (coins < offer.cost) {
-      state.shopPrompt = `Need ${offer.cost} coins for ${offer.title}.`;
+    // Unlimited Expense Account: shops cost 25% less per stack
+    const discount = player.expenseAccountStacks && player.expenseAccountStacks > 0
+      ? Math.pow(0.75, player.expenseAccountStacks)
+      : 1;
+    const effectiveCost = Math.max(1, Math.floor(offer.cost * discount));
+    if (coins < effectiveCost) {
+      state.shopPrompt = `Need ${effectiveCost} coins for ${offer.title}.`;
       return;
     }
 
-    player.coins = coins - offer.cost;
+    player.coins = coins - effectiveCost;
 
     if (offer.type === "upgrade" && offer.upgradeType) {
       const option: UpgradeOption = {
@@ -2748,18 +2885,21 @@ export class LocalGameEngine {
       player.hasPet = true;
     }
 
-    if (type === "orbital") {
+    if (type === "orbital" || type === "egoBombs") {
       if (!this.gameState.orbitalSkulls) this.gameState.orbitalSkulls = [];
+      const skullsToAdd = type === "egoBombs" ? 2 : 1;
       const orbitalCount = player.orbitalCount || 1;
-      const angleOffset = (Math.PI * 2) / orbitalCount;
-      const newSkull: OrbitalSkull = {
-        id: uuidv4(),
-        ownerId: player.id,
-        angle: angleOffset * (orbitalCount - 1),
-        radius: 60,
-        damage: 10 + player.level * 2,
-      };
-      this.gameState.orbitalSkulls.push(newSkull);
+      for (let s = 0; s < skullsToAdd; s++) {
+        const angleOffset = (Math.PI * 2) / Math.max(1, orbitalCount);
+        const newSkull: OrbitalSkull = {
+          id: uuidv4(),
+          ownerId: player.id,
+          angle: angleOffset * (orbitalCount - skullsToAdd + s),
+          radius: 60,
+          damage: 10 + player.level * 2,
+        };
+        this.gameState.orbitalSkulls.push(newSkull);
+      }
     }
 
     if (type === "turret") {
@@ -3259,6 +3399,12 @@ export class LocalGameEngine {
       state.status === "bossFight" ||
       state.status === "bossDefeated";
     if (!shouldSimulate) return;
+    if (state.exploration && state.exploration.hitStopMs > 0) {
+      state.exploration.hitStopMs = Math.max(0, state.exploration.hitStopMs - delta);
+      this.explorationController.trackInteractDuringFreeze(!!(this.autoplay ? this.autopilotInput : this.inputState).interact);
+      this.markStateDirty();
+      return;
+    }
 
     if (this.prototypeEnabled) { this.prototypeTime += delta; now = this.prototypeTime; state.simulationTime = now; }
     const previousPositions = state.exploration ? new Map([...state.players, ...state.enemies, ...(state.boss ? [state.boss] : [])].map(p => [p.id, { ...p.position }])) : null;
@@ -3331,7 +3477,7 @@ export class LocalGameEngine {
         const old = previousPositions?.get(actor.id);
         if (old) actor.position = moveWorld(world, old, actor.position, actor.id === state.boss?.id ? 40 : 18);
       }
-      this.explorationController.update(state, delta, () => this.explorationReward(), () => this.finishExploration(state));
+      this.explorationController.update(state, delta, { reward: () => this.explorationReward(), exit: () => this.finishExploration(state), grantItem: tier => this.grantExplorationItem(tier) });
     }
     // Always check game status to save stats when game ends
     this.updateGameStatus(state);
@@ -3711,6 +3857,68 @@ export class LocalGameEngine {
             }
           });
         });
+      }
+
+      // Drone Union Local 404: orbiting combat drones zap nearby enemies
+      if (p.droneSwarmStacks && p.droneSwarmStacks > 0) {
+        p.droneSwarmTimer = (p.droneSwarmTimer || 0) + delta;
+        if (p.droneSwarmTimer >= 700) {
+          p.droneSwarmTimer = 0;
+          const range = 260;
+          const nearest = state.enemies.reduce(
+            (closest, enemy) => {
+              const dist = Math.hypot(enemy.position.x - p.position.x, enemy.position.y - p.position.y);
+              return dist < closest.dist ? { enemy, dist } : closest;
+            },
+            { enemy: null as Enemy | null, dist: range },
+          ).enemy;
+          if (nearest) {
+            nearest.health -= (12 + p.projectileDamage * 0.5) * p.droneSwarmStacks;
+            this.markEnemyDamagedBySource(state, nearest, p.id);
+            nearest.lastHitTimestamp = now;
+            if (!state.chainLightning) state.chainLightning = [];
+            state.chainLightning.push({ id: uuidv4(), from: { ...p.position }, to: { ...nearest.position }, timestamp: now });
+            this.spawnParticles(nearest.position, "#00DDFF", 6, "pixel", 5);
+          }
+        }
+      }
+
+      // Clingy Orbit Bombs: reuse orbital skulls as detonating bombs (damage via orbital update)
+      // Static Sprint Socks: movement charges static, full charge discharges lightning
+      if (p.sprintSurgeStacks && p.sprintSurgeStacks > 0) {
+        const hx = p.history && p.history.length > 0 ? p.history[p.history.length - 1] : null;
+        const moved = hx ? Math.hypot(p.position.x - hx.x, p.position.y - hx.y) : 0;
+        p.sprintSurgeCharge = Math.min(100, (p.sprintSurgeCharge || 0) + moved * 0.6 * p.sprintSurgeStacks);
+        if ((p.sprintSurgeCharge || 0) >= 100) {
+          p.sprintSurgeCharge = 0;
+          const radius = 130 + p.sprintSurgeStacks * 25;
+          state.enemies.forEach((enemy) => {
+            const dist = Math.hypot(enemy.position.x - p.position.x, enemy.position.y - p.position.y);
+            if (dist < radius) {
+              enemy.health -= p.projectileDamage * (1 + p.sprintSurgeStacks! * 0.5);
+              this.markEnemyDamagedBySource(state, enemy, p.id);
+              enemy.lastHitTimestamp = now;
+            }
+          });
+          if (!state.explosions) state.explosions = [];
+          state.explosions.push({
+            id: uuidv4(),
+            position: { ...p.position },
+            radius,
+            timestamp: now,
+            damage: 0,
+            ownerId: p.id,
+            type: "normal",
+            durationMs: 450,
+            damagedEnemyIds: state.enemies.map((e) => e.id),
+            flavor: "sprint",
+          });
+          if (!state.chainLightning) state.chainLightning = [];
+          const zapTarget = state.enemies[0];
+          if (zapTarget) state.chainLightning.push({ id: uuidv4(), from: { ...p.position }, to: { ...zapTarget.position }, timestamp: now });
+          this.spawnParticles(p.position, "#FFFF66", 20, "glitch", 10);
+          this.triggerScreenShake(4, 200);
+        }
       }
     });
   }
@@ -5027,6 +5235,33 @@ export class LocalGameEngine {
           }
         }
 
+        // Missile Printer Go Brrr: extra homing micro-missiles per volley
+        if (p.missilePrinterStacks && p.missilePrinterStacks > 0 && targetPosition) {
+          const microCount = p.missilePrinterStacks * 2;
+          for (let m = 0; m < microCount; m++) {
+            const offset = (m - (microCount - 1) / 2) * ((8 * Math.PI) / 180);
+            const angle = baseAngle + offset;
+            state.projectiles.push({
+              hitEnemies: [],
+              pierceRemaining: 0,
+              ricochetRemaining: 0,
+              id: uuidv4(),
+              ownerId: p.id,
+              position: { ...p.position },
+              velocity: { x: Math.cos(angle) * 11, y: Math.sin(angle) * 11 },
+              damage: Math.round(effectiveProjectileDamage * 0.6),
+              isCrit: false,
+              kind: "bullet",
+              radius: 5,
+              flavor: "missile",
+            });
+          }
+          // Grant temporary homing so micros track: reuse homingStrength floor
+          if (!p.homingStrength || p.homingStrength < 0.3) {
+            // Micros still home via fallback below (owner-agnostic nearest check)
+          }
+        }
+
         const bananaShots = p.hasBananarang
           ? Math.max(0, p.bananarangsPerShot || 0)
           : 0;
@@ -5126,8 +5361,11 @@ export class LocalGameEngine {
       if (
         proj.kind !== "bananarang" &&
         owner &&
-        owner.homingStrength &&
-        owner.homingStrength > 0
+        ((owner.homingStrength && owner.homingStrength > 0) ||
+          (owner.missilePrinterStacks && owner.missilePrinterStacks > 0) ||
+          (owner.shieldMissilesStacks && owner.shieldMissilesStacks > 0) ||
+          (owner.daggerSwarmStacks && owner.daggerSwarmStacks > 0) ||
+          (owner.firewallWyrmStacks && owner.firewallWyrmStacks > 0))
       ) {
         const nearestEnemy = state.enemies.reduce(
           (closest, enemy) => {
@@ -5145,7 +5383,7 @@ export class LocalGameEngine {
           const dy = nearestEnemy.enemy.position.y - proj.position.y;
           const dist = Math.hypot(dx, dy) || 1;
           const currentSpeed = Math.hypot(proj.velocity.x, proj.velocity.y);
-          const homingForce = owner.homingStrength * 0.5;
+          const homingForce = Math.max(0.25, (owner.homingStrength || 0) * 0.5);
           proj.velocity.x += (dx / dist) * homingForce;
           proj.velocity.y += (dy / dist) * homingForce;
           const newSpeed = Math.hypot(proj.velocity.x, proj.velocity.y);
@@ -5388,6 +5626,11 @@ export class LocalGameEngine {
             if (owner && owner.health < owner.maxHealth * 0.3) {
               finalDamage *= 1.5;
             }
+            // Hot Potato Protocol: marked enemies take bonus damage
+            if (enemy.statusEffects?.some((s) => s.type === "potatoMarked")) {
+              const potatoStacks = owner?.hotPotatoStacks || 1;
+              finalDamage *= 1 + 0.15 * potatoStacks;
+            }
             if (owner && enemy.health < enemy.maxHealth * 0.15) {
               finalDamage = enemy.health;
             }
@@ -5437,6 +5680,66 @@ export class LocalGameEngine {
                 owner.health + proj.damage * owner.lifeSteal,
               );
               owner.lastHealedTimestamp = now;
+            }
+            // Hot Potato Protocol: hits mark the enemy
+            if (owner && owner.hotPotatoStacks && owner.hotPotatoStacks > 0) {
+              if (!enemy.statusEffects) enemy.statusEffects = [];
+              const existing = enemy.statusEffects.find((s) => s.type === "potatoMarked");
+              if (existing) {
+                existing.duration = 6000;
+              } else if (enemy.statusEffects.length < MAX_STATUS_EFFECTS_PER_ENEMY) {
+                enemy.statusEffects.push({ type: "potatoMarked", duration: 6000 });
+              }
+            }
+            // Glitch Popcorn Kernel: every hit pops a small explosion
+            if (owner && owner.behemothBlastStacks && owner.behemothBlastStacks > 0) {
+              if (!state.explosions) state.explosions = [];
+              state.explosions.push({
+                id: uuidv4(),
+                position: { ...proj.position },
+                radius: 45 + owner.behemothBlastStacks * 10,
+                timestamp: now,
+                damage: finalDamage * 0.6 * owner.behemothBlastStacks,
+                ownerId: owner.id,
+                type: "normal",
+                damagedEnemyIds: enemy.id ? [enemy.id] : [],
+                flavor: "popcorn",
+              });
+            }
+            // Shield Shrimp Buffet: shielded hits fire a bonus homing missile
+            if (owner && owner.shieldMissilesStacks && owner.shieldMissilesStacks > 0 && (owner.shield || 0) > 0) {
+              const angle = Math.atan2(enemy.position.y - owner.position.y, enemy.position.x - owner.position.x);
+              state.projectiles.push({
+                id: uuidv4(),
+                ownerId: owner.id,
+                position: { ...owner.position },
+                velocity: { x: Math.cos(angle) * 12, y: Math.sin(angle) * 12 },
+                damage: Math.round(finalDamage * 0.8),
+                kind: "bullet",
+                radius: 5,
+                hitEnemies: [],
+                pierceRemaining: 1,
+                flavor: "shrimp",
+              });
+            }
+            // Fried Firewall Wyrm: hits can summon a hunting burning wyrm
+            if (owner && owner.firewallWyrmStacks && owner.firewallWyrmStacks > 0 && Math.random() < 0.10 * owner.firewallWyrmStacks) {
+              const angle = Math.atan2(enemy.position.y - proj.position.y, enemy.position.x - proj.position.x);
+              state.projectiles.push({
+                id: uuidv4(),
+                ownerId: owner.id,
+                position: { ...proj.position },
+                velocity: { x: Math.cos(angle) * 8, y: Math.sin(angle) * 8 },
+                damage: Math.round(finalDamage * (1 + owner.firewallWyrmStacks * 0.5)),
+                kind: "bullet",
+                radius: 8,
+                hitEnemies: [],
+                pierceRemaining: 2 + owner.firewallWyrmStacks,
+                flavor: "wyrm",
+              });
+              if (!enemy.statusEffects) enemy.statusEffects = [];
+              enemy.statusEffects.push({ type: "burning", damage: finalDamage * 0.5, duration: 2000 });
+              this.spawnParticles(proj.position, "#00FF88", 12, "glitch", 8);
             }
             enemy.lastHitTimestamp = now;
             if (proj.isCrit) enemy.lastCritTimestamp = now;
@@ -5505,8 +5808,8 @@ export class LocalGameEngine {
             );
 
             if (owner && owner.chainCount && owner.chainCount > 0) {
-              const chainRange = 150;
-              const chainDamage = finalDamage * 0.7;
+              const chainRange = 150 + (owner.teslaChordsStacks || 0) * 30;
+              const chainDamage = finalDamage * (0.7 + (owner.teslaChordsStacks || 0) * 0.5);
               let currentTarget = enemy;
               const hitByChain = new Set([enemy.id]);
 
@@ -5626,13 +5929,17 @@ export class LocalGameEngine {
     deadEnemies.forEach((dead) => {
       // Check if any player has lucky upgrade
       const hasLuckyPlayer = state.players.some((p) => p.hasLucky);
+      const expenseStacks = Math.max(0, ...state.players.map((p) => p.expenseAccountStacks || 0));
       // Death explosion particles
       this.spawnParticles(dead.position, "#FFFF00", 20, "pixel", 10);
       this.spawnParticles(dead.position, "#FF0000", 10, "blood", 8);
 
-      const coinValue = hasLuckyPlayer
+      let coinValue = hasLuckyPlayer
         ? COIN_DROP_PER_KILL * LUCKY_COIN_MULTIPLIER
         : COIN_DROP_PER_KILL;
+      if (state.exploration) coinValue *= 2;
+      // Unlimited Expense Account: richer coin drops
+      if (expenseStacks > 0) coinValue = Math.round(coinValue * (1 + 0.5 * expenseStacks));
 
       state.xpOrbs.push({
         id: uuidv4(),
@@ -5659,6 +5966,7 @@ export class LocalGameEngine {
       if (xpRecipient) {
         xpRecipient.xp += dead.xpValue;
       }
+      if (state.exploration) this.explorationController.onKill(state, dead, xpRecipient);
 
       // Track enemy kills
       this.enemiesKilledCount++;
@@ -5688,6 +5996,74 @@ export class LocalGameEngine {
       }
 
       this.spawnEnemyDeathExplosion(state, dead, now);
+
+      // Resolve killer for on-kill relics
+      const killer = dead.lastDamagedByPlayerId
+        ? state.players.find((p) => p.id === dead.lastDamagedByPlayerId)
+        : xpRecipient;
+      if (killer && killer.status === "alive") {
+        // Cooldown Coupon Clipper: kills shave ability cooldown
+        if (killer.killCooldownStacks && killer.killCooldownStacks > 0) {
+          killer.abilityCooldown = Math.max(0, (killer.abilityCooldown || 0) - 2000 * killer.killCooldownStacks);
+        }
+        // Funeral Dagger Fan Club: kills launch homing daggers
+        if (killer.daggerSwarmStacks && killer.daggerSwarmStacks > 0) {
+          const daggers = killer.daggerSwarmStacks * 2;
+          for (let d = 0; d < daggers; d++) {
+            const angle = Math.random() * Math.PI * 2;
+            state.projectiles.push({
+              id: uuidv4(),
+              ownerId: killer.id,
+              position: { ...dead.position },
+              velocity: { x: Math.cos(angle) * 10, y: Math.sin(angle) * 10 },
+              damage: Math.round(killer.projectileDamage * 1.2),
+              kind: "bullet",
+              radius: 5,
+              hitEnemies: [],
+              pierceRemaining: 1,
+              flavor: "dagger",
+            });
+          }
+        }
+        // Haunted Halloween Mask: kills may recruit a temporary ghost ally clone
+        if (killer.ghostArmyStacks && killer.ghostArmyStacks > 0 && Math.random() < 0.15 * killer.ghostArmyStacks) {
+          if (!state.clones) state.clones = [];
+          state.clones.push({
+            id: uuidv4(),
+            ownerId: killer.id,
+            position: { ...dead.position },
+            damage: 0.5,
+            attackSpeed: 500,
+            attackCooldown: 0,
+            range: 400,
+            expiresAt: now + 8000,
+            opacity: 0.7,
+          });
+          this.spawnParticles(dead.position, "#AA88FF", 15, "glitch", 10);
+        }
+        // Elite Energy Drink: elite/boss kills trigger ability-spam window
+        if (killer.eliteOverdriveStacks && killer.eliteOverdriveStacks > 0) {
+          const isElite = dead.isPackAlpha || dead.type === "tank-bot" || dead.type === "hellhound" || (dead.maxHealth > 200);
+          if (isElite || Math.random() < 0.05) {
+            killer.eliteOverdriveUntil = now + 4000 * killer.eliteOverdriveStacks;
+            killer.abilityCooldown = 0;
+            this.spawnParticles(killer.position, "#00FF00", 20, "pixel", 10);
+          }
+        }
+        // Hot Potato Protocol: marks spread to nearby foes on kill
+        if (killer.hotPotatoStacks && killer.hotPotatoStacks > 0 && dead.statusEffects?.some((s) => s.type === "potatoMarked")) {
+          state.enemies.forEach((e) => {
+            if (e.health <= 0) return;
+            const dist = Math.hypot(e.position.x - dead.position.x, e.position.y - dead.position.y);
+            if (dist < 200) {
+              if (!e.statusEffects) e.statusEffects = [];
+              if (!e.statusEffects.some((s) => s.type === "potatoMarked") && e.statusEffects.length < MAX_STATUS_EFFECTS_PER_ENEMY) {
+                e.statusEffects.push({ type: "potatoMarked", duration: 6000 });
+              }
+            }
+          });
+        }
+      }
 
       // Binary Rain
       if (
@@ -5891,6 +6267,23 @@ export class LocalGameEngine {
           this.markEnemyDamagedBySource(state, enemy, owner.id);
           enemy.lastHitTimestamp = now;
 
+          // Clingy Orbit Bombs: detonations pop small explosions on contact
+          if (owner.egoBombsStacks && owner.egoBombsStacks > 0 && Math.random() < 0.25) {
+            if (!state.explosions) state.explosions = [];
+            state.explosions.push({
+              id: uuidv4(),
+              position: { x: skullX, y: skullY },
+              radius: 55 + owner.egoBombsStacks * 12,
+              timestamp: now,
+              damage: skull.damage * 1.5,
+              ownerId: owner.id,
+              type: "normal",
+              damagedEnemyIds: [enemy.id],
+              flavor: "egobomb",
+            });
+            this.spawnParticles({ x: skullX, y: skullY }, "#FF66FF", 10, "pixel", 8);
+          }
+
           // Apply burning status effect from skulls
           if (!enemy.statusEffects) enemy.statusEffects = [];
           const burnDamage = skull.damage * 0.5; // 50% of skull damage as burn
@@ -5973,7 +6366,11 @@ export class LocalGameEngine {
     state: GameState,
   ): number {
     const momentum = state.exploration && player.characterType === 'dash-dynamo' ? 1 + state.exploration.momentum * 0.25 : 1;
-    const multiplier = player.temporaryDamageMultiplier || 1;
+    let multiplier = player.temporaryDamageMultiplier || 1;
+    // Glass Cannon Warranty Void: double ALL damage per stack
+    if (player.glassProtocolStacks && player.glassProtocolStacks > 0) {
+      multiplier *= Math.pow(2, player.glassProtocolStacks);
+    }
     if (multiplier <= 1) return momentum;
     if (
       player.temporaryDamageExpiresWave !== undefined &&
@@ -6349,7 +6746,7 @@ export class LocalGameEngine {
 
     // Check if boss is defeated
     if (boss.health <= 0) {
-      if (state.exploration) { state.exploration.anchor.guardianDefeated = true; state.boss = null; this.enemiesKilledCount++; return; }
+      if (state.exploration) { state.exploration.anchor.guardianDefeated = true; this.explorationController.onGuardianDefeated(state, boss.position); state.boss = null; this.enemiesKilledCount++; return; }
       const currentNode = this.getCurrentMapNode(state);
       this.enemiesKilledCount++;
       if (!this.autoplay && !this.prototypeEnabled) incrementBossDefeats();
@@ -7952,9 +8349,12 @@ export class LocalGameEngine {
   }
 
   private updateAbilities(state: GameState, delta: number) {
+    const now = this.now();
     state.players.forEach((p) => {
+      // Elite Energy Drink: zero-cooldown spam window
+      const overdriveActive = p.eliteOverdriveUntil && now < p.eliteOverdriveUntil;
       if (p.abilityCooldown && p.abilityCooldown > 0) {
-        p.abilityCooldown -= delta;
+        p.abilityCooldown = overdriveActive ? 0 : p.abilityCooldown - delta;
       }
       if (p.isAbilityActive && p.abilityDuration !== undefined) {
         p.abilityDuration -= delta;
@@ -7962,6 +8362,16 @@ export class LocalGameEngine {
           p.isAbilityActive = false;
           p.abilityDuration = 0;
         }
+      }
+      // Autoclicker Daemon: auto-cast ability the moment it is ready
+      if (p.autoAbilityStacks && p.autoAbilityStacks > 0 && p.status === "alive") {
+        if (!p.abilityCooldown || p.abilityCooldown <= 0) {
+          this.handleAbilityForPlayer(p);
+        }
+      }
+      // Cloud Backup Body: fast shield recharge, no HP regen reliance
+      if (p.cloudBodyStacks && p.cloudBodyStacks > 0 && p.maxShield && p.maxShield > 0) {
+        p.shield = Math.min(p.maxShield, (p.shield || 0) + ((25 + p.cloudBodyStacks * 10) * delta) / 1000);
       }
     });
 
@@ -8540,6 +8950,17 @@ export class LocalGameEngine {
       now < player.invulnerableUntil
     ) {
       return;
+    }
+
+    // Bubble-Wrap Insurance Policy: guaranteed perfect block on a timer
+    if (player.perfectDodgeStacks && player.perfectDodgeStacks > 0) {
+      const interval = Math.max(4000, 12000 - (player.perfectDodgeStacks - 1) * 2000);
+      if (!player.perfectDodgeReadyAt || now >= player.perfectDodgeReadyAt) {
+        player.perfectDodgeReadyAt = now + interval;
+        player.lastHitTimestamp = now;
+        this.spawnParticles(player.position, "#99DDFF", 20, "pixel", 10);
+        return;
+      }
     }
 
     let finalAmount = amount;

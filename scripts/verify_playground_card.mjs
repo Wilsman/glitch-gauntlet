@@ -27,11 +27,29 @@ try {
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${out}/02-hover.png`, fullPage: true });
 
+  // Playtest now opens character select first, with every operator unlocked
   await card.click();
+  await page.getByText('SELECT CHARACTER').waitFor({ timeout: 5000 });
+  await page.waitForTimeout(800);
+  assert(await page.getByText('Beta playtest — all operators unlocked').isVisible(), 'playtest unlock badge missing');
+  assert.equal(await page.getByText('Locked', { exact: true }).count(), 0, 'locked overlays still shown');
+  await page.screenshot({ path: `${out}/03-character-select.png`, fullPage: true });
+
+  // Keyboard-browse to a normally-locked operator (index 4: Vampire Vex) and deploy it
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(350);
+  }
+  const start = page.getByRole('button', { name: 'Start Game', exact: true });
+  assert(await start.isEnabled(), 'Start Game disabled for locked operator');
+  await page.screenshot({ path: `${out}/03b-locked-operator.png`, fullPage: true });
+  await page.keyboard.press('Enter');
+
   await page.waitForURL(/explorationPrototype=1/, { timeout: 10000 });
   console.log('navigated:', page.url());
+  assert.match(page.url(), /character=vampire-vex/, 'selected character not in URL');
   await page.waitForTimeout(1500);
-  await page.screenshot({ path: `${out}/03-prototype.png` });
+  await page.screenshot({ path: `${out}/04-prototype.png` });
 
   assert.deepEqual(errors, [], 'console/page errors');
   console.log('OK');

@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 const OUT = `output/review-boss-${Date.now()}`;
 fs.mkdirSync(OUT, { recursive: true });
 
-const BASE = process.env.REVIEW_URL || "http://localhost:3000";
+const BASE = process.env.REVIEW_URL || "http://localhost:5173";
 const errors = [];
 
 const browser = await chromium.launch({

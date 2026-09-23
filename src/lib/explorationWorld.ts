@@ -1,5 +1,5 @@
 import type { Vector2D } from '@shared/types';
-import type { ExplorationState, WorldWall } from '@shared/exploration';
+import type { BoostPad, ExplorationState, WorldChest, WorldWall } from '@shared/exploration';
 
 export const WORLD_WIDTH = 3200;
 export const WORLD_HEIGHT = 2000;
@@ -10,11 +10,42 @@ export const GATE = { x: 1100, y: 570 };
 export const CHARGE_MS = 45000;
 export const ANCHOR_SOCKETS = [{ x: 2670, y: 1390 }, { x: 2660, y: 570 }, { x: 1740, y: 1390 }];
 export const LANDMARKS = [
-  { name: 'ARRIVAL', x: 100, y: 750, width: 580, height: 570, color: '#18343b' },
-  { name: 'SERVICE LOOP', x: 260, y: 1400, width: 1120, height: 380, color: '#172f38' },
-  { name: 'MACHINERY COURT', x: 1350, y: 650, width: 650, height: 570, color: '#302d37' },
-  { name: 'MAINTENANCE', x: 350, y: 180, width: 1100, height: 390, color: '#23343b' },
-  { name: 'SIGNAL FIELD', x: 2220, y: 1030, width: 900, height: 800, color: '#18323a' },
+  { name: 'ARRIVAL', x: 100, y: 750, width: 580, height: 570, color: '#18343b', neon: '#22d3ee' },
+  { name: 'SERVICE LOOP', x: 260, y: 1400, width: 1120, height: 380, color: '#172f38', neon: '#a3e635' },
+  { name: 'MACHINERY COURT', x: 1350, y: 650, width: 650, height: 570, color: '#302d37', neon: '#f59e0b' },
+  { name: 'MAINTENANCE', x: 350, y: 180, width: 1100, height: 390, color: '#23343b', neon: '#e879f9' },
+  { name: 'SIGNAL FIELD', x: 2220, y: 1030, width: 900, height: 800, color: '#18323a', neon: '#f43f5e' },
+];
+export const COMBO_WINDOW_MS = 3000;
+export const COMBO_MILESTONES: [number, string][] = [[10, 'KILLING SPREE'], [25, 'RAMPAGE'], [50, 'GLITCHSTORM'], [100, 'SYSTEM MELTDOWN'], [200, 'GODLIKE.EXE']];
+export const CHEST_COSTS = { small: 25, large: 60, shrine: 15 } as const;
+export const DIFFICULTY_TIER_MS = 45000;
+export const DIFFICULTY_TIERS = [
+  { label: 'EASY', color: '#4ade80' }, { label: 'MEDIUM', color: '#a3e635' }, { label: 'HARD', color: '#facc15' },
+  { label: 'VERY HARD', color: '#fb923c' }, { label: 'INSANE', color: '#f87171' }, { label: 'IMPOSSIBLE', color: '#f43f5e' },
+  { label: 'I SEE YOU', color: '#e879f9' }, { label: "I'M COMING FOR YOU", color: '#c084fc' }, { label: 'HAHAHAHA', color: '#ffffff' },
+];
+export function difficultyTier(elapsedMs: number) {
+  const index = Math.min(DIFFICULTY_TIERS.length - 1, Math.floor(elapsedMs / DIFFICULTY_TIER_MS));
+  return { index, ...DIFFICULTY_TIERS[index], progress: index === DIFFICULTY_TIERS.length - 1 ? 1 : (elapsedMs % DIFFICULTY_TIER_MS) / DIFFICULTY_TIER_MS };
+}
+const CHESTS: Omit<WorldChest, 'cost' | 'opened' | 'uses' | 'openedMs'>[] = [
+  { id: 'chest-loop', kind: 'small', position: { x: 560, y: 1520 } },
+  { id: 'chest-machine', kind: 'small', position: { x: 1250, y: 860 } },
+  { id: 'chest-northeast', kind: 'small', position: { x: 2400, y: 300 } },
+  { id: 'chest-south', kind: 'small', position: { x: 950, y: 1860 } },
+  { id: 'chest-east', kind: 'small', position: { x: 2960, y: 900 } },
+  { id: 'vault-north', kind: 'large', position: { x: 1600, y: 200 } },
+  { id: 'vault-south', kind: 'large', position: { x: 2150, y: 1890 } },
+  { id: 'shrine-court', kind: 'shrine', position: { x: 1880, y: 1100 } },
+  { id: 'shrine-arrival', kind: 'shrine', position: { x: 640, y: 880 } },
+];
+export const BOOST_PADS: BoostPad[] = [
+  { id: 'pad-loop', position: { x: 700, y: 1580 }, angle: 0 },
+  { id: 'pad-court', position: { x: 1500, y: 1250 }, angle: 0 },
+  { id: 'pad-north', position: { x: 2500, y: 1000 }, angle: -Math.PI / 2 },
+  { id: 'pad-maint', position: { x: 1300, y: 250 }, angle: 0 },
+  { id: 'pad-arrival', position: { x: 300, y: 1300 }, angle: Math.PI / 2 },
 ];
 
 const WALLS: WorldWall[] = [
@@ -42,6 +73,9 @@ export function createExploration(seed = 0): ExplorationState {
     gateOpen: false, rewardClaimed: false, prompt: '', notice: 'Explore the yard. Follow the signal.', noticeMs: 5000,
     momentum: 0, velocity: { x: 0, y: 0 }, slideMs: 0, slideCooldownMs: 0, stationaryMs: 0, established: false, spawnsEnabled: true,
     metrics: { discoveryMs: null, damageTaken: 0, outsideChargeMs: 0, detourRewards: 0 },
+    chests: CHESTS.map(c => ({ ...c, position: { ...c.position }, cost: CHEST_COSTS[c.kind], opened: false, uses: 0, openedMs: 0 })),
+    pads: BOOST_PADS.map(p => ({ ...p, position: { ...p.position } })), boostMs: 0, boostAngle: 0,
+    combo: { count: 0, timerMs: 0, best: 0, milestone: '', milestoneMs: 0 }, kills: 0, hitStopMs: 0, hurtMs: 0, fx: [], itemFeed: [],
   };
 }
 

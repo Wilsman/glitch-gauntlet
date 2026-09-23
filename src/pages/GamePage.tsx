@@ -24,7 +24,7 @@ import UnifiedHUD from "@/components/UnifiedHUD";
 import { LocalGameEngine } from "@/lib/LocalGameEngine";
 import TestingArenaPanel from "@/components/TestingArenaPanel";
 import { toast } from "@/components/ui/sonner";
-import { getCharacter } from "@shared/characterConfig";
+import { CHARACTERS, getCharacter } from "@shared/characterConfig";
 import { submitLeaderboardScore } from "@/lib/leaderboardApi";
 import { getPlayerName, getLastRunStats } from "@/lib/progressionStorage";
 import RunMapOverlay from "@/components/RunMapOverlay";
@@ -62,6 +62,8 @@ export default function GamePage() {
 
   const players = activeGameState?.players ?? EMPTY_PLAYERS;
   const levelingUpPlayerId = activeGameState?.levelingUpPlayerId ?? null;
+  // Serial distinguishes back-to-back prompts for the same player (e.g. surplus XP).
+  const upgradePromptKey = levelingUpPlayerId ? `${levelingUpPlayerId}:${activeGameState?.upgradePromptSerial ?? 0}` : null;
   const upgradePromptType = activeGameState?.upgradePromptType ?? null;
   const gameStatus = activeGameState?.status ?? null;
   const wave = activeGameState?.wave ?? 0;
@@ -214,7 +216,9 @@ export default function GamePage() {
       const characterFromUrl = searchParams.get(
         "character"
       ) as CharacterType | null;
-      const characterType = isExplorationPrototype ? (characterFromUrl === "turret-tina" ? "turret-tina" : "dash-dynamo") : characterFromUrl || "pet-pal-percy";
+      const characterType = isExplorationPrototype
+        ? (characterFromUrl && characterFromUrl in CHARACTERS ? characterFromUrl : "dash-dynamo")
+        : characterFromUrl || "pet-pal-percy";
       const playerName = getPlayerName();
 
       const engine = new LocalGameEngine(
@@ -286,9 +290,9 @@ export default function GamePage() {
         !isUpgradeModalOpen &&
         !isAutoplay &&
         gameId &&
-        lastLevelUpPlayerRef.current !== levelingUpPlayerId
+        lastLevelUpPlayerRef.current !== upgradePromptKey
       ) {
-        lastLevelUpPlayerRef.current = levelingUpPlayerId;
+        lastLevelUpPlayerRef.current = upgradePromptKey;
 
         if (isLocalMode) {
           // Local mode - get upgrades from engine
@@ -329,7 +333,7 @@ export default function GamePage() {
     fetchUpgrades();
   }, [
     isLocalPlayerLevelingUp,
-    levelingUpPlayerId,
+    upgradePromptKey,
     gameId,
     openUpgradeModal,
     isUpgradeModalOpen,
@@ -356,6 +360,8 @@ export default function GamePage() {
       if (!localEngineRef.current) return JSON.stringify({ mode: "loading" });
       return localEngineRef.current.renderGameToText();
     };
+    // Dev-only handle so browser verification scripts can stage open-map scenarios.
+    if (import.meta.env.DEV) (window as typeof window & { __localEngine?: () => unknown }).__localEngine = () => localEngineRef.current;
 
     return () => {
       delete (window as typeof window & {

@@ -17,6 +17,7 @@ import { toast } from "@/components/ui/sonner";
 interface CharacterSelectProps {
   onSelect: (characterType: CharacterType) => void;
   onCancel: () => void;
+  unlockAll?: boolean;
 }
 
 const ALL_CHARACTERS = getAllCharacters();
@@ -263,8 +264,9 @@ function CharacterCard({
   );
 }
 
-export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
+export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: CharacterSelectProps) {
   const characters = ALL_CHARACTERS;
+  const isUnlocked = (type: CharacterType) => unlockAll || isCharacterUnlocked(type);
   const { getGamepadInput } = useGamepad();
 
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -302,15 +304,15 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
   useEffect(() => {
     checkUnlocks();
     const firstUnlockedIndex = characters.findIndex((character) =>
-      isCharacterUnlocked(character.type),
+      unlockAll || isCharacterUnlocked(character.type),
     );
     if (firstUnlockedIndex >= 0) {
       setCurrentIndex(firstUnlockedIndex);
     }
-  }, [characters]);
+  }, [characters, unlockAll]);
 
   const activeCharacter = characters[currentIndex] ?? characters[0];
-  const activeUnlocked = isCharacterUnlocked(activeCharacter.type);
+  const activeUnlocked = isUnlocked(activeCharacter.type);
   const activeUnlockProgress = !activeUnlocked ? getUnlockProgress(activeCharacter.type) : null;
 
   const handleMove = (direction: -1 | 1) => {
@@ -457,6 +459,11 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
               transition={{ delay: 0.2 }}
               className="mx-auto mt-4 h-px w-40 bg-gradient-to-r from-transparent via-neon-cyan to-transparent md:w-64"
             />
+            {unlockAll && (
+              <p className="mt-3 font-vt323 text-sm uppercase tracking-[0.3em] text-neon-pink">
+                Beta playtest — all operators unlocked
+              </p>
+            )}
           </div>
 
           <div className="rounded-[28px] border border-white/8 bg-[rgba(5,8,18,0.82)] px-3 py-5 shadow-[0_30px_120px_rgba(0,0,0,0.45)] backdrop-blur-sm md:px-6 md:py-6">
@@ -478,7 +485,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
                 {characters.map((character, index) => {
                   const offset = getCarouselOffset(index, currentIndex, characters.length);
                   const isLocked =
-                    character.locked && !isCharacterUnlocked(character.type);
+                    character.locked && !isUnlocked(character.type);
 
                   return (
                     <CharacterCard
@@ -526,7 +533,7 @@ export function CharacterSelect({ onSelect, onCancel }: CharacterSelectProps) {
 
             <div className="mt-5 flex justify-center gap-2.5">
               {characters.map((character, index) => {
-                const isLocked = !isCharacterUnlocked(character.type);
+                const isLocked = !isUnlocked(character.type);
 
                 return (
                   <button
