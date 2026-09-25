@@ -19,7 +19,12 @@ export default function ExplorationScreenFX({ world, player, now }: { world: Exp
   const speed = world.boostMs > 0 ? 1 : player.characterType === 'dash-dynamo' ? Math.max(0, (world.momentum - 0.55) / 0.45) : 0;
   const hurt = world.hurtMs / 380;
   const milestone = world.combo.milestoneMs > 1600 ? (world.combo.milestoneMs - 1600) / 400 : 0;
+  // Curse of the Dark: screen-space darkness with a ~260px light pool around the player.
+  const px = Math.max(0, Math.min(VIEW_WIDTH, player.position.x - world.camera.x));
+  const py = Math.max(0, Math.min(VIEW_HEIGHT, player.position.y - world.camera.y));
+  const warp = world.warpMs / 700;
   return <Group listening={false}>
+    {world.modifier === 'darkness' && <Rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fillRadialGradientStartPoint={{ x: px, y: py }} fillRadialGradientEndPoint={{ x: px, y: py }} fillRadialGradientStartRadius={140} fillRadialGradientEndRadius={300} fillRadialGradientColorStops={[0, 'rgba(1,2,8,0)', 0.6, 'rgba(1,2,8,0.82)', 1, 'rgba(1,2,8,0.97)']} />}
     <Rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fillRadialGradientStartPoint={{ x: CX, y: CY }} fillRadialGradientEndPoint={{ x: CX, y: CY }} fillRadialGradientStartRadius={VIEW_HEIGHT * 0.45} fillRadialGradientEndRadius={VIEW_WIDTH * 0.72} fillRadialGradientColorStops={[0, 'rgba(2,4,12,0)', 1, 'rgba(2,4,12,0.78)']} />
     {speed > 0 && Array.from({ length: 30 }, (_, i) => {
       const angle = i * Math.PI * 2 / 30 + Math.sin(i * 12.9) * 0.1;
@@ -33,6 +38,10 @@ export default function ExplorationScreenFX({ world, player, now }: { world: Exp
       {[0, 1, 2, 3].map(i => <Rect key={i} x={0} y={((now * 7 + i * 191) % VIEW_HEIGHT)} width={VIEW_WIDTH} height={6 + i * 4} fill={i % 2 ? '#22d3ee' : '#f0abfc'} opacity={0.18} />)}
     </>}
     {milestone > 0 && <Rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill="#facc15" opacity={milestone * 0.18} />}
+    {warp > 0 && <>
+      <Rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fill="#e0e7ff" opacity={Math.sin(Math.min(1, warp) * Math.PI) * 0.85} />
+      <Rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fillRadialGradientStartPoint={{ x: CX, y: CY }} fillRadialGradientEndPoint={{ x: CX, y: CY }} fillRadialGradientStartRadius={VIEW_HEIGHT * (0.7 - warp * 0.5)} fillRadialGradientEndRadius={VIEW_WIDTH * 0.7} fillRadialGradientColorStops={[0, 'rgba(34,211,238,0)', 1, 'rgba(34,211,238,0.6)']} opacity={warp} />
+    </>}
     <Rect width={VIEW_WIDTH} height={VIEW_HEIGHT} fillPatternImage={scanlinePattern() as unknown as HTMLImageElement} opacity={0.22} />
   </Group>;
 }

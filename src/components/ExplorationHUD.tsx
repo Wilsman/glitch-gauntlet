@@ -1,71 +1,262 @@
+import { useEffect, useRef, useState } from 'react';
 import type { GameState, Player } from '@shared/types';
-import { activeWalls, CHARGE_MS, COMBO_WINDOW_MS, DIFFICULTY_TIERS, VIEW_HEIGHT, VIEW_WIDTH, difficultyTier, distance } from '@/lib/explorationWorld';
+import type { ExplorationState } from '@shared/exploration';
+import { activeWalls, CHARGE_MS, COMBO_WINDOW_MS, DIFFICULTY_TIERS, VIEW_HEIGHT, VIEW_WIDTH, difficultyTier, distance, regionIndexAt } from '@/lib/explorationWorld';
+import { STAGE_MODIFIERS } from '@/lib/stageModifiers';
 
 const RARITY_COLORS: Record<string, string> = { common: '#e2e8f0', uncommon: '#4ade80', legendary: '#f87171', boss: '#facc15', lunar: '#60a5fa', void: '#c084fc' };
 const CHEST_COLORS = { small: '#22d3ee', large: '#facc15', shrine: '#f472b6' };
+const HAZARD_COLORS: Record<string, string> = { ice: '#7dd3fc', lava: '#fb923c', sludge: '#2dd4bf', warp: '#c084fc' };
+
+const hexAlpha = (hex: string, alpha: number) => hex + Math.round(Math.max(0, Math.min(1, alpha)) * 255).toString(16).padStart(2, '0');
+
+// Shared renderer for the corner minimap and the full-screen map overlay.
+function drawWorldMap(ctx: CanvasRenderingContext2D, world: ExplorationState, player: Player, w: number, h: number, labels: boolean, now = performance.now()) {
+  const scale = Math.min(w / world.width, h / world.height);
+  const ox = (w - world.width * scale) / 2, oy = (h - world.height * scale) / 2;
+  const X = (v: number) => ox + v * scale, Y = (v: number) => oy + v * scale;
+  ctx.fillStyle = '#050912'; ctx.fillRect(0, 0, w, h);
+  const cols = Math.ceil(world.width / 100), rows = Math.ceil(world.height / 100);
+  const visited = new Set(world.visited);
+  const seen = (x: number, y: number) => visited.has(Math.floor(y / 100) * cols + Math.floor(x / 100));
+  // Discovered regions tint in their biome colour; outlines glow.
+  for (const region of world.biomes) {
+    if (region.discovered) {
+      ctx.fillStyle = hexAlpha(region.neon, 0.09);
+      ctx.fillRect(X(region.x), Y(region.y), region.width * scale, region.height * scale);
+    }
+    ctx.strokeStyle = region.discovered ? hexAlpha(region.neon, 0.55) : 'rgba(100,116,139,0.25)';
+    ctx.lineWidth = labels ? 2 : 1;
+    ctx.strokeRect(X(region.x), Y(region.y), region.width * scale, region.height * scale);
+  }
+  for (const id of visited) {
+    const cx = (id % cols) * 100 + 50, cy = Math.floor(id / cols) * 100 + 50;
+    const region = world.biomes[regionIndexAt({ x: cx, y: cy })];
+    ctx.fillStyle = region ? hexAlpha(region.neon, 0.16) : 'rgba(15,42,58,0.8)';
+    ctx.fillRect(X(cx - 50), Y(cy - 50), 100 * scale, 100 * scale);
+  }
+  for (const hazard of world.hazards) {
+    if (!seen(hazard.x, hazard.y)) continue;
+    ctx.fillStyle = hexAlpha(HAZARD_COLORS[hazard.kind] || '#fff', 0.25);
+    ctx.beginPath(); ctx.arc(X(hazard.x), Y(hazard.y), hazard.radius * scale, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(94,234,212,0.6)';
+  for (const wall of activeWalls(world)) {
+    const cx = wall.x + wall.width / 2, cy = wall.y + wall.height / 2;
+    if (!seen(cx, cy) && !seen(wall.x, wall.y) && !seen(wall.x + wall.width, wall.y + wall.height)) continue;
+    if (wall.shape === 'circle') { ctx.beginPath(); ctx.arc(X(cx), Y(cy), wall.width / 2 * scale, 0, Math.PI * 2); ctx.fill(); }
+    else ctx.fillRect(X(wall.x), Y(wall.y), wall.width * scale, wall.height * scale);
+  }
+  // Doorways show as bright gaps in region borders.
+  ctx.fillStyle = '#facc15';
+  for (const door of world.doorways) {
+    const cx = door.x + door.width / 2, cy = door.y + door.height / 2;
+    if (!seen(cx, cy) && !seen(door.x, door.y)) continue;
+    ctx.fillRect(X(cx) - Math.max(2, door.width * scale / 2), Y(cy) - Math.max(2, door.height * scale / 2), Math.max(4, door.width * scale), Math.max(4, door.height * scale));
+  }
+  for (const chest of world.chests) {
+    if (!seen(chest.position.x, chest.position.y)) continue;
+    const s = (chest.kind === 'large' ? 110 : 80) * scale;
+    ctx.fillStyle = chest.opened ? '#334155' : CHEST_COLORS[chest.kind];
+    if (chest.kind === 'shrine') {
+      ctx.save(); ctx.translate(X(chest.position.x), Y(chest.position.y)); ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-s / 2, -s / 2, s, s); ctx.restore();
+    } else ctx.fillRect(X(chest.position.x) - s / 2, Y(chest.position.y) - s / 2, s, s);
+  }
+  for (const pad of world.pads) {
+    if (!seen(pad.position.x, pad.position.y)) continue;
+    ctx.fillStyle = '#22d3ee';
+    ctx.beginPath(); ctx.arc(X(pad.position.x), Y(pad.position.y), Math.max(2, 60 * scale), 0, Math.PI * 2); ctx.fill();
+  }
+  if (world.hasYard && world.cache.discovered && !world.cache.claimed) { ctx.fillStyle = '#5eead4'; ctx.fillRect(X(world.cache.position.x) - 40 * scale, Y(world.cache.position.y) - 40 * scale, 80 * scale, 80 * scale); }
+  if (world.hasYard && world.elite.discovered && !world.elite.defeated) { ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(X(world.elite.position.x), Y(world.elite.position.y), 60 * scale, 0, Math.PI * 2); ctx.fill(); }
+  for (const portal of world.portals) {
+    ctx.fillStyle = STAGE_MODIFIERS[portal.modifier].color;
+    ctx.beginPath(); ctx.arc(X(portal.position.x), Y(portal.position.y), Math.max(3, 70 * scale), 0, Math.PI * 2); ctx.fill();
+  }
+  if (world.anchor.discovered) {
+    const ax = X(world.anchor.position.x), ay = Y(world.anchor.position.y);
+    ctx.strokeStyle = '#67e8f9'; ctx.lineWidth = Math.max(2, 26 * scale);
+    ctx.beginPath(); ctx.arc(ax, ay, 90 * scale, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#67e8f9'; ctx.beginPath(); ctx.arc(ax, ay, Math.max(3, 40 * scale), 0, Math.PI * 2); ctx.fill();
+    if (labels) {
+      ctx.font = '12px "Press Start 2P", monospace';
+      ctx.fillStyle = '#a5f3fc'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(`${Math.round(distance(player.position, world.anchor.position))}m`, ax, ay + Math.max(6, 100 * scale));
+    }
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(X(world.camera.x), Y(world.camera.y), VIEW_WIDTH * scale, VIEW_HEIGHT * scale);
+  // Player marker with a pulse ring.
+  const px = X(player.position.x), py = Y(player.position.y);
+  const pulse = (now % 1400) / 1400;
+  ctx.strokeStyle = `rgba(34,211,238,${0.7 * (1 - pulse)})`; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(px, py, Math.max(4, 60 * scale) + pulse * 14, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = Math.max(2, 18 * scale);
+  ctx.beginPath(); ctx.arc(px, py, Math.max(4, 70 * scale), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  if (labels) {
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const region of world.biomes) {
+      const maxW = region.width * scale * 0.9;
+      const name = region.discovered ? region.name : '???';
+      // Fit the label inside the region: wrap to two lines, then shrink.
+      const words = name.split(' ');
+      const lines = words.length > 1 && ctx.measureText(name).width > maxW
+        ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')]
+        : [name];
+      let size = region.discovered ? 15 : 13;
+      ctx.font = `${size}px "Press Start 2P", monospace`;
+      while (size > 7 && lines.some(line => ctx.measureText(line).width > maxW)) {
+        size -= 1; ctx.font = `${size}px "Press Start 2P", monospace`;
+      }
+      ctx.fillStyle = region.discovered ? region.neon : 'rgba(100,116,139,0.6)';
+      const cy = Y(region.y + region.height / 2) - (lines.length - 1) * (size + 4) / 2;
+      lines.forEach((line, i) => ctx.fillText(line, X(region.x + region.width / 2), cy + i * (size + 4)));
+    }
+  }
+}
+
+function WorldMapCanvas({ world, player, width, labels }: { world: ExplorationState; player: Player; width: number; labels: boolean }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const lastDraw = useRef(0);
+  const height = Math.round(width * world.height / world.width);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const draw = () => {
+      lastDraw.current = performance.now();
+      const ctx = ref.current?.getContext('2d');
+      if (ctx) drawWorldMap(ctx, world, player, width, height, labels);
+    };
+    const wait = 100 - (performance.now() - lastDraw.current); // redraw at most ~10x/s
+    if (wait <= 0) draw(); else timer = setTimeout(draw, wait);
+    return () => { if (timer) clearTimeout(timer); };
+  });
+  return <canvas ref={ref} width={width} height={height} className="w-full rounded-md" role="img" aria-label="Visited terrain and discovered landmarks" />;
+}
+
+const PHASE_OBJECTIVES: Record<string, string> = {
+  pedestals: 'Claim a boss relic',
+  results: 'Stage clear',
+  portals: 'Choose your next rift',
+};
+
+const RANK_COLORS: Record<string, string> = { S: '#facc15', A: '#4ade80', B: '#22d3ee', C: '#a78bfa', D: '#94a3b8' };
 
 export default function ExplorationHUD({ gameState, player }: { gameState: GameState; player: Player }) {
   const world = gameState.exploration;
+  const [mapOpen, setMapOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'KeyM' && !(e.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName))) setMapOpen(v => !v);
+    };
+    window.addEventListener('keydown', onKey);
+    // Gamepad Back/View (button 8) toggles the same overlay.
+    let backHeld = false;
+    const poll = setInterval(() => {
+      const pad = navigator.getGamepads?.().find(Boolean);
+      const pressed = !!pad?.buttons[8]?.pressed;
+      if (pressed && !backHeld) setMapOpen(v => !v);
+      backHeld = pressed;
+    }, 120);
+    return () => { window.removeEventListener('keydown', onKey); clearInterval(poll); };
+  }, []);
   if (!world) return null;
   const active = world.phase === 'anchorActive';
-  const ready = world.phase === 'exitReady';
-  const objective = ready ? 'Return to the route map' : active ? 'Stabilise the Anchor' : world.anchor.discovered ? 'Activate the Glitch Anchor' : 'Find the Glitch Anchor';
+  const pastAnchor = world.phase === 'pedestals' || world.phase === 'results' || world.phase === 'portals';
+  const currentRegion = world.biomes.find(r => r.id === world.currentRegionId);
+  const modifier = world.modifier ? STAGE_MODIFIERS[world.modifier] : null;
+  const objective = PHASE_OBJECTIVES[world.phase] || (active ? 'Stabilise the Anchor' : world.anchor.discovered ? 'Activate the Glitch Anchor' : 'Find the Glitch Anchor');
   const seconds = Math.floor(world.elapsedMs / 1000);
   const tier = difficultyTier(world.elapsedMs);
   const dx = world.anchor.position.x - player.position.x, dy = world.anchor.position.y - player.position.y;
   const angle = Math.atan2(dy, dx);
-  const hint = world.anchor.discovered || world.elapsedMs >= 90000 || (world.elapsedMs > 12000 && world.elapsedMs % 22000 < 2500);
+  const hint = world.anchor.discovered || world.elapsedMs >= 60000 || (world.elapsedMs > 12000 && world.elapsedMs % 22000 < 2500);
   const anchorOnScreen = world.anchor.position.x > world.camera.x && world.anchor.position.x < world.camera.x + VIEW_WIDTH && world.anchor.position.y > world.camera.y && world.anchor.position.y < world.camera.y + VIEW_HEIGHT;
   const combo = world.combo;
   const milestoneT = 1 - combo.milestoneMs / 2000;
-  const visited = new Set(world.visited);
-  const seen = (p: { x: number; y: number }) => visited.has(Math.floor(p.y / 100) * 32 + Math.floor(p.x / 100));
+  const banner = world.biomeBanner;
+  const bannerT = banner ? 1 - banner.ms / 2500 : 1;
+  const stageBanner = world.stageBanner;
+  const stageBannerT = stageBanner ? 1 - stageBanner.ms / 2200 : 1;
+  const results = world.results;
+  const resultsT = results ? Math.min(1, (4200 - results.ms) / 260) : 0;
   const guardianHp = gameState.boss ? Math.max(0, gameState.boss.health / gameState.boss.maxHealth) : 0;
   return <div className="font-sans">
-    <div className="fixed left-1/2 top-3 z-30 w-[min(430px,44vw)] -translate-x-1/2 pointer-events-none" data-testid="exploration-objective">
-      <div className="relative overflow-hidden rounded-xl border border-cyan-300/40 bg-slate-950/85 px-4 py-2.5 text-slate-100 shadow-[0_0_30px_rgba(34,211,238,0.18)] backdrop-blur">
-        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-cyan-300 via-fuchsia-400 to-rose-400" />
-        <div className="flex items-center justify-between font-press-start text-[8px] uppercase tracking-widest text-cyan-300/80"><span>Objective</span><span style={{ color: tier.color }}>{tier.label}</span></div>
-        <div className="mt-1.5 text-[15px] font-bold tracking-wide">{objective}</div>
-        {active && <div className="mt-2 space-y-1.5">
-          <Bar label={`CHARGE ${Math.floor(world.anchor.chargeMs / CHARGE_MS * 100)}%`} value={world.anchor.chargeMs / CHARGE_MS} color="#6ee7b7" />
-          <Bar label={world.anchor.guardianDefeated ? 'GUARDIAN DELETED' : `GUARDIAN ${Math.ceil(gameState.boss?.health || 0)} HP`} value={guardianHp} color="#f43f5e" />
-          <div className={`text-xs font-semibold ${world.anchor.occupied ? 'text-emerald-200' : 'animate-pulse text-rose-300'}`}>{world.anchor.occupied ? 'Charging · keep moving inside the field' : 'Charge paused · return to the field'}</div>
-        </div>}
-        {hint && !active && !ready && <div className="mt-1.5 flex items-center gap-2 text-xs text-cyan-200"><span className="inline-block" style={{ transform: `rotate(${angle}rad)` }}>➜</span>{world.anchor.discovered ? `Anchor · ${Math.round(distance(player.position, world.anchor.position))}m` : 'Signal detected in this direction'}</div>}
-      </div>
-    </div>
-
-    <div className="fixed right-4 top-14 z-30 w-[250px] pointer-events-none" data-testid="exploration-difficulty">
-      <div className="rounded-xl border border-white/15 bg-slate-950/85 p-3 shadow-[0_0_24px_rgba(0,0,0,0.6)] backdrop-blur">
-        <div className="flex items-center justify-between font-press-start text-[7px] tracking-widest text-slate-400"><span>BROKEN CIRCUIT YARD</span><span>STAGE 1</span></div>
-        <div className="mt-2 flex items-end justify-between">
-          <div className="font-press-start text-[26px] leading-none text-white [text-shadow:0_0_14px_rgba(255,255,255,0.35)]">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</div>
-          <div className="text-right font-press-start text-[8px] text-slate-400">KILLS<div className="mt-1 text-[12px] text-white">{world.kills}</div></div>
+    <div className="fixed right-4 top-14 z-30 flex w-[232px] flex-col gap-2 pointer-events-none">
+      <div className="rounded-md border border-white/10 bg-slate-950/70 px-2.5 py-2 backdrop-blur-sm" data-testid="exploration-difficulty">
+        <div className="flex items-center justify-between font-press-start text-[7px] tracking-widest text-slate-400 uppercase"><span>{currentRegion?.name || 'UNKNOWN SECTOR'}</span><span>STAGE {world.stage}</span></div>
+        {modifier && <div className="mt-1.5 rounded-sm border px-1.5 py-1 font-press-start text-[7px] tracking-widest" style={{ borderColor: `${modifier.color}66`, color: modifier.color, backgroundColor: `${modifier.color}14` }} data-testid="exploration-modifier">{modifier.name}</div>}
+        <div className="mt-1.5 flex items-end justify-between">
+          <div className="font-press-start text-[20px] leading-none text-white">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</div>
+          <div className="font-press-start text-[8px] text-slate-400">KILLS <span className="text-[11px] text-white">{world.kills}</span></div>
         </div>
-        <div className="mt-3 flex h-3 gap-[2px] overflow-hidden rounded-sm">
+        <div className="mt-2 flex h-1.5 gap-[2px] overflow-hidden rounded-sm">
           {DIFFICULTY_TIERS.map((t, i) => <div key={t.label} className="relative flex-1 bg-slate-800" style={{ backgroundColor: i < tier.index ? t.color : undefined, opacity: i < tier.index ? 0.55 : 1 }}>
-            {i === tier.index && <div className="absolute inset-y-0 left-0" style={{ width: `${tier.progress * 100}%`, backgroundColor: t.color, boxShadow: `0 0 10px ${t.color}` }} />}
+            {i === tier.index && <div className="absolute inset-y-0 left-0" style={{ width: `${tier.progress * 100}%`, backgroundColor: t.color, boxShadow: `0 0 8px ${t.color}` }} />}
           </div>)}
         </div>
-        <div className="mt-2 font-press-start text-[11px] tracking-wider" style={{ color: tier.color, textShadow: `0 0 12px ${tier.color}` }}>{tier.label}</div>
+        <div className="mt-1.5 font-press-start text-[9px] tracking-wider" style={{ color: tier.color }}>{tier.label}</div>
+        <div className="mt-2 border-t border-white/10 pt-2" data-testid="exploration-objective">
+          <div className="font-press-start text-[7px] uppercase tracking-widest text-slate-400">Objective</div>
+          <div className="mt-1 text-[13px] font-semibold text-slate-100">{objective}</div>
+          {active && <div className="mt-2 space-y-1.5">
+            <Bar label={`CHARGE ${Math.floor(world.anchor.chargeMs / CHARGE_MS * 100)}%`} value={world.anchor.chargeMs / CHARGE_MS} color="#6ee7b7" />
+            <Bar label={world.anchor.guardianDefeated ? 'GUARDIAN DELETED' : `GUARDIAN ${Math.ceil(gameState.boss?.health || 0)} HP`} value={guardianHp} color="#f43f5e" />
+            <div className={`text-xs font-semibold ${world.anchor.occupied ? 'text-emerald-200' : 'animate-pulse text-rose-300'}`}>{world.anchor.occupied ? 'Charging · keep moving inside the field' : 'Charge paused · return to the field'}</div>
+          </div>}
+          {hint && !active && !pastAnchor && <div className="mt-1.5 flex items-center gap-2 text-xs text-cyan-200"><span className="inline-block" style={{ transform: `rotate(${angle}rad)` }}>➜</span>{world.anchor.discovered ? `Anchor · ${Math.round(distance(player.position, world.anchor.position))}m` : 'Signal detected in this direction'}</div>}
+        </div>
+      </div>
+
+      <div className="rounded-md border border-white/10 bg-slate-950/70 p-2 backdrop-blur-sm" data-testid="exploration-minimap">
+        <WorldMapCanvas world={world} player={player} width={216} labels={false} />
+        <div className="mt-1 flex justify-between font-press-start text-[7px] tracking-wider text-slate-500"><span>M · MAP</span><span>{world.chests.filter(c => c.opened).length}/{world.chests.length} LOOTED</span></div>
       </div>
     </div>
 
-    <div className="fixed right-4 top-[212px] z-20 w-[250px] rounded-xl border border-cyan-400/25 bg-slate-950/85 p-2 pointer-events-none backdrop-blur" aria-label="Explored yard map">
-      <svg viewBox="0 0 3200 2000" className="w-full rounded-md" role="img" aria-label="Visited terrain and discovered landmarks">
-        <rect width="3200" height="2000" fill="#050912" />
-        {world.visited.map(id => <rect key={id} x={id % 32 * 100} y={Math.floor(id / 32) * 100} width="100" height="100" fill="#0f2a3a" />)}
-        {activeWalls(world).filter(w => seen(w)).map(w => <rect key={w.id} x={w.x} y={w.y} width={w.width} height={w.height} fill="#5eead4" opacity="0.55" />)}
-        {world.chests.filter(c => seen(c.position)).map(c => <rect key={c.id} x={c.position.x - 45} y={c.position.y - 45} width="90" height="90" fill={c.opened ? '#334155' : CHEST_COLORS[c.kind]} transform={c.kind === 'shrine' ? `rotate(45 ${c.position.x} ${c.position.y})` : undefined} />)}
-        {world.cache.discovered && !world.cache.claimed && <rect x={world.cache.position.x - 40} y={world.cache.position.y - 40} width="80" height="80" fill="#5eead4" />}
-        {world.elite.discovered && !world.elite.defeated && <circle cx={world.elite.position.x} cy={world.elite.position.y} r="60" fill="#f59e0b" />}
-        {world.anchor.discovered && <circle cx={world.anchor.position.x} cy={world.anchor.position.y} r="90" fill="none" stroke="#67e8f9" strokeWidth="30" />}
-        <rect x={world.camera.x} y={world.camera.y} width={VIEW_WIDTH} height={VIEW_HEIGHT} fill="none" stroke="#ffffff" strokeOpacity="0.25" strokeWidth="14" />
-        <circle cx={player.position.x} cy={player.position.y} r="55" fill="white" stroke="#22d3ee" strokeWidth="20" />
-      </svg>
-      <div className="mt-1 flex justify-between font-press-start text-[7px] tracking-wider text-slate-500"><span>DISCOVERED TERRAIN</span><span>{world.chests.filter(c => c.opened).length}/{world.chests.length} LOOTED</span></div>
-    </div>
+    {mapOpen && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80 pointer-events-none" data-testid="exploration-fullmap">
+      <div className="w-[min(1100px,92vw)] rounded-2xl border border-cyan-300/40 bg-slate-950/95 p-4 shadow-[0_0_60px_rgba(34,211,238,0.2)]">
+        <WorldMapCanvas world={world} player={player} width={1060} labels={true} />
+        <div className="mt-3 flex flex-wrap items-center gap-4 font-press-start text-[8px] tracking-wider text-slate-400">
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-cyan-300" />CHEST</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rotate-45 bg-pink-400" />SHRINE</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-yellow-400" />VAULT</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-400" />DOOR</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-full border-2 border-cyan-200" />ANCHOR</span>
+          <span className="flex items-center gap-1.5"><i className="inline-block h-2.5 w-2.5 rounded-full bg-white" />YOU</span>
+          <span className="ml-auto text-slate-500">M / VIEW · CLOSE</span>
+        </div>
+      </div>
+    </div>}
+
+    {banner && <div className="fixed left-1/2 top-[38%] z-40 -translate-x-1/2 pointer-events-none text-center" style={{ transform: `translateX(-50%) scale(${bannerT < 0.08 ? 0.4 + bannerT / 0.08 * 0.6 : 1})`, opacity: bannerT > 0.8 ? (1 - bannerT) / 0.2 : 1 }} data-testid="exploration-biome-banner">
+      <div className="font-press-start text-[12px] tracking-[0.4em] text-slate-300">ENTERING //</div>
+      <div className="mt-2 whitespace-nowrap font-press-start text-[30px]" style={{ color: banner.neon, textShadow: `2px 2px 0 #020617, 0 0 22px ${hexAlpha(banner.neon, 0.55)}` }}>{banner.name}</div>
+      {banner.sub && <div className="mt-2 font-press-start text-[11px] text-yellow-200" style={{ textShadow: '2px 2px 0 #020617' }}>{banner.sub}</div>}
+    </div>}
+
+    {stageBanner && <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none" data-testid="exploration-stage-banner" style={{ opacity: stageBannerT > 0.85 ? (1 - stageBannerT) / 0.15 : Math.min(1, stageBannerT / 0.12) }}>
+      <div className="text-center">
+        <div className="font-press-start text-[12px] tracking-[0.5em] text-slate-400">RIFT JUMP COMPLETE</div>
+        <div className="mt-3 whitespace-nowrap font-press-start text-[34px] text-white" style={{ textShadow: `3px 3px 0 #020617, 0 0 40px ${stageBanner.neon}` }}>{stageBanner.title}</div>
+        {modifier && <div className="mx-auto mt-3 inline-block rounded-sm border px-3 py-1.5 font-press-start text-[11px] tracking-widest" style={{ borderColor: modifier.color, color: modifier.color, backgroundColor: `${modifier.color}18` }}>{modifier.name}</div>}
+      </div>
+    </div>}
+
+    {results && <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none bg-slate-950/40" data-testid="exploration-results">
+      <div className="w-[340px] rounded-lg border-2 bg-[#0a0f1e]/95 p-4 text-center shadow-2xl" style={{ borderColor: RANK_COLORS[results.rank], transform: `scale(${0.6 + resultsT * 0.4})` }}>
+        <div className="font-press-start text-[10px] tracking-[0.4em] text-slate-400">STAGE {world.stage} CLEAR</div>
+        <div className="mt-2 font-press-start text-[64px] leading-none" style={{ color: RANK_COLORS[results.rank], textShadow: `4px 4px 0 #020617, 0 0 40px ${RANK_COLORS[results.rank]}`, transform: `scale(${resultsT < 0.4 ? 1.8 - resultsT : 1}) rotate(-6deg)` }}>{results.rank}</div>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-left font-vt323 text-[15px] text-slate-300">
+          <span>Time</span><span className="text-right text-white">{Math.floor(results.seconds / 60)}:{String(results.seconds % 60).padStart(2, '0')}</span>
+          <span>Kills</span><span className="text-right text-white">{results.kills}</span>
+          <span>Best combo</span><span className="text-right text-white">x{results.bestCombo}</span>
+          <span>Items</span><span className="text-right text-white">{results.items}</span>
+          <span>Damage taken</span><span className="text-right text-white">{results.damageTaken}</span>
+        </div>
+        <div className="mt-3 border-t border-white/10 pt-2 font-press-start text-[11px] text-yellow-300">RANK BONUS · +${results.bonus}</div>
+      </div>
+    </div>}
 
     {combo.count >= 3 && <div className="fixed left-6 top-[46%] z-30 pointer-events-none -rotate-3" data-testid="exploration-combo">
       <div className="font-press-start text-[10px] tracking-widest text-fuchsia-300 [text-shadow:0_0_10px_#e879f9]">COMBO</div>
@@ -79,7 +270,7 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
       <div className="mt-2 font-press-start text-[11px] text-white">{combo.count} KILL CHAIN</div>
     </div>}
 
-    {world.anchor.discovered && !anchorOnScreen && !ready && <div className="fixed left-1/2 top-1/2 z-20 pointer-events-none" style={{ transform: `translate(-50%,-50%) translate(${Math.cos(angle) * Math.min(window.innerWidth, window.innerHeight) * 0.4}px, ${Math.sin(angle) * Math.min(window.innerWidth, window.innerHeight) * 0.4}px)` }}>
+    {world.anchor.discovered && !anchorOnScreen && !pastAnchor && <div className="fixed left-1/2 top-1/2 z-20 pointer-events-none" style={{ transform: `translate(-50%,-50%) translate(${Math.cos(angle) * Math.min(window.innerWidth, window.innerHeight) * 0.4}px, ${Math.sin(angle) * Math.min(window.innerWidth, window.innerHeight) * 0.4}px)` }}>
       <div className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-cyan-300 bg-slate-950/80 text-cyan-200 shadow-[0_0_16px_#22d3ee]"><span style={{ transform: `rotate(${angle}rad)` }}>➜</span></div>
     </div>}
 
@@ -87,7 +278,7 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
       {world.itemFeed.map(item => {
         const color = RARITY_COLORS[item.rarity] || '#fff';
         const enter = Math.min(1, (4500 - item.ms) / 180);
-        return <div key={item.id} className="flex items-center gap-3 overflow-hidden rounded-lg border bg-slate-950/90 px-3 py-2 shadow-lg" style={{ borderColor: color, boxShadow: `0 0 18px ${color}55`, opacity: item.ms < 600 ? item.ms / 600 : 1, transform: `translateY(${(1 - enter) * 20}px)` }}>
+        return <div key={item.id} className="flex items-center gap-3 overflow-hidden rounded-md border bg-slate-950/70 px-3 py-2 backdrop-blur-sm" style={{ borderColor: color, opacity: item.ms < 600 ? item.ms / 600 : 1, transform: `translateY(${(1 - enter) * 20}px)` }}>
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-2xl" style={{ backgroundColor: `${color}22`, border: `1px solid ${color}` }}>{item.emoji}</div>
           <div className="min-w-0">
             <div className="font-press-start text-[9px] leading-relaxed" style={{ color }}>{item.title}</div>
@@ -98,15 +289,8 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
     </div>
 
     <div className="fixed bottom-7 left-1/2 z-30 flex max-w-[60vw] -translate-x-1/2 flex-col items-center gap-2 pointer-events-none text-center">
-      {world.noticeMs > 0 && <div className="rounded-lg border border-cyan-300/40 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_16px_rgba(34,211,238,0.25)]">{world.notice}</div>}
-      {world.prompt && <div className="rounded-lg border border-yellow-300/60 bg-slate-950/95 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_18px_rgba(250,204,21,0.25)]"><kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>{world.prompt}</div>}
-      <div className="flex items-center gap-3 rounded-lg border border-slate-500/40 bg-slate-950/90 px-4 py-2 text-xs text-slate-200">
-        {player.characterType === 'dash-dynamo' ? <>
-          <span className="font-press-start text-[8px] text-cyan-300">MOMENTUM</span>
-          <div className="flex gap-[3px]">{Array.from({ length: 10 }, (_, i) => <div key={i} className="h-3 w-2.5 -skew-x-12" style={{ backgroundColor: i < Math.round(world.momentum * 10) ? (i > 6 ? '#f0abfc' : '#22d3ee') : '#1e293b', boxShadow: i < Math.round(world.momentum * 10) ? '0 0 6px #22d3ee' : undefined }} />)}</div>
-          <span>{world.slideCooldownMs > 0 ? `Slide ${(world.slideCooldownMs / 1000).toFixed(1)}s` : 'Shift / A: slide'} · Q / X: Overdrive</span>
-        </> : <span>{world.established ? 'Established · nearby turrets fire 30% faster' : 'Hold still to establish'} · Q / X: deploy turrets</span>}
-      </div>
+      {world.noticeMs > 0 && <div className="rounded-md border border-cyan-300/40 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-cyan-100 backdrop-blur-sm">{world.notice}</div>}
+      {world.prompt && <div className="rounded-md border border-yellow-300/60 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"><kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>{world.prompt}</div>}
     </div>
   </div>;
 }

@@ -21,8 +21,7 @@ async function choose() {
 }
 try {
   await page.goto(`${base}/game/local?playerId=overhaul-check&character=dash-dynamo&explorationPrototype=1`);
-  await page.locator('[data-map-node-selectable="true"]').first().click();
-  await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).exploration);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).exploration?.stage === 1);
   await page.waitForTimeout(900);
   await shot('01-arrival');
 
@@ -33,7 +32,7 @@ try {
   await shot('02-momentum');
 
   // Boost pad: stand on the arrival pad and verify the launch.
-  await engine(() => { const e = window.__localEngine(); const p = e.gameState.players[0]; p.position = { x: 300, y: 1250 }; e.debugSetInvulnerability(true); });
+  await engine(() => { const e = window.__localEngine(); const p = e.gameState.players[0]; p.position = { x: 300, y: 3900 }; e.debugSetInvulnerability(true); });
   await page.keyboard.down('ArrowDown'); await advance(150); await page.waitForTimeout(80);
   s = await state(); log.push({ step: 'boost', boostMs: s.exploration.boostMs, y: s.player.y });
   await page.waitForTimeout(250);
@@ -41,22 +40,22 @@ try {
   await page.keyboard.up('ArrowDown');
 
   // Chest: grant coins, open a small chest and the legendary vault.
-  await engine(() => { const e = window.__localEngine(); const p = e.gameState.players[0]; p.coins = 200; p.position = { x: 560, y: 1470 }; });
+  await engine(() => { const e = window.__localEngine(); const p = e.gameState.players[0]; p.coins = 200; p.position = { x: 560, y: 4070 }; });
   await advance(100);
   await page.keyboard.down('KeyE'); await advance(60); await page.keyboard.up('KeyE'); await advance(60);
   s = await state(); log.push({ step: 'chest', coins: s.exploration && s.player, chest: s.exploration.chests.find(c => c.id === 'chest-loop'), feed: s.exploration.itemFeed.map(i => i.title) });
   await shot('04-chest-open');
-  await engine(() => { const e = window.__localEngine(); const p = e.gameState.players[0]; p.position = { x: 1600, y: 150 }; });
+  await engine(() => { const e = window.__localEngine(); const p = e.gameState.players[0]; const vault = e.gameState.exploration.chests.find(c => c.kind === 'large'); p.coins = 200; if (vault) p.position = { ...vault.position }; });
   await advance(100);
   await page.keyboard.down('KeyE'); await advance(60); await page.keyboard.up('KeyE'); await advance(200);
-  s = await state(); log.push({ step: 'vault', chest: s.exploration.chests.find(c => c.id === 'vault-north'), feed: s.exploration.itemFeed.map(i => `${i.rarity}:${i.title}`) });
+  s = await state(); log.push({ step: 'vault', chest: s.exploration.chests.find(c => c.kind === 'large'), feed: s.exploration.itemFeed.map(i => `${i.rarity}:${i.title}`) });
   await shot('05-vault');
 
   // Horde + combo: spawn a dense pack around the player and let auto-fire chew through it.
   await engine(async () => {
     const e = window.__localEngine();
     const { createEnemy } = await import('/shared/enemyConfig.ts');
-    const p = e.gameState.players[0]; p.position = { x: 1700, y: 1100 };
+    const p = e.gameState.players[0]; p.position = { x: 1700, y: 3700 };
     for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2; e.gameState.enemies.push(createEnemy(`combo-${i}`, { x: p.position.x + Math.cos(a) * 170, y: p.position.y + Math.sin(a) * 120 }, i % 3 ? 'grunt' : 'glitch-spider', 1)); }
     const elite = createEnemy('elite-demo', { x: p.position.x + 120, y: p.position.y - 150 }, 'slugger', 2);
     elite.eliteAffix = 'blazing'; elite.health = elite.maxHealth = 600; e.gameState.enemies.push(elite);

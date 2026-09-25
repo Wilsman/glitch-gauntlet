@@ -1,25 +1,19 @@
 import type { Vector2D } from '@shared/types';
-import type { BoostPad, ExplorationState, WorldChest, WorldWall } from '@shared/exploration';
+import type { ExplorationState, RunStats, StageModifierId, WorldChest, WorldWall } from '@shared/exploration';
+import { BIOMES, GATE, generateWorld, regionIndexAt, SPAWN, wallBlocks, WORLD_H, WORLD_W, YARD_LANDMARKS } from './worldGen';
+import { STAGE_MODIFIERS } from './stageModifiers';
 
-export const WORLD_WIDTH = 3200;
-export const WORLD_HEIGHT = 2000;
+export const WORLD_WIDTH = WORLD_W;
+export const WORLD_HEIGHT = WORLD_H;
 export const VIEW_WIDTH = 1280;
 export const VIEW_HEIGHT = 720;
-export const SPAWN = { x: 300, y: 1000 };
-export const GATE = { x: 1100, y: 570 };
+export { BIOMES, GATE, SPAWN, regionIndexAt };
+export const LANDMARKS = YARD_LANDMARKS;
 export const CHARGE_MS = 45000;
-export const ANCHOR_SOCKETS = [{ x: 2670, y: 1390 }, { x: 2660, y: 570 }, { x: 1740, y: 1390 }];
-export const LANDMARKS = [
-  { name: 'ARRIVAL', x: 100, y: 750, width: 580, height: 570, color: '#18343b', neon: '#22d3ee' },
-  { name: 'SERVICE LOOP', x: 260, y: 1400, width: 1120, height: 380, color: '#172f38', neon: '#a3e635' },
-  { name: 'MACHINERY COURT', x: 1350, y: 650, width: 650, height: 570, color: '#302d37', neon: '#f59e0b' },
-  { name: 'MAINTENANCE', x: 350, y: 180, width: 1100, height: 390, color: '#23343b', neon: '#e879f9' },
-  { name: 'SIGNAL FIELD', x: 2220, y: 1030, width: 900, height: 800, color: '#18323a', neon: '#f43f5e' },
-];
 export const COMBO_WINDOW_MS = 3000;
 export const COMBO_MILESTONES: [number, string][] = [[10, 'KILLING SPREE'], [25, 'RAMPAGE'], [50, 'GLITCHSTORM'], [100, 'SYSTEM MELTDOWN'], [200, 'GODLIKE.EXE']];
 export const CHEST_COSTS = { small: 25, large: 60, shrine: 15 } as const;
-export const DIFFICULTY_TIER_MS = 45000;
+export const DIFFICULTY_TIER_MS = 70000;
 export const DIFFICULTY_TIERS = [
   { label: 'EASY', color: '#4ade80' }, { label: 'MEDIUM', color: '#a3e635' }, { label: 'HARD', color: '#facc15' },
   { label: 'VERY HARD', color: '#fb923c' }, { label: 'INSANE', color: '#f87171' }, { label: 'IMPOSSIBLE', color: '#f43f5e' },
@@ -29,52 +23,65 @@ export function difficultyTier(elapsedMs: number) {
   const index = Math.min(DIFFICULTY_TIERS.length - 1, Math.floor(elapsedMs / DIFFICULTY_TIER_MS));
   return { index, ...DIFFICULTY_TIERS[index], progress: index === DIFFICULTY_TIERS.length - 1 ? 1 : (elapsedMs % DIFFICULTY_TIER_MS) / DIFFICULTY_TIER_MS };
 }
-const CHESTS: Omit<WorldChest, 'cost' | 'opened' | 'uses' | 'openedMs'>[] = [
-  { id: 'chest-loop', kind: 'small', position: { x: 560, y: 1520 } },
-  { id: 'chest-machine', kind: 'small', position: { x: 1250, y: 860 } },
-  { id: 'chest-northeast', kind: 'small', position: { x: 2400, y: 300 } },
-  { id: 'chest-south', kind: 'small', position: { x: 950, y: 1860 } },
-  { id: 'chest-east', kind: 'small', position: { x: 2960, y: 900 } },
-  { id: 'vault-north', kind: 'large', position: { x: 1600, y: 200 } },
-  { id: 'vault-south', kind: 'large', position: { x: 2150, y: 1890 } },
-  { id: 'shrine-court', kind: 'shrine', position: { x: 1880, y: 1100 } },
-  { id: 'shrine-arrival', kind: 'shrine', position: { x: 640, y: 880 } },
-];
-export const BOOST_PADS: BoostPad[] = [
-  { id: 'pad-loop', position: { x: 700, y: 1580 }, angle: 0 },
-  { id: 'pad-court', position: { x: 1500, y: 1250 }, angle: 0 },
-  { id: 'pad-north', position: { x: 2500, y: 1000 }, angle: -Math.PI / 2 },
-  { id: 'pad-maint', position: { x: 1300, y: 250 }, angle: 0 },
-  { id: 'pad-arrival', position: { x: 300, y: 1300 }, angle: Math.PI / 2 },
-];
 
-const WALLS: WorldWall[] = [
-  { id: 'north-rack', x: 500, y: 650, width: 600, height: 100 },
-  { id: 'pocket-west', x: 230, y: 160, width: 100, height: 480 },
-  { id: 'pocket-south', x: 330, y: 570, width: 710, height: 80 },
-  { id: 'gate', x: 1040, y: 570, width: 120, height: 80 },
-  { id: 'pocket-tail', x: 1160, y: 570, width: 300, height: 80 },
-  { id: 'west-machine', x: 800, y: 1000, width: 360, height: 280 },
-  { id: 'central-bank', x: 1460, y: 330, width: 280, height: 320 },
-  { id: 'court-cover', x: 1600, y: 860, width: 140, height: 110 },
-  { id: 'east-bank', x: 2070, y: 650, width: 140, height: 470 },
-  { id: 'south-bank', x: 1300, y: 1700, width: 730, height: 100 },
-  { id: 'signal-cover', x: 2260, y: 1690, width: 120, height: 100 },
-];
+export function regionAt(world: ExplorationState, p: Vector2D) {
+  return world.biomes[regionIndexAt(p)];
+}
 
-export function createExploration(seed = 0): ExplorationState {
+const freshRun = (): RunStats => ({ stagesCleared: 0, totalKills: 0, bestCombo: 0, items: [], maxTier: 0 });
+
+export interface CreateExplorationOptions {
+  stage?: number;
+  modifier?: StageModifierId | null;
+  elapsedMs?: number;
+  run?: RunStats;
+}
+
+export function createExploration(seed = 0, opts: CreateExplorationOptions = {}): ExplorationState {
   seed = Number.isFinite(seed) ? Math.abs(Math.trunc(seed)) % 100000 : 0;
+  const stage = opts.stage ?? 1;
+  const modifier = opts.modifier ?? null;
+  const gen = generateWorld(seed, { yard: stage === 1, modifier });
+  const spawn = gen.spawn;
+  const landingRegion = gen.regions[regionIndexAt(spawn)];
+  const chestCost = (kind: WorldChest['kind']) => {
+    let cost: number = CHEST_COSTS[kind];
+    if (modifier === 'goldRush') cost = Math.round(cost * 0.7);
+    if (modifier === 'blackMarket' && kind === 'small') cost += 10;
+    return cost;
+  };
+  const landingRegionName = landingRegion?.name || 'UNKNOWN SECTOR';
   return {
-    seed, width: WORLD_WIDTH, height: WORLD_HEIGHT, phase: 'exploring', elapsedMs: 0, pressure: 1,
-    camera: { x: 0, y: 640 }, walls: WALLS.map(w => ({ ...w })), visited: [],
-    anchor: { position: { ...ANCHOR_SOCKETS[seed % 3] }, radius: 260, discovered: false, chargeMs: 0, guardianDefeated: false, occupied: false },
-    cache: { position: { x: 500 + (seed % 2) * 400, y: 350 }, discovered: false, claimed: false },
-    elite: { position: { x: 1840, y: 850 }, discovered: false, started: false, defeated: false, id: 'yard-elite' },
-    gateOpen: false, rewardClaimed: false, prompt: '', notice: 'Explore the yard. Follow the signal.', noticeMs: 5000,
+    seed, stage, modifier, hasYard: gen.hasYard,
+    landing: { ...spawn },
+    width: WORLD_W, height: WORLD_H, phase: 'exploring',
+    elapsedMs: opts.elapsedMs ?? 0, stageStartMs: opts.elapsedMs ?? 0,
+    pressure: 1,
+    camera: { x: Math.max(0, Math.min(WORLD_W - VIEW_WIDTH, spawn.x - VIEW_WIDTH / 2)), y: Math.max(0, Math.min(WORLD_H - VIEW_HEIGHT, spawn.y - VIEW_HEIGHT / 2)) },
+    walls: gen.walls, visited: [],
+    hazards: gen.hazards, doorways: gen.doorways, lamps: gen.lamps, props: gen.props,
+    biomes: gen.regions, currentRegionId: landingRegion?.id || '', biomeBanner: null,
+    stageBanner: {
+      title: `STAGE ${stage} // ${landingRegionName}`,
+      subtitle: modifier ? STAGE_MODIFIERS[modifier].name : 'FIND THE GLITCH ANCHOR',
+      neon: modifier ? STAGE_MODIFIERS[modifier].color : (landingRegion?.neon || '#22d3ee'),
+      ms: 2200,
+    },
+    results: null, portals: [], pendingModifier: null, warpMs: 0,
+    pedestals: gen.landingPedestals.map((spec, k) => ({
+      id: `landing-ped-${k}`, kind: spec.kind,
+      position: { x: spawn.x + spec.offset.x, y: spawn.y + spec.offset.y },
+      taken: false, cost: spec.kind === 'heal' ? 25 : 0,
+    })),
+    anchor: { position: { ...gen.anchor }, radius: 260, discovered: false, chargeMs: 0, guardianDefeated: false, occupied: false },
+    cache: { position: gen.cache || { x: -9999, y: -9999 }, discovered: false, claimed: false },
+    elite: { position: gen.elite || { x: -9999, y: -9999 }, discovered: false, started: false, defeated: false, id: 'yard-elite' },
+    gateOpen: false, prompt: '', notice: gen.hasYard ? 'Explore the world. Follow the signal.' : `${STAGE_MODIFIERS[modifier!]?.name || 'RIFT'} — find the Glitch Anchor`, noticeMs: 5000,
     momentum: 0, velocity: { x: 0, y: 0 }, slideMs: 0, slideCooldownMs: 0, stationaryMs: 0, established: false, spawnsEnabled: true,
-    metrics: { discoveryMs: null, damageTaken: 0, outsideChargeMs: 0, detourRewards: 0 },
-    chests: CHESTS.map(c => ({ ...c, position: { ...c.position }, cost: CHEST_COSTS[c.kind], opened: false, uses: 0, openedMs: 0 })),
-    pads: BOOST_PADS.map(p => ({ ...p, position: { ...p.position } })), boostMs: 0, boostAngle: 0,
+    metrics: { discoveryMs: null, damageTaken: 0, outsideChargeMs: 0, detourRewards: 0, itemsTaken: 0 },
+    run: opts.run ? { ...opts.run, items: [...opts.run.items] } : freshRun(),
+    chests: gen.chests.map(c => ({ ...c, position: { ...c.position }, cost: chestCost(c.kind), opened: false, uses: 0, openedMs: 0 })),
+    pads: gen.pads.map(p => ({ ...p, position: { ...p.position } })), boostMs: 0, boostAngle: 0,
     combo: { count: 0, timerMs: 0, best: 0, milestone: '', milestoneMs: 0 }, kills: 0, hitStopMs: 0, hurtMs: 0, fx: [], itemFeed: [],
   };
 }
@@ -83,12 +90,43 @@ export const distance = (a: Vector2D, b: Vector2D) => Math.hypot(a.x - b.x, a.y 
 export const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 export const activeWalls = (world: ExplorationState) => world.walls.filter(w => w.id !== 'gate' || !world.gateOpen);
 
+// ---- Spatial hash over the wall array so point queries only test nearby walls ----
+const WALL_BUCKET = 400;
+const wallIndexCache = new WeakMap<WorldWall[], Map<number, WorldWall[]>>();
+function wallIndex(walls: WorldWall[]) {
+  let index = wallIndexCache.get(walls);
+  if (index) return index;
+  index = new Map();
+  for (const wall of walls) {
+    const x0 = Math.floor(wall.x / WALL_BUCKET), x1 = Math.floor((wall.x + wall.width) / WALL_BUCKET);
+    const y0 = Math.floor(wall.y / WALL_BUCKET), y1 = Math.floor((wall.y + wall.height) / WALL_BUCKET);
+    for (let bx = x0; bx <= x1; bx++) for (let by = y0; by <= y1; by++) {
+      const key = by * 4096 + bx;
+      const list = index.get(key);
+      if (list) list.push(wall); else index.set(key, [wall]);
+    }
+  }
+  wallIndexCache.set(walls, index);
+  return index;
+}
+
+export function wallsNear(world: ExplorationState, p: Vector2D, radius = 0) {
+  const index = wallIndex(world.walls);
+  const out: WorldWall[] = [];
+  const seen = new Set<WorldWall>();
+  for (let bx = Math.floor((p.x - radius) / WALL_BUCKET); bx <= Math.floor((p.x + radius) / WALL_BUCKET); bx++) {
+    for (let by = Math.floor((p.y - radius) / WALL_BUCKET); by <= Math.floor((p.y + radius) / WALL_BUCKET); by++) {
+      for (const wall of index.get(by * 4096 + bx) || []) {
+        if (!seen.has(wall)) { seen.add(wall); out.push(wall); }
+      }
+    }
+  }
+  return out;
+}
+
 export function isWalkable(world: ExplorationState, p: Vector2D, radius = 18) {
   if (p.x < radius || p.y < radius || p.x > world.width - radius || p.y > world.height - radius) return false;
-  return !activeWalls(world).some(w => {
-    const x = clamp(p.x, w.x, w.x + w.width), y = clamp(p.y, w.y, w.y + w.height);
-    return Math.hypot(p.x - x, p.y - y) < radius;
-  });
+  return !wallsNear(world, p, radius).some(w => (w.id !== 'gate' || !world.gateOpen) && wallBlocks(w, p, radius));
 }
 
 export function lineClear(world: ExplorationState, a: Vector2D, b: Vector2D, radius = 4) {
@@ -111,6 +149,26 @@ export function moveWorld(world: ExplorationState, from: Vector2D, to: Vector2D,
   return p;
 }
 
+// Walkability grids are cached per (walls array, gate state, radius) so the BFS stays cheap on the huge map.
+// Replacing world.walls (e.g. a cracked secret wall breaking) re-keys this automatically.
+const walkGridCache = new WeakMap<WorldWall[], Map<string, Uint8Array>>();
+function walkGrid(world: ExplorationState, cell: number, radius: number) {
+  const key = `${cell}:${radius}:${world.gateOpen ? 1 : 0}`;
+  let perWorld = walkGridCache.get(world.walls);
+  if (!perWorld) { perWorld = new Map(); walkGridCache.set(world.walls, perWorld); }
+  const cached = perWorld.get(key);
+  if (cached) return cached;
+  const cols = Math.ceil(world.width / cell), rows = Math.ceil(world.height / cell);
+  const grid = new Uint8Array(cols * rows);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      grid[row * cols + col] = isWalkable(world, { x: (col + 0.5) * cell, y: (row + 0.5) * cell }, radius) ? 1 : 0;
+    }
+  }
+  perWorld.set(key, grid);
+  return grid;
+}
+
 // One reverse breadth-first field per player cell, shared by the capped enemy pack.
 export class WorldNavigator {
   private key = '';
@@ -124,13 +182,16 @@ export class WorldNavigator {
     const goal = index(target), key = `${goal}:${world.gateOpen}:${radius}`;
     if (key !== this.key) {
       this.key = key;
+      const grid = walkGrid(world, this.cell, radius);
       this.field = new Int32Array(cols * rows).fill(-1);
-      const queue = [goal]; this.field[goal] = 0;
-      for (let head = 0; head < queue.length; head++) {
-        const current = queue[head];
+      const queue = new Int32Array(cols * rows);
+      let head = 0, tail = 0;
+      queue[tail++] = goal; this.field[goal] = 0;
+      while (head < tail) {
+        const current = queue[head++];
         for (const next of [current - cols, current + cols, ...(current % cols ? [current - 1] : []), ...(current % cols < cols - 1 ? [current + 1] : [])]) {
-          if (next < 0 || next >= this.field.length || this.field[next] >= 0 || !isWalkable(world, point(next), radius)) continue;
-          this.field[next] = this.field[current] + 1; queue.push(next);
+          if (next < 0 || next >= this.field.length || this.field[next] >= 0 || !grid[next]) continue;
+          this.field[next] = this.field[current] + 1; queue[tail++] = next;
         }
       }
     }

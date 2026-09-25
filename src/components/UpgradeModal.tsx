@@ -1,41 +1,23 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
-import type { UpgradeOption, UpgradeRarity } from "@shared/types";
 import { useGamepad } from "@/hooks/useGamepad";
-import { AnimatePresence, motion } from "framer-motion";
-
-const RARITY_STYLES: Record<
-  UpgradeRarity,
-  {
-    borderColor: string;
-    textColor: string;
-    glowColor: string;
-  }
-> = {
-  common: {
-    borderColor: "#ffffff",
-    textColor: "#ffffff",
-    glowColor: "#ffffff",
-  },
-  uncommon: {
-    borderColor: "#4ade80",
-    textColor: "#4ade80",
-    glowColor: "#4ade80",
-  },
-  legendary: {
-    borderColor: "#f87171",
-    textColor: "#f87171",
-    glowColor: "#f87171",
-  },
-  boss: { borderColor: "#facc15", textColor: "#facc15", glowColor: "#facc15" },
-  lunar: { borderColor: "#60a5fa", textColor: "#60a5fa", glowColor: "#60a5fa" },
-  void: { borderColor: "#c084fc", textColor: "#c084fc", glowColor: "#c084fc" },
-};
+import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
+import { AudioManager } from "@/lib/audio/AudioManager";
+import { rarityFx } from "./upgrade-modal/rarityFx";
+import {
+  UpgradeParticles,
+  type UpgradeParticlesHandle,
+} from "./upgrade-modal/UpgradeParticles";
+import { UpgradeCard, type CardPhase } from "./upgrade-modal/UpgradeCard";
 
 interface UpgradeModalProps {
   onSelectUpgrade: (upgradeId: string) => void;
 }
+
+const REDUCED_MOTION =
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
 export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
   const { isUpgradeModalOpen, upgradeOptions } = useGameStore(
@@ -54,7 +36,23 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
   const [selectedUpgradeId, setSelectedUpgradeId] = useState<string | null>(
     null,
   );
+  const [phases, setPhases] = useState<CardPhase[]>([]);
+  const [flash, setFlash] = useState<{ color: string; key: number } | null>(
+    null,
+  );
+  const [glitchFx, setGlitchFx] = useState<{
+    color: string;
+    accent: string;
+    key: number;
+  } | null>(null);
+  const shakeControls = useAnimationControls();
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const revealTimersRef = useRef<NodeJS.Timeout[]>([]);
+  const particlesRef = useRef<UpgradeParticlesHandle>(null);
+  const cardElsRef = useRef<(HTMLButtonElement | null)[]>([]);
+  const phasesRef = useRef<CardPhase[]>([]);
+  const flashKeyRef = useRef(0);
+
   const promptType = gameState?.upgradePromptType ?? "levelUp";
   const localPlayer =
     gameState?.players.find((player) => player.id === localPlayerId) ?? null;
@@ -62,6 +60,14 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
   const isShopPrompt =
     promptType === "shop" ||
     upgradeOptions.some((option) => option.source === "shop");
+
+  const topFx = upgradeOptions.reduce(
+    (best, option) => {
+      const fx = rarityFx(option.rarity);
+      return fx.tier > best.tier ? fx : best;
+    },
+    rarityFx("common"),
+  );
 
   const { getGamepadInput } = useGamepad();
   const lastGamepadInput = useRef<{
@@ -78,7 +84,90 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
     confirm: false,
   });
 
-  // Reset state when modal opens
+  const cardCenter = useCallback((index: number) => {
+    const el = cardElsRef.current[index];
+    if (!el) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }, []);
+
+  const fireFlash = useCallback((color: string) => {
+    flashKeyRef.current += 1;
+    setFlash({ color, key: flashKeyRef.current });
+  }, []);
+
+  const fireGlitch = useCallback((color: string, accent: string) => {
+    flashKeyRef.current += 1;
+    setGlitchFx({ color, accent, key: flashKeyRef.current });
+  }, []);
+
+  const shake = useCallback(
+    (amp: number, duration = 0.32) => {
+      if (REDUCED_MOTION || amp <= 0) return;
+      shakeControls.start({
+        x: [0, -amp, amp * 0.9, -amp * 0.6, amp * 0.4, 0],
+        y: [0, 2, -2, 1, 0],
+        transition: { duration, ease: "easeInOut" },
+      });
+    },
+    [shakeControls],
+  );
+
+  const revealCard = useCallback(
+    (index: number) => {
+      const option = upgradeOptions[index];
+      if (!option) return;
+      const fx = rarityFx(option.rarity);
+      setPhases((prev) => {
+        if (prev[index] === 2) return prev;
+        const next = [...prev];
+        next[index] = 2;
+        phasesRef.current = next;
+        return next;
+      });
+      const { x, y } = cardCenter(index);
+      particlesRef.current?.burst(x, y, {
+        color: fx.color,
+        accent: fx.accent,
+        count: 30 + fx.tier * 90,
+        speed: 260 + fx.tier * 90,
+        kind: "square",
+      });
+      if (fx.tier >= 1) {
+        particlesRef.current?.burst(x, y, {
+          color: fx.color,
+          count: 1,
+          speed: 870,
+          kind: "ring",
+        });
+      }
+      if (fx.tier >= 3) {
+        particlesRef.current?.burst(x, y, {
+          color: fx.accent,
+          count: 1,
+          speed: 590,
+          kind: "ring",
+        });
+        fireFlash(fx.color);
+        fireGlitch(fx.color, fx.accent);
+        shake(4, 0.25);
+      }
+      AudioManager.getInstance().playUpgradeReveal(fx.tier);
+    },
+    [upgradeOptions, cardCenter, fireFlash, fireGlitch, shake],
+  );
+
+  const skipReveal = useCallback(() => {
+    revealTimersRef.current.forEach(clearTimeout);
+    revealTimersRef.current = [];
+    upgradeOptions.forEach((option, index) => {
+      if (phasesRef.current[index] !== 2) {
+        revealCard(index);
+      }
+    });
+  }, [upgradeOptions, revealCard]);
+
+  // Reset state when modal opens + schedule the deal/reveal timeline
   useEffect(() => {
     if (isUpgradeModalOpen && upgradeOptions.length > 0) {
       setIsAnimatingIn(false);
@@ -86,19 +175,42 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
       setIsSelecting(false);
       setSelectedUpgradeId(null);
       setIsGamepadActive(false);
+      const initial = upgradeOptions.map(() => 0 as CardPhase);
+      setPhases(initial);
+      phasesRef.current = initial;
 
-      // Clear any pending selection
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current);
         selectionTimeoutRef.current = null;
       }
+      revealTimersRef.current.forEach(clearTimeout);
+      revealTimersRef.current = [];
 
-      // Trigger entrance animation
+      upgradeOptions.forEach((option, index) => {
+        const fx = rarityFx(option.rarity);
+        const flipAt = 350 + index * 220 + (fx.tier >= 2 ? 250 : 0);
+        if (fx.tier >= 2) {
+          revealTimersRef.current.push(
+            setTimeout(() => {
+              setPhases((prev) => {
+                const next = [...prev];
+                if (next[index] === 0) next[index] = 1;
+                phasesRef.current = next;
+                return next;
+              });
+            }, flipAt - 250),
+          );
+        }
+        revealTimersRef.current.push(
+          setTimeout(() => revealCard(index), flipAt),
+        );
+      });
+
       requestAnimationFrame(() => {
         setIsAnimatingIn(true);
       });
     }
-  }, [isUpgradeModalOpen, upgradeOptions.length]);
+  }, [isUpgradeModalOpen, upgradeOptions, revealCard]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -106,22 +218,100 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
       if (selectionTimeoutRef.current) {
         clearTimeout(selectionTimeoutRef.current);
       }
+      revealTimersRef.current.forEach(clearTimeout);
     };
   }, []);
 
+  // Ambient embers tinted by the highest rarity on offer
+  useEffect(() => {
+    if (isUpgradeModalOpen) {
+      particlesRef.current?.setAmbient(topFx.color, topFx.tier);
+    }
+  }, [isUpgradeModalOpen, topFx]);
+
+  // Per-card edge emitters (updated on hover/phase change + slow interval)
+  useEffect(() => {
+    if (!isUpgradeModalOpen) return;
+    const push = () => {
+      const list = upgradeOptions
+        .map((option, index) => {
+          const el = cardElsRef.current[index];
+          if (!el || phasesRef.current[index] !== 2) return null;
+          const fx = rarityFx(option.rarity);
+          return {
+            rect: el.getBoundingClientRect(),
+            color: fx.color,
+            accent: fx.accent,
+            tier: fx.tier,
+            intensity: hoveredIndex === index ? 2.5 : 1,
+          };
+        })
+        .filter((e): e is NonNullable<typeof e> => e !== null);
+      particlesRef.current?.setEmitters(list);
+    };
+    push();
+    const interval = setInterval(push, 200);
+    return () => clearInterval(interval);
+  }, [isUpgradeModalOpen, upgradeOptions, hoveredIndex, phases]);
+
+  const allRevealed =
+    phases.length > 0 && phases.every((phase) => phase === 2);
+
   const handleSelect = useCallback(
     (upgradeId: string) => {
-      if (isSelecting) return;
+      if (isSelecting || !allRevealed) return;
 
       setSelectedUpgradeId(upgradeId);
       setIsSelecting(true);
 
+      const index = upgradeOptions.findIndex((o) => o.id === upgradeId);
+      const option = upgradeOptions[index];
+      const fx = rarityFx(option?.rarity);
+      const { x, y } = cardCenter(index);
+      particlesRef.current?.burst(x, y, {
+        color: fx.color,
+        accent: fx.accent,
+        count: 90 + fx.tier * 180,
+        speed: 320 + fx.tier * 110,
+        kind: "square",
+      });
+      particlesRef.current?.burst(x, y, {
+        color: fx.color,
+        count: 16,
+        speed: 200,
+        kind: "emoji",
+        text: option?.emoji || "🎁",
+      });
+      if (fx.tier >= 1) {
+        particlesRef.current?.burst(x, y, {
+          color: fx.accent,
+          accent: fx.color,
+          count: 40 + fx.tier * 20,
+          speed: 240,
+          kind: "confetti",
+        });
+      }
+      const rings = 2 + Math.min(1, fx.tier);
+      for (let i = 0; i < rings; i++) {
+        setTimeout(() => {
+          particlesRef.current?.burst(x, y, {
+            color: i % 2 ? fx.accent : fx.color,
+            count: 1,
+            speed: 730 - i * 170,
+            kind: "ring",
+          });
+        }, i * 90);
+      }
+      fireFlash(fx.color);
+      shake(4 + fx.tier * 4);
+      AudioManager.getInstance().playUpgradeSelect(fx.tier);
+
       // Longer delay so lock-in effects are visible and satisfying
       selectionTimeoutRef.current = setTimeout(() => {
         onSelectUpgrade(upgradeId);
-      }, 480);
+      }, 650);
     },
-    [isSelecting, onSelectUpgrade],
+    [isSelecting, allRevealed, upgradeOptions, cardCenter, fireFlash, shake, onSelectUpgrade],
   );
 
   // Gamepad polling for menu navigation
@@ -148,13 +338,17 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
         setHoveredIndex(Math.min(upgradeOptions.length - 1, current + 1));
       }
 
-      // Handle Selection
+      // Handle Selection / skip reveal
       if (input.blink && !lastGamepadInput.current.confirm) {
-        const option = upgradeOptions[hoveredIndex ?? 0];
-        const canAfford =
-          !isShopPrompt || option?.isSkipOption || (option?.cost || 0) <= playerCoins;
-        if (option && canAfford) {
-          handleSelect(option.id);
+        if (!allRevealed) {
+          skipReveal();
+        } else {
+          const option = upgradeOptions[hoveredIndex ?? 0];
+          const canAfford =
+            !isShopPrompt || option?.isSkipOption || (option?.cost || 0) <= playerCoins;
+          if (option && canAfford) {
+            handleSelect(option.id);
+          }
         }
       }
 
@@ -188,6 +382,8 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
     isGamepadActive,
     isShopPrompt,
     playerCoins,
+    allRevealed,
+    skipReveal,
   ]);
 
   if (!isUpgradeModalOpen || upgradeOptions.length === 0) {
@@ -196,20 +392,81 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
 
   const isSelectionFxActive = isSelecting && selectedUpgradeId !== null;
   const fanCenter = (upgradeOptions.length - 1) / 2;
+  const title = isShopPrompt ? "SHOP ROUND" : "LEVEL UP!";
 
   return (
     <motion.div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50"
-      animate={
-        isSelectionFxActive
-          ? {
-              x: [0, -8, 7, -5, 3, 0],
-              y: [0, 2, -2, 1, 0],
-            }
-          : { x: 0, y: 0 }
-      }
-      transition={{ duration: 0.32, ease: "easeInOut" }}
+      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 overflow-hidden"
+      animate={shakeControls}
+      onClick={() => {
+        if (!allRevealed) skipReveal();
+      }}
     >
+      {/* Radial glow behind the cards in the top rarity colour */}
+      <motion.div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: `radial-gradient(circle at 50% 52%, ${topFx.color}30 0%, transparent 55%)`,
+        }}
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
+      />
+      {/* Rotating light rays for high-rarity line-ups */}
+      {topFx.tier >= 2 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center mix-blend-screen">
+          <motion.div
+            className="h-[130vmin] w-[130vmin] rounded-full opacity-[0.12]"
+            style={{
+              background: `conic-gradient(from 0deg, transparent 0deg, ${topFx.color} 12deg, transparent 26deg, transparent 90deg, ${topFx.accent} 104deg, transparent 118deg, transparent 200deg, ${topFx.color} 214deg, transparent 228deg, transparent 300deg, ${topFx.accent} 314deg, transparent 330deg)`,
+            }}
+            animate={{ rotate: 360 }}
+            transition={{ duration: 36, repeat: Infinity, ease: "linear" }}
+          />
+        </div>
+      )}
+      {/* Scanlines */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.05]"
+        style={{
+          background:
+            "repeating-linear-gradient(0deg, #ffffff 0px, #ffffff 1px, transparent 1px, transparent 3px)",
+        }}
+      />
+      {/* Full-screen rarity flash */}
+      <AnimatePresence>
+        {flash && (
+          <motion.div
+            key={flash.key}
+            className="pointer-events-none absolute inset-0 mix-blend-screen"
+            style={{ backgroundColor: flash.color }}
+            initial={{ opacity: 0.55 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+          />
+        )}
+      </AnimatePresence>
+      {/* Glitch slices on tier-3 reveal */}
+      {glitchFx && (
+        <div key={glitchFx.key} className="pointer-events-none absolute inset-0 mix-blend-screen">
+          {[0, 1, 2, 3].map((i) => (
+            <motion.div
+              key={i}
+              className="absolute left-0 h-[5px] w-full"
+              style={{
+                top: `${18 + i * 17 + (glitchFx.key % 7)}%`,
+                backgroundColor: i % 2 ? glitchFx.accent : glitchFx.color,
+              }}
+              initial={{ opacity: 0.8, x: i % 2 ? 70 : -70 }}
+              animate={{ opacity: 0, x: i % 2 ? -30 : 30 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+            />
+          ))}
+        </div>
+      )}
+
+      <UpgradeParticles ref={particlesRef} />
+
       <AnimatePresence>
         {isSelectionFxActive && (
           <>
@@ -240,247 +497,81 @@ export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
       </AnimatePresence>
 
       {/* Title */}
-      <motion.div
-        className="mb-8 text-center"
-        initial={{ opacity: 0, y: -26, scale: 0.9 }}
-        animate={{ opacity: isAnimatingIn ? 1 : 0, y: 0, scale: 1 }}
-        transition={{ duration: 0.6, type: "spring", stiffness: 180 }}
-      >
+      <div className="relative z-10 mb-8 text-center">
         <motion.h2
           className="font-press-start text-4xl md:text-5xl text-neon-yellow text-center"
           animate={{
             textShadow: [
-              "0 0 16px #FFFF00, 0 0 30px #FFFF00",
-              "0 0 32px #FFFF00, 0 0 70px #FFFF00",
-              "0 0 16px #FFFF00, 0 0 30px #FFFF00",
+              "2px 0 0 rgba(255,0,60,0.7), -2px 0 0 rgba(0,255,255,0.7), 0 0 16px #FFFF00, 0 0 30px #FFFF00",
+              "2px 0 0 rgba(255,0,60,0.7), -2px 0 0 rgba(0,255,255,0.7), 0 0 32px #FFFF00, 0 0 70px #FFFF00",
+              "4px 1px 0 rgba(255,0,60,0.9), -4px -1px 0 rgba(0,255,255,0.9), 0 0 20px #FFFF00",
+              "2px 0 0 rgba(255,0,60,0.7), -2px 0 0 rgba(0,255,255,0.7), 0 0 16px #FFFF00, 0 0 30px #FFFF00",
             ],
-            scale: [1, 1.03, 1],
           }}
-          transition={{ duration: 1.3, repeat: Infinity, repeatDelay: 0.4 }}
+          transition={{ duration: 2, repeat: Infinity, times: [0, 0.45, 0.5, 0.56] }}
         >
-          {isShopPrompt ? "SHOP ROUND" : "LEVEL UP!"}
+          {title.split("").map((char, i) => (
+            <motion.span
+              key={`${title}-${i}`}
+              className="inline-block"
+              initial={{ opacity: 0, y: -26, scale: 0.4 }}
+              animate={
+                isAnimatingIn
+                  ? { opacity: 1, y: 0, scale: 1 }
+                  : { opacity: 0, y: -26, scale: 0.4 }
+              }
+              transition={{
+                delay: 0.08 + i * 0.05,
+                type: "spring",
+                stiffness: 320,
+                damping: 14,
+              }}
+            >
+              {char === " " ? " " : char}
+            </motion.span>
+          ))}
         </motion.h2>
         <p className="mt-3 font-sans text-base text-slate-200">
           {isShopPrompt
             ? `Spend coins on one upgrade or leave. Coins: ${playerCoins}`
             : "XP bar filled. Choose your next upgrade."}
         </p>
-      </motion.div>
+        {!isShopPrompt && localPlayer && (
+          <div className="mt-2 inline-block rounded-md border border-yellow-300/40 bg-yellow-400/10 px-2.5 py-1 font-press-start text-[10px] text-yellow-300">
+            LV {localPlayer.level}
+          </div>
+        )}
+      </div>
 
       {/* Cards */}
-      <div className="flex flex-col md:flex-row gap-6 px-4">
+      <div className="relative z-10 flex flex-col gap-6 px-4 md:flex-row">
         {upgradeOptions.map((option, index) => {
-          const styles = RARITY_STYLES[option.rarity || "common"];
-          const isHovered = hoveredIndex === index;
           const isLockedIn = selectedUpgradeId === option.id;
-          const isDimmed = isSelecting && !isLockedIn;
-          const isOtherCardFocused = hoveredIndex !== null && !isHovered;
-          const isIdleFloating = !isHovered && !isSelecting;
-          const isSkipOption = !!option.isSkipOption;
-          const cost = option.cost || 0;
-          const isUnaffordable = isShopPrompt && !isSkipOption && cost > playerCoins;
-          const fanOffset = (index - fanCenter) * 42;
-          const fanRotate = (index - fanCenter) * -5;
-
           return (
-            <motion.div
+            <UpgradeCard
               key={`${option.id}-${index}`}
-              className="relative"
-              style={{ transformPerspective: "1200px" }}
-              initial={{ opacity: 0, y: 65, scale: 0.82, rotateX: 16 }}
-              animate={{
-                opacity: isAnimatingIn ? (isDimmed ? 0.45 : 1) : 0,
-                y: isAnimatingIn ? 0 : 65,
-                scale: isLockedIn ? 1.05 : 1,
-                x: hoveredIndex === null ? fanOffset : isHovered ? fanOffset : fanOffset * 0.9,
-                rotateZ: hoveredIndex === null ? fanRotate : isHovered ? fanRotate * 0.45 : fanRotate * 1.15,
-                rotateX: 0,
+              option={option}
+              index={index}
+              phase={phases[index] ?? 0}
+              isAnimatingIn={isAnimatingIn}
+              isHovered={hoveredIndex === index}
+              isDimmed={isSelecting && !isLockedIn}
+              isLockedIn={isLockedIn}
+              isSelecting={isSelecting}
+              isOtherCardFocused={hoveredIndex !== null && hoveredIndex !== index}
+              isShopPrompt={isShopPrompt}
+              playerCoins={playerCoins}
+              fanOffset={(index - fanCenter) * 42}
+              fanRotate={(index - fanCenter) * -5}
+              onSelect={() => handleSelect(option.id)}
+              onHover={(i) => {
+                setIsGamepadActive(false);
+                setHoveredIndex(i);
               }}
-              transition={{
-                duration: 0.65,
-                delay: index * 0.12,
-                type: "spring",
-                stiffness: 120,
-                damping: 16,
+              cardRef={(el) => {
+                cardElsRef.current[index] = el;
               }}
-            >
-              <motion.button
-                onClick={() => {
-                  if (!isUnaffordable) {
-                    handleSelect(option.id);
-                  }
-                }}
-                onMouseEnter={() => {
-                  setIsGamepadActive(false);
-                  setHoveredIndex(index);
-                }}
-                onMouseLeave={() => setHoveredIndex(null)}
-                disabled={isSelecting || isUnaffordable}
-                className="w-72 h-96 p-6 flex flex-col justify-between bg-black/80 border-2 rounded-lg cursor-pointer disabled:cursor-not-allowed group overflow-hidden relative"
-                animate={
-                  isLockedIn
-                    ? { y: -30, scale: 1.16, rotateZ: [0, -1.5, 1, 0] }
-                    : isHovered
-                      ? { y: -30, scale: 1.16, rotateZ: 0 }
-                      : { y: [0, -6, 0, 4, 0], scale: isOtherCardFocused ? 0.94 : 1, rotateZ: 0 }
-                }
-                transition={
-                  isLockedIn
-                    ? {
-                        y: { type: "spring", stiffness: 250, damping: 14 },
-                        scale: { type: "spring", stiffness: 270, damping: 13 },
-                        rotateZ: { duration: 0.35, ease: "easeOut" },
-                      }
-                    : isHovered
-                      ? {
-                          y: { type: "spring", stiffness: 280, damping: 14 },
-                          scale: {
-                            type: "spring",
-                            stiffness: 300,
-                            damping: 13,
-                          },
-                        }
-                      : {
-                          duration: 2.8,
-                          repeat: Infinity,
-                          ease: "easeInOut",
-                          delay: index * 0.2,
-                        }
-                }
-                style={{
-                  borderColor: styles.borderColor,
-                  boxShadow: isLockedIn
-                    ? `0 0 45px ${styles.glowColor}, 0 0 140px ${styles.glowColor}40`
-                    : isHovered
-                      ? `0 0 40px ${styles.glowColor}, 0 0 90px ${styles.glowColor}25`
-                      : `0 0 15px ${styles.glowColor}40`,
-                  filter: isUnaffordable
-                    ? "grayscale(0.5) saturate(0.6)"
-                    : isIdleFloating
-                    ? "saturate(1.05)"
-                    : "saturate(1.15)",
-                  opacity: isUnaffordable ? 0.55 : 1,
-                  zIndex: isLockedIn ? 40 : isHovered ? 30 : isOtherCardFocused ? 5 : 10,
-                }}
-              >
-                <AnimatePresence>
-                  {isLockedIn && (
-                    <>
-                      <motion.div
-                        className="absolute inset-0 pointer-events-none rounded-lg border-2"
-                        style={{ borderColor: styles.glowColor }}
-                        initial={{ scale: 1, opacity: 0.9 }}
-                        animate={{ scale: 1.24, opacity: 0 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.45, ease: "easeOut" }}
-                      />
-                      <motion.div
-                        className="absolute -inset-6 pointer-events-none rounded-2xl"
-                        style={{
-                          background: `radial-gradient(circle, ${styles.glowColor}50 0%, transparent 65%)`,
-                        }}
-                        initial={{ opacity: 0.7, scale: 0.85 }}
-                        animate={{ opacity: 0, scale: 1.3 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.5, ease: "easeOut" }}
-                      />
-                    </>
-                  )}
-                </AnimatePresence>
-
-                {/* Visual Shine Effect for Rare Upgrades */}
-                {(option.rarity === "legendary" ||
-                  option.rarity === "boss" ||
-                  option.rarity === "lunar" ||
-                  option.rarity === "void") && (
-                  <div
-                    className="absolute inset-0 pointer-events-none opacity-20 group-hover:opacity-40 transition-opacity"
-                    style={{
-                      background: `linear-gradient(135deg, transparent 40%, ${styles.glowColor} 50%, transparent 60%)`,
-                      backgroundSize: "300% 300%",
-                      animation: "shimmer 3s infinite linear",
-                    }}
-                  />
-                )}
-
-                {/* Content */}
-                <div className="flex-1 flex flex-col items-center justify-start text-center z-10">
-                  {isShopPrompt && (
-                    <div
-                      className="mb-3 rounded border px-3 py-1 font-press-start text-[10px]"
-                      style={{
-                        borderColor: isUnaffordable ? "#ef4444" : "#facc15",
-                        color: isUnaffordable ? "#fca5a5" : "#fde047",
-                      }}
-                    >
-                      {isSkipOption ? "NO COST" : `${cost} COINS`}
-                    </div>
-                  )}
-                  {/* Emoji */}
-                  <div className="text-6xl mb-4 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">
-                    {option.emoji || "🎁"}
-                  </div>
-
-                  {/* Rarity */}
-                  <p
-                    className="font-press-start text-[10px] mb-3 uppercase tracking-[0.2em]"
-                    style={{
-                      color: styles.textColor,
-                      textShadow: `0 0 8px ${styles.glowColor}`,
-                    }}
-                  >
-                    {option.rarity || "common"}
-                  </p>
-
-                  {/* Title */}
-                  <h3
-                    className="font-press-start text-base md:text-lg mb-4 leading-tight"
-                    style={{ color: styles.textColor }}
-                  >
-                    {option.title}
-                  </h3>
-
-                  {/* Description */}
-                  <p className="font-sans text-base text-slate-100 leading-relaxed">
-                    {option.description}
-                  </p>
-                  {isUnaffordable && (
-                    <p className="mt-2 font-vt323 text-xl text-red-300">
-                      Not enough coins
-                    </p>
-                  )}
-                </div>
-
-                {/* Select Button */}
-                <div className="mt-4 z-10">
-                  <div
-                    className="w-full py-3 px-4 font-press-start text-sm text-center border-2 rounded transition-all"
-                    style={{
-                      borderColor: styles.borderColor,
-                      color: styles.textColor,
-                      backgroundColor: isLockedIn
-                        ? `${styles.glowColor}45`
-                        : isHovered
-                        ? `${styles.glowColor}30`
-                        : "transparent",
-                      boxShadow: isLockedIn
-                        ? `0 0 25px ${styles.glowColor}`
-                        : isHovered
-                          ? `0 0 15px ${styles.glowColor}`
-                        : "none",
-                    }}
-                  >
-                    {isLockedIn
-                      ? "LOCKED IN!"
-                      : isUnaffordable
-                      ? "NEED MORE COINS"
-                      : isSkipOption
-                      ? "LEAVE SHOP"
-                      : "SELECT"}
-                  </div>
-                </div>
-              </motion.button>
-            </motion.div>
+            />
           );
         })}
       </div>

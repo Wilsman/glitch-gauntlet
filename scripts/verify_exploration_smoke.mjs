@@ -7,8 +7,8 @@ page.on('pageerror', e => errors.push(String(e)));
 page.on('console', e => { if (e.type() === 'error') errors.push(e.text()); });
 fs.mkdirSync('output/exploration', { recursive: true });
 try {
-  await page.goto('http://localhost:5173/game/local?playerId=prototype-smoke&character=dash-dynamo&explorationPrototype=1');
-  await page.locator('[data-map-node-selectable="true"]').first().click();
+  await page.goto(`${process.env.BASE_URL || 'http://localhost:5174'}/game/local?playerId=prototype-smoke&character=dash-dynamo&explorationPrototype=1`);
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).exploration?.stage === 1);
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'output/exploration/arrival.png' });
   await page.keyboard.down('ArrowDown'); await page.waitForTimeout(1400); await page.keyboard.up('ArrowDown');

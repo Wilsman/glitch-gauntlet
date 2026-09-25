@@ -1,41 +1,53 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Arc, Circle, Group, Image as KonvaImage, Line, Rect, RegularPolygon, Ring, Text } from 'react-konva';
-import type { ExplorationState, WorldChest } from '@shared/exploration';
+import type { ExplorationState, WorldChest, WorldPedestal } from '@shared/exploration';
 import type { Player } from '@shared/types';
 import { CHARGE_MS, GATE, VIEW_HEIGHT, VIEW_WIDTH } from '@/lib/explorationWorld';
-import { bakeExplorationArt, CONDUITS } from '@/lib/explorationArt';
+import { CHUNK, CONDUITS, getChunk, invalidateArt, prebakeAround } from '@/lib/explorationArt';
+import { STAGE_MODIFIERS } from '@/lib/stageModifiers';
 
 const PIXEL_FONT = '"Press Start 2P", monospace';
-let bakedArt: HTMLCanvasElement | null = null;
+const RARITY_COLORS: Record<string, string> = { common: '#e2e8f0', uncommon: '#4ade80', legendary: '#f87171', boss: '#facc15', lunar: '#60a5fa', void: '#c084fc' };
 
 export default function ExplorationWorld({ world, player, now }: { world: ExplorationState; player?: Player; now: number }) {
-  const [art, setArt] = useState<HTMLCanvasElement | null>(bakedArt);
+  // Re-bake chunk art once the pixel font is available so baked labels upgrade in place.
+  const [, setFontsReady] = useState(false);
+  const worldRef = useRef(world);
+  worldRef.current = world;
   useEffect(() => {
-    if (bakedArt) return;
     let alive = true;
-    const bake = () => { bakedArt = bakedArt || bakeExplorationArt(world); if (alive) setArt(bakedArt); };
-    document.fonts.load('22px "Press Start 2P"').then(bake, bake);
+    document.fonts.load('22px "Press Start 2P"').then(() => { if (alive) { invalidateArt(worldRef.current); setFontsReady(true); } }, () => {});
     return () => { alive = false; };
-  }, [world]);
+  }, [world.seed]);
   const { anchor, cache, elite, camera } = world;
+  const camCx = Math.floor(camera.x / CHUNK), camCy = Math.floor(camera.y / CHUNK);
+  useEffect(() => { prebakeAround(worldRef.current, worldRef.current.camera, VIEW_WIDTH, VIEW_HEIGHT); }, [world.seed, camCx, camCy]);
+  const c0x = Math.max(0, Math.floor(camera.x / CHUNK)), c1x = Math.min(Math.ceil(world.width / CHUNK) - 1, Math.floor((camera.x + VIEW_WIDTH) / CHUNK));
+  const c0y = Math.max(0, Math.floor(camera.y / CHUNK)), c1y = Math.min(Math.ceil(world.height / CHUNK) - 1, Math.floor((camera.y + VIEW_HEIGHT) / CHUNK));
+  const chunks: [number, number][] = [];
+  for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) chunks.push([cx, cy]);
   const inView = (x: number, y: number, pad = 120) => x > camera.x - pad && x < camera.x + VIEW_WIDTH + pad && y > camera.y - pad && y < camera.y + VIEW_HEIGHT + pad;
   const coins = Math.floor(player?.coins || 0);
   return <Group listening={false}>
-    {art
-      ? <KonvaImage image={art} x={camera.x} y={camera.y} width={VIEW_WIDTH} height={VIEW_HEIGHT} crop={{ x: camera.x, y: camera.y, width: VIEW_WIDTH, height: VIEW_HEIGHT }} />
-      : <Rect width={world.width} height={world.height} fill="#070b14" />}
-    <ConduitPulses now={now} inView={inView} />
+    {chunks.map(([cx, cy]) => <KonvaImage key={`${cx},${cy}`} image={getChunk(world, cx, cy)} x={cx * CHUNK} y={cy * CHUNK} width={CHUNK} height={CHUNK} />)}
+    <HazardOverlays world={world} now={now} inView={inView} />
+    <LampGlows world={world} now={now} inView={inView} />
+    {world.hasYard && <ConduitPulses now={now} inView={inView} />}
     <AmbientMotes camera={camera} now={now} />
-    <Gate open={world.gateOpen} now={now} />
+    {world.hasYard && <Gate open={world.gateOpen} now={now} />}
+    {!world.hasYard && inView(world.landing.x, world.landing.y, 300) && <LandingPad x={world.landing.x} y={world.landing.y} now={now} />}
+    {world.pedestals.filter(p => inView(p.position.x, p.position.y, 220)).map(p => <PedestalView key={p.id} pedestal={p} now={now} />)}
+    {world.portals.filter(p => inView(p.position.x, p.position.y, 300)).map(p => <PortalView key={p.id} portal={p} now={now} />)}
+    {world.walls.filter(w => w.cracked && inView(w.x + w.width / 2, w.y + w.height / 2, 300)).map(w => <CrackedGlint key={w.id} wall={w} now={now} />)}
     {world.pads.filter(p => inView(p.position.x, p.position.y)).map(pad => <BoostPadView key={pad.id} x={pad.position.x} y={pad.position.y} angle={pad.angle} now={now} />)}
     {world.chests.filter(c => inView(c.position.x, c.position.y)).map(chest => <ChestView key={chest.id} chest={chest} now={now} affordable={coins >= chest.cost} />)}
-    {inView(cache.position.x, cache.position.y) && <Group x={cache.position.x} y={cache.position.y}>
+    {world.hasYard && inView(cache.position.x, cache.position.y) && <Group x={cache.position.x} y={cache.position.y}>
       <Circle radius={44} fill="#5eead4" opacity={cache.claimed ? 0.03 : 0.1 + Math.sin(now / 300) * 0.04} />
       <Rect x={-24} y={-18} width={48} height={36} fill={cache.claimed ? '#16222b' : '#0f3b44'} stroke={cache.claimed ? '#334155' : '#5eead4'} strokeWidth={3} cornerRadius={5} />
       <Rect x={-16} y={-4} width={32} height={6} fill={cache.claimed ? '#334155' : '#99f6e4'} cornerRadius={2} />
       <Text x={-110} y={-50} width={220} align="center" text={cache.claimed ? 'CACHE LOOTED' : 'MAINTENANCE CACHE'} fill={cache.claimed ? '#475569' : '#99f6e4'} fontFamily={PIXEL_FONT} fontSize={10} />
     </Group>}
-    {!elite.defeated && inView(elite.position.x, elite.position.y, 200) && <Group x={elite.position.x} y={elite.position.y}>
+    {world.hasYard && !elite.defeated && inView(elite.position.x, elite.position.y, 200) && <Group x={elite.position.x} y={elite.position.y}>
       <Ring innerRadius={62} outerRadius={70} fill="#f59e0b" opacity={0.18 + Math.sin(now / 200) * 0.08} />
       <Circle radius={80} stroke="#fbbf24" strokeWidth={2} dash={[10, 10]} rotation={now / 30} opacity={0.8} />
       {!elite.started && <Text text="☠" x={-20} y={-24} fill="#fbbf24" fontSize={40} opacity={0.7 + Math.sin(now / 150) * 0.3} />}
@@ -185,7 +197,7 @@ function ChestView({ chest, now, affordable }: { chest: WorldChest; now: number;
 function AnchorView({ world, now }: { world: ExplorationState; now: number }) {
   const { anchor } = world;
   const active = world.phase === 'anchorActive';
-  const ready = world.phase === 'exitReady';
+  const ready = world.phase === 'pedestals' || world.phase === 'results' || world.phase === 'portals';
   const color = ready ? '#86efac' : active ? '#22d3ee' : '#67e8f9';
   const charge = anchor.chargeMs / CHARGE_MS;
   const pulse = (now % 2200) / 2200;
@@ -212,5 +224,125 @@ function AnchorView({ world, now }: { world: ExplorationState; now: number }) {
     <Circle radius={18 + Math.sin(now / 140) * 3} fill={color} />
     <Circle radius={9} fill="#ffffff" />
     <Text x={-200} y={-128} width={400} align="center" text={ready ? 'SIGNAL STABLE' : active ? `STABILISING ${Math.floor(charge * 100)}%` : 'GLITCH ANCHOR'} fill="#ecfeff" fontFamily={PIXEL_FONT} fontSize={16} stroke="#020617" strokeWidth={5} fillAfterStrokeEnabled />
+  </Group>;
+}
+
+const HAZARD_TINT: Record<string, string> = { lava: '#fb923c', ice: '#7dd3fc', sludge: '#2dd4bf', warp: '#c084fc' };
+
+// Animated in-view overlays for hazard circles; the baked floor sits underneath.
+function HazardOverlays({ world, now, inView }: { world: ExplorationState; now: number; inView: (x: number, y: number, pad?: number) => boolean }) {
+  return <>{world.hazards.filter(h => inView(h.x, h.y, h.radius + 60)).map(h => {
+    const color = HAZARD_TINT[h.kind];
+    if (h.kind === 'lava') return <Group key={h.id} x={h.x} y={h.y}>
+      <Circle radius={h.radius} fill={color} opacity={0.1 + Math.sin(now / 300) * 0.04} />
+      {[0, 1, 2, 3, 4].map(i => {
+        const a = i * 2.4 + h.x, d = ((now / 30 + i * h.radius * 0.4) % (h.radius * 0.7));
+        const r = 8 + Math.sin(now / 160 + i * 3) * 5;
+        return <Circle key={i} x={Math.cos(a) * d} y={Math.sin(a) * d * 0.8} radius={Math.max(2, r)} fill="#fdba74" opacity={0.5} />;
+      })}
+    </Group>;
+    if (h.kind === 'sludge') return <Group key={h.id} x={h.x} y={h.y}>
+      <Circle radius={h.radius} fill={color} opacity={0.12} />
+      {[0, 1, 2].map(i => {
+        const t = ((now / 900 + i * 0.33) % 1);
+        return <Circle key={i} x={Math.cos(i * 2.1 + h.y) * h.radius * 0.4} y={Math.sin(i * 2.1) * h.radius * 0.35} radius={6 + t * 14} stroke={color} strokeWidth={3} opacity={0.5 * (1 - t)} />;
+      })}
+    </Group>;
+    if (h.kind === 'ice') return <Group key={h.id} x={h.x} y={h.y}>
+      <Circle radius={h.radius} fill={color} opacity={0.08} />
+      {[0, 1, 2].map(i => {
+        const a = now / 1400 + i * 2.1;
+        const glint = Math.abs(Math.sin(now / 500 + i * 2));
+        return <Line key={i} points={[Math.cos(a) * h.radius * 0.6, Math.sin(a) * h.radius * 0.6, Math.cos(a) * h.radius * 0.6 + 26, Math.sin(a) * h.radius * 0.6]} stroke="#e0f2fe" strokeWidth={3} opacity={glint * 0.8} />;
+      })}
+    </Group>;
+    return <Group key={h.id} x={h.x} y={h.y}>
+      <Circle radius={h.radius} fill={color} opacity={0.09} />
+      {[0, 1, 2].map(i => {
+        const d = ((now / 8 + i * h.radius / 3) % h.radius);
+        return <Line key={i} points={[d - 30, -14, d - 10, 0, d - 30, 14]} stroke={color} strokeWidth={5} opacity={Math.max(0, 0.7 - d / h.radius)} />;
+      })}
+    </Group>;
+  })}</>;
+}
+
+// Warm pixel-lamp glows; baked posts sit in the chunk art. Capped to keep the Konva tree small.
+function LampGlows({ world, now, inView }: { world: ExplorationState; now: number; inView: (x: number, y: number, pad?: number) => boolean }) {
+  const visible = world.lamps.filter(l => inView(l.x, l.y)).slice(0, 20);
+  return <>{visible.map((lamp, i) => {
+    const flicker = 0.55 + Math.abs(Math.sin(now / 130 + i * 1.7)) * 0.45;
+    return <Group key={i} x={lamp.x} y={lamp.y}>
+      <Circle y={-18} radius={52 * flicker + 20} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={0} fillRadialGradientEndRadius={70} fillRadialGradientColorStops={[0, lamp.color + '66', 1, lamp.color + '00']} />
+      <Rect x={-4} y={-26 - flicker * 4} width={8} height={8} fill={lamp.color} />
+      <Rect x={-2} y={-34 - flicker * 6} width={4} height={6} fill="#fff7ed" opacity={flicker} />
+    </Group>;
+  })}</>;
+}
+
+// Rift landing pad shown on stage >= 2 worlds (no yard).
+function LandingPad({ x, y, now }: { x: number; y: number; now: number }) {
+  const pulse = (now % 1600) / 1600;
+  return <Group x={x} y={y}>
+    <Circle radius={120} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={0} fillRadialGradientEndRadius={120} fillRadialGradientColorStops={[0, 'rgba(34,211,238,0.25)', 1, 'rgba(34,211,238,0)']} />
+    <RegularPolygon sides={8} radius={96} fill="#061420" stroke="#22d3ee" strokeWidth={4} rotation={now / 400} />
+    <RegularPolygon sides={8} radius={70} stroke="#a5f3fc" strokeWidth={2} opacity={0.6} rotation={-now / 250} />
+    <Circle radius={96 + pulse * 60} stroke="#22d3ee" strokeWidth={3} opacity={1 - pulse} />
+    <Text x={-140} y={-140} width={280} align="center" text="RIFT LANDING" fontFamily={PIXEL_FONT} fontSize={11} fill="#a5f3fc" stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
+  </Group>;
+}
+
+// Isaac-style item pedestal: pixel frame, floating item, rarity beam.
+function PedestalView({ pedestal, now }: { pedestal: WorldPedestal; now: number }) {
+  const item = pedestal.option;
+  const color = pedestal.kind === 'heal' ? '#4ade80' : pedestal.kind === 'shop' ? '#a78bfa' : RARITY_COLORS[item?.rarity || 'legendary'] || '#facc15';
+  const bob = Math.sin(now / 300 + pedestal.position.x) * 6;
+  return <Group x={pedestal.position.x} y={pedestal.position.y} opacity={pedestal.taken ? 0.25 : 1}>
+    {!pedestal.taken && <>
+      <Circle radius={58} fill={color} opacity={0.10 + Math.sin(now / 260) * 0.04} />
+      <Rect x={-10} y={-160} width={20} height={140} fillLinearGradientStartPoint={{ x: 0, y: 140 }} fillLinearGradientEndPoint={{ x: 0, y: 0 }} fillLinearGradientColorStops={[0, color, 1, 'rgba(0,0,0,0)']} opacity={0.4} />
+    </>}
+    <Rect x={-26} y={-6} width={52} height={18} fill="#0b1020" stroke={color} strokeWidth={3} cornerRadius={3} />
+    <Rect x={-14} y={-26} width={28} height={22} fill="#111a30" stroke={color} strokeWidth={2} />
+    {!pedestal.taken && <Group y={-58 + bob}>
+      <Rect x={-24} y={-24} width={48} height={48} fill="#050914" stroke={color} strokeWidth={4} cornerRadius={4} />
+      {[[-24, -24], [20, -24], [-24, 20], [20, 20]].map(([rx, ry], i) => <Rect key={i} x={rx} y={ry} width={6} height={6} fill={color} />)}
+      <Text x={-24} y={-17} width={48} align="center" text={pedestal.kind === 'heal' ? '❤' : item?.emoji || '?'} fontSize={26} />
+    </Group>}
+    <Text x={-110} y={26} width={220} align="center" text={pedestal.taken ? '' : pedestal.kind === 'heal' ? `HEAL · $${pedestal.cost}` : pedestal.kind === 'shop' ? `$${pedestal.cost}` : item?.title || 'RELIC'} fontFamily={PIXEL_FONT} fontSize={9} fill={pedestal.kind === 'shop' || pedestal.kind === 'heal' ? '#fde047' : color} stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
+  </Group>;
+}
+
+// Swirling rift portal with a holographic modifier card floating above it.
+function PortalView({ portal, now }: { portal: { position: { x: number; y: number }; modifier: keyof typeof STAGE_MODIFIERS }; now: number }) {
+  const mod = STAGE_MODIFIERS[portal.modifier];
+  const swirl = now / 60;
+  return <Group x={portal.position.x} y={portal.position.y}>
+    <Circle radius={64} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={4} fillRadialGradientEndRadius={64} fillRadialGradientColorStops={[0, '#ffffff', 0.35, mod.color, 1, 'rgba(0,0,0,0)']} opacity={0.85} />
+    {[0, 1, 2].map(i => <Arc key={i} innerRadius={48 + i * 12} outerRadius={54 + i * 12} angle={200} rotation={swirl * (1 + i * 0.4) + i * 120} fill={i === 1 ? '#ffffff' : mod.color} opacity={0.8 - i * 0.2} />)}
+    {Array.from({ length: 8 }, (_, i) => {
+      const a = swirl / 4 + i * Math.PI / 4;
+      const d = 40 + ((now / 10 + i * 30) % 55);
+      return <Rect key={i} x={Math.cos(a) * d} y={Math.sin(a) * d * 0.9} width={5} height={5} fill={mod.color} opacity={Math.max(0, 1 - d / 100)} />;
+    })}
+    <Group y={-190 + Math.sin(now / 400) * 5}>
+      <Rect x={-140} y={-52} width={280} height={104} fill="#050914" stroke={mod.color} strokeWidth={3} cornerRadius={6} opacity={0.95} />
+      {[[-140, -52], [136, -52], [-140, 48], [136, 48]].map(([rx, ry], i) => <Rect key={i} x={rx} y={ry} width={8} height={8} fill={mod.color} />)}
+      <Text x={-136} y={-46} width={272} align="center" text={mod.name} fontFamily={PIXEL_FONT} fontSize={12} fill={mod.color} />
+      <Text x={-130} y={-24} width={260} align="center" text={mod.flavour} fontFamily='"VT323", monospace' fontSize={17} fill="#cbd5e1" />
+      <Text x={-130} y={-2} width={260} align="center" text={`+ ${mod.reward}`} fontFamily='"VT323", monospace' fontSize={15} fill="#4ade80" />
+      <Text x={-130} y={22} width={260} align="center" text={`- ${mod.risk}`} fontFamily='"VT323", monospace' fontSize={15} fill="#f87171" />
+    </Group>
+  </Group>;
+}
+
+// Faint glints pulsing on cracked secret-room walls so observant players spot them.
+function CrackedGlint({ wall, now }: { wall: { x: number; y: number; width: number; height: number }; now: number }) {
+  const t = (now % 3200) / 3200;
+  if (t > 0.35) return null;
+  const cx = wall.x + wall.width / 2, cy = wall.y + wall.height / 2;
+  return <Group x={cx} y={cy} opacity={Math.sin(t / 0.35 * Math.PI)}>
+    <Line points={[-16, 0, 16, 0]} stroke="#fde047" strokeWidth={3} />
+    <Line points={[0, -16, 0, 16]} stroke="#fde047" strokeWidth={3} />
+    <Circle radius={4} fill="#fff7ed" />
   </Group>;
 }

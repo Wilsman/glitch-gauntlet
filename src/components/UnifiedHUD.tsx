@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import type { CollectedUpgrade, GameState, Pet, Player } from "@shared/types";
 import ExplorationHUD from "./ExplorationHUD";
-import { Coins, Heart, Shield, Sparkles, Star } from "lucide-react";
+import { AbilityDock } from "./AbilityDock";
+import { Coins } from "lucide-react";
 import { getCharacter } from "@shared/characterConfig";
 import { SPRITE_MAP } from "@/lib/spriteMap";
 
@@ -11,23 +12,17 @@ interface UnifiedHUDProps {
   localPlayerPet?: Pet | null;
 }
 
-const HEALTH_SLOTS = 5;
-const SHIELD_SLOTS = 3;
-
-function createSegmentFills(current: number, max: number, slots: number): number[] {
-  const normalizedMax = Math.max(1, max);
-  const totalFilled = Math.max(0, Math.min(slots, (current / normalizedMax) * slots));
-  return Array.from({ length: slots }, (_, index) =>
-    Math.max(0, Math.min(1, totalFilled - index))
-  );
-}
-
 function formatUpgradeType(type: string): string {
   return type
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[-_]/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
+
+const PANEL =
+  "rounded-md border border-white/10 bg-slate-950/70 backdrop-blur-sm";
+const LABEL =
+  "font-press-start text-[7px] tracking-widest text-slate-400 uppercase";
 
 export default function UnifiedHUD({
   gameState,
@@ -73,13 +68,11 @@ export default function UnifiedHUD({
     0,
     Math.min(100, (localPlayer.xp / localPlayer.xpToNextLevel) * 100)
   );
-  const xpToNextUpgrade = Math.max(0, Math.ceil(localPlayer.xpToNextLevel - localPlayer.xp));
   const healthPercentage = (localPlayer.health / localPlayer.maxHealth) * 100;
   const hasShield = !!localPlayer.maxShield && localPlayer.maxShield > 0;
-  const healthSlots = createSegmentFills(localPlayer.health, localPlayer.maxHealth, HEALTH_SLOTS);
-  const shieldSlots = hasShield
-    ? createSegmentFills(localPlayer.shield || 0, localPlayer.maxShield || 1, SHIELD_SLOTS)
-    : [];
+  const shieldPercentage = hasShield
+    ? Math.max(0, Math.min(100, ((localPlayer.shield || 0) / (localPlayer.maxShield || 1)) * 100))
+    : 0;
 
   const isDead = localPlayer.status === "dead";
   const totalMapDepth = runMap?.nodes.reduce((max, node) => Math.max(max, node.depth), 10) || 10;
@@ -114,254 +107,258 @@ export default function UnifiedHUD({
 
   const collectedUpgrades = (localPlayer.collectedUpgrades || []) as CollectedUpgrade[];
   const totalUpgradePicks = collectedUpgrades.reduce((sum, upgrade) => sum + upgrade.count, 0);
-  const topUpgrades = [...collectedUpgrades]
-    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title))
-    .slice(0, 8);
+  const sortedUpgrades = [...collectedUpgrades]
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+  const tileUpgrades = sortedUpgrades.slice(0, 10);
+  const extraUpgradeCount = Math.max(0, sortedUpgrades.length - tileUpgrades.length);
 
   return (
-    <div className="fixed inset-0 pointer-events-none z-50 p-4 font-press-start">
+    <div className="fixed inset-0 pointer-events-none z-50 p-4">
       <ExplorationHUD gameState={gameState} player={localPlayer} />
-      <div className="absolute left-3 top-3 w-[min(420px,calc(100vw-1.5rem))]">
-        <div className="rounded-2xl border border-neon-cyan/55 bg-black/78 p-3.5 backdrop-blur-md shadow-[0_0_30px_rgba(0,255,255,0.22)]">
-          <div className="flex items-center gap-3.5">
-            <div className="relative h-20 w-20 overflow-hidden rounded-lg border border-neon-cyan/50 bg-black/70">
-              {avatarSrc ? (
-                <img
-                  src={avatarSrc}
-                  alt={character.name}
-                  className="h-full w-full object-contain"
-                  style={{ imageRendering: "pixelated" }}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-3xl">
-                  {character.emoji}
-                </div>
+
+      {/* Top-left: coins + items strip */}
+      <div className="group absolute left-4 top-4 pointer-events-auto">
+        <div className="flex items-center gap-1.5">
+          <div className={`${PANEL} flex h-7 items-center gap-1.5 px-2.5`}>
+            <Coins className="h-3.5 w-3.5 text-yellow-300" />
+            <span className="font-press-start text-[9px] text-yellow-200">
+              {Math.floor(localPlayer.coins || 0)}
+            </span>
+          </div>
+          {tileUpgrades.map((upgrade) => (
+            <div
+              key={`${upgrade.type}-${upgrade.title}`}
+              className={`${PANEL} relative flex h-7 w-7 items-center justify-center text-sm leading-none`}
+              title={upgrade.title || formatUpgradeType(upgrade.type)}
+            >
+              {upgrade.emoji}
+              {upgrade.count > 1 && (
+                <span className="absolute -bottom-0.5 -right-0.5 rounded-sm bg-slate-950/90 px-0.5 font-press-start text-[6px] text-yellow-200">
+                  x{upgrade.count}
+                </span>
               )}
             </div>
-
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <span className={`truncate pt-0.5 text-[13px] ${isDead ? "text-gray-400" : "text-white"}`}>
-                  {localPlayer.name || "PLAYER_LOCAL"}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md border border-neon-yellow/35 bg-neon-yellow/15 px-2 py-1 text-[10px] text-neon-yellow">
-                  <Star className="h-3 w-3 fill-neon-yellow text-neon-yellow" />
-                  LVL {localPlayer.level}
-                </span>
-              </div>
-              <div className="mt-1.5 text-[10px]">
-                <span className="truncate text-neon-cyan/80">{character.name}</span>
-              </div>
-              <div className="mt-2.5 inline-flex items-center gap-1 rounded-md border border-yellow-300/35 bg-yellow-500/10 px-2.5 py-1.5 text-[11px] text-yellow-200">
-                <Coins className="h-3.5 w-3.5 text-yellow-300" />
-                {Math.floor(localPlayer.coins || 0)}
-              </div>
+          ))}
+          {extraUpgradeCount > 0 && (
+            <div className={`${PANEL} flex h-7 w-7 items-center justify-center font-press-start text-[7px] text-slate-300`}>
+              +{extraUpgradeCount}
             </div>
-          </div>
-
-          <div className="mt-3.5 space-y-2">
-            <div className="rounded-lg border border-red-500/45 bg-red-950/25 px-2.5 py-2">
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-red-300">HEALTH</span>
-                <span className="text-white">
-                  {Math.ceil(localPlayer.health)} / {localPlayer.maxHealth}
-                </span>
-              </div>
-              <div className={`mt-1.5 flex items-center gap-1.5 ${healthPercentage < 30 ? "animate-pulse" : ""}`}>
-                {healthSlots.map((fill, index) => (
-                  <div key={`health-${index}`} className="relative h-5 w-5">
-                    <Heart className="h-5 w-5 fill-red-950 text-red-950" />
-                    <div className="absolute inset-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
-                      <Heart className="h-5 w-5 fill-red-500 text-red-400 drop-shadow-[0_0_6px_rgba(248,113,113,0.8)]" />
-                    </div>
-                  </div>
-                ))}
-              </div>
+          )}
+        </div>
+        {collectedUpgrades.length > 0 && (
+          <div className={`${PANEL} mt-1.5 hidden max-h-72 w-56 overflow-y-auto px-2.5 py-2 group-hover:block`}>
+            <div className={LABEL}>
+              {totalUpgradePicks} picks · {collectedUpgrades.length} unique
             </div>
-
-            {hasShield && (
-              <div className="rounded-lg border border-cyan-400/45 bg-cyan-950/30 px-2.5 py-2">
-                <div className="flex items-center justify-between text-[10px]">
-                  <span className="text-cyan-200">SHIELD</span>
-                  <span className="text-cyan-100">
-                    {Math.ceil(localPlayer.shield || 0)} / {localPlayer.maxShield}
+            <div className="mt-1.5 space-y-1">
+              {sortedUpgrades.map((upgrade) => (
+                <div
+                  key={`${upgrade.type}-${upgrade.title}`}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="truncate text-xs text-slate-200">
+                    <span className="mr-1">{upgrade.emoji}</span>
+                    {upgrade.title || formatUpgradeType(upgrade.type)}
+                  </span>
+                  <span className="shrink-0 font-press-start text-[7px] text-yellow-200">
+                    x{upgrade.count}
                   </span>
                 </div>
-                <div className="mt-1.5 flex items-center gap-1.5">
-                  {shieldSlots.map((fill, index) => (
-                    <div key={`shield-${index}`} className="relative h-5 w-5">
-                      <Shield className="h-5 w-5 fill-cyan-950 text-cyan-900" />
-                      <div className="absolute inset-0 overflow-hidden" style={{ width: `${fill * 100}%` }}>
-                        <Shield className="h-5 w-5 fill-cyan-400 text-cyan-300 drop-shadow-[0_0_6px_rgba(103,232,249,0.9)]" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom-left: vitals */}
+      <div className={`absolute bottom-4 left-4 w-[min(300px,calc(100vw-2rem))] ${PANEL} px-2.5 py-2`}>
+        <div className="flex items-center gap-2">
+          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-sm border border-white/10 bg-black/60">
+            {avatarSrc ? (
+              <img
+                src={avatarSrc}
+                alt={character.name}
+                className="h-full w-full object-contain"
+                style={{ imageRendering: "pixelated" }}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-lg">
+                {character.emoji}
               </div>
             )}
-
-            <div className="rounded-lg border border-purple-400/45 bg-purple-950/30 px-2.5 py-2">
-              <div className="mb-1 flex items-center justify-between text-[10px]">
-                <span className="inline-flex items-center gap-1 text-purple-200">
-                  <Sparkles className="h-3 w-3 text-purple-300" />
-                  XP
-                </span>
-                <span className="text-white">
-                  {Math.floor(localPlayer.xp)} / {localPlayer.xpToNextLevel}
-                </span>
-              </div>
-              <div className="h-2.5 overflow-hidden rounded-full border border-purple-500/40 bg-purple-950/70">
-                <div
-                  className="h-full bg-gradient-to-r from-purple-600 to-purple-400 transition-all duration-300"
-                  style={{ width: `${xpPercentage}%` }}
-                />
-              </div>
-              <div className="mt-1 text-[9px] text-purple-200/90">
-                NEXT UPGRADE IN {xpToNextUpgrade} XP
-              </div>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className={`truncate font-press-start text-[9px] ${isDead ? "text-slate-500" : "text-white"}`}>
+                {localPlayer.name || "PLAYER_LOCAL"}
+              </span>
+              <span className="shrink-0 rounded-sm border border-yellow-300/30 bg-yellow-400/10 px-1 py-0.5 font-press-start text-[7px] text-yellow-300">
+                LV {localPlayer.level}
+              </span>
             </div>
+            <div className={`mt-0.5 truncate ${LABEL}`}>{character.name}</div>
           </div>
         </div>
 
-        {localPlayerPet && (
-          <div className="-mt-px rounded-b-xl border border-t-0 border-neon-cyan/45 bg-black/72 px-3 py-2.5 shadow-[0_0_20px_rgba(0,255,255,0.14)]">
+        {hasShield && (
+          <div className="mt-2">
             <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1 text-[10px] text-pink-300">
-                <span className="text-sm leading-none">{localPlayerPet.emoji}</span>
-                PET
+              <span className={LABEL}>Shield</span>
+              <span className="font-press-start text-[7px] text-cyan-200">
+                {Math.ceil(localPlayer.shield || 0)} / {localPlayer.maxShield}
               </span>
-              <span className="text-[10px] text-pink-200">LVL {localPlayerPet.level}</span>
             </div>
-            <div className="mt-1.5 h-2 overflow-hidden rounded-full border border-pink-400/40 bg-pink-950/50">
+            <div className="mt-0.5 h-1.5 overflow-hidden rounded-sm bg-white/10">
               <div
-                className="h-full bg-gradient-to-r from-pink-600 to-pink-400 transition-all duration-300"
-                style={{
-                  width: `${Math.max(
-                    0,
-                    Math.min(100, (localPlayerPet.health / Math.max(1, localPlayerPet.maxHealth)) * 100)
-                  )}%`,
-                }}
+                className="h-full bg-cyan-400 transition-all duration-300"
+                style={{ width: `${shieldPercentage}%`, boxShadow: "0 0 8px #22d3ee" }}
               />
-            </div>
-            <div className="mt-1.5 flex items-center justify-between text-[9px] text-pink-100/95">
-              <span>HP {Math.round(localPlayerPet.health)}/{localPlayerPet.maxHealth}</span>
-              <span>DPS {petDps}</span>
-              <span>DMG {localPlayerPet.damage}</span>
             </div>
           </div>
         )}
 
-        <div className="group pointer-events-auto -mt-px">
-          <div className="rounded-b-xl border border-t-0 border-neon-cyan/45 bg-black/74 px-3 py-2 shadow-[0_0_20px_rgba(0,255,255,0.12)] transition-colors group-hover:border-neon-cyan/65">
-            <div className="flex items-center justify-between text-[10px] text-neon-cyan">
-              <span>ITEMS</span>
-              <span className="text-neon-yellow">{totalUpgradePicks} PICKS</span>
-            </div>
-            <div className="mt-0.5 text-[8px] text-neon-cyan/70">
-              {collectedUpgrades.length} UNIQUE · HOVER TO EXPAND
-            </div>
-          </div>
-          <div className="max-h-0 overflow-hidden rounded-b-xl border border-t-0 border-neon-cyan/45 bg-black/76 px-3 transition-all duration-300 ease-out group-hover:max-h-72">
-            <div className="space-y-1 py-2.5">
-              {topUpgrades.length === 0 ? (
-                <div className="text-[9px] text-gray-400">No upgrades collected yet.</div>
-              ) : (
-                topUpgrades.map((upgrade) => (
-                  <div
-                    key={`${upgrade.type}-${upgrade.title}`}
-                    className="flex items-center justify-between rounded-md border border-neon-cyan/20 bg-black/40 px-2 py-1.5"
-                  >
-                    <span className="truncate text-[9px] text-gray-100">
-                      <span className="mr-1">{upgrade.emoji}</span>
-                      {upgrade.title || formatUpgradeType(upgrade.type)}
-                    </span>
-                    <span className="ml-2 shrink-0 text-[9px] text-neon-yellow">x{upgrade.count}</span>
-                  </div>
-                ))
-              )}
+        <div className="mt-2">
+          <div
+            className={`relative h-3.5 overflow-hidden rounded-sm bg-white/10 ${
+              healthPercentage < 30 ? "animate-pulse" : ""
+            }`}
+          >
+            <div
+              className="h-full bg-red-500 transition-all duration-300"
+              style={{ width: `${Math.max(0, Math.min(100, healthPercentage))}%`, boxShadow: "0 0 8px #ef4444" }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center font-press-start text-[8px] text-white [text-shadow:1px_1px_0_rgba(0,0,0,0.9)]">
+              {Math.ceil(localPlayer.health)} / {localPlayer.maxHealth}
             </div>
           </div>
         </div>
-      </div>
 
-      <div className={`absolute left-1/2 top-4 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 ${gameState.exploration ? "hidden" : ""}`}>
-        <div className="rounded-xl border border-neon-cyan/45 bg-black/65 px-4 py-2 backdrop-blur-md shadow-[0_0_18px_rgba(0,255,255,0.15)]">
-          <div className="flex items-center justify-between gap-3 text-[10px]">
-            <span className="text-neon-cyan/90">
-              NODE <span className="text-neon-yellow">{mapDepth}</span>
-              <span className="text-white/50">/{totalMapDepth}</span>
-            </span>
-            <span
-              className={`${
-                status === "mapSelection"
-                  ? "text-cyan-200"
-                  : currentEncounterType === "hellhound"
-                    ? "text-red-300"
-                    : currentEncounterType === "shop"
-                      ? "text-yellow-300"
-                      : currentEncounterType === "boss"
-                        ? "text-fuchsia-300"
-                        : "text-green-400"
-              }`}
-            >
-              {statusText}
-            </span>
-            <span className="text-white/75">
-              THREAT <span className="text-neon-pink">{Math.max(0, wave)}</span>
+        <div className="mt-2">
+          <div className="flex items-center justify-between">
+            <span className={LABEL}>XP</span>
+            <span className="font-press-start text-[7px] text-white">
+              {Math.floor(localPlayer.xp)} / {localPlayer.xpToNextLevel}
             </span>
           </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-[10px]">
-            <span className="text-white/65">
-              {showCombatProgress
-                ? combatPackLabel
-                : currentEncounterType
-                  ? `NEXT TYPE: ${currentEncounterType.toUpperCase()}`
-                  : "SELECT A REACHABLE NODE"}
-            </span>
-            <span
-              className={`${
-                isShopRound
-                  ? "text-yellow-300"
-                  : isHellhoundRound
-                    ? "text-red-300"
-                    : showCombatProgress
-                      ? encounterPhase === "intermission"
-                        ? "text-neon-cyan"
-                        : encounterEnemiesRemaining > 0
-                          ? "text-white"
-                          : "text-green-300"
-                      : "text-white/65"
-              }`}
-            >
-              {isHellhoundRound ? (
-                <>
-                {hellhoundsKilled || 0}/{totalHellhoundsInRound || 0} HELLHOUNDS
-                </>
-              ) : showCombatProgress ? (
-                encounterPhase === "intermission" ? (
-                  <>NEXT PACK IN {intermissionSeconds}s</>
-                ) : (
-                  <>{encounterEnemiesRemaining} HOSTILES</>
-                )
-              ) : status === "mapSelection" ? (
-                <>ROUTE PLANNING</>
-              ) : status === "bossFight" ? (
-                <>FINAL PUSH</>
-              ) : (
-                <>SAFE ROOM</>
-              )}
-            </span>
+          <div className="mt-0.5 h-1 overflow-hidden rounded-sm bg-white/10">
+            <div
+              className="h-full bg-violet-500 transition-all duration-300"
+              style={{ width: `${xpPercentage}%`, boxShadow: "0 0 8px #8b5cf6" }}
+            />
           </div>
-          {showCombatProgress && (
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full border border-white/10 bg-black/40">
+        </div>
+
+        {localPlayerPet && (
+          <div className="mt-2 border-t border-white/10 pt-1.5">
+            <div className="flex items-center justify-between">
+              <span className={`${LABEL} flex items-center gap-1`}>
+                <span className="text-xs leading-none">{localPlayerPet.emoji}</span>
+                PET LV {localPlayerPet.level}
+              </span>
+              <span className="font-press-start text-[7px] text-pink-300">
+                DPS {petDps}
+              </span>
+            </div>
+            <div className="mt-1 h-1 overflow-hidden rounded-sm bg-white/10">
               <div
-                className="h-full bg-neon-cyan transition-all duration-1000 ease-linear"
-                style={{ width: `${combatProgressPercentage}%` }}
+                className="h-full bg-pink-400 transition-all duration-300"
+                style={{
+                  width: `${Math.max(0, Math.min(100, (localPlayerPet.health / Math.max(1, localPlayerPet.maxHealth)) * 100))}%`,
+                  boxShadow: "0 0 8px #f472b6",
+                }}
               />
             </div>
-          )}
-        </div>
+            <div className="mt-0.5 font-press-start text-[7px] text-slate-500">
+              HP {Math.round(localPlayerPet.health)}/{localPlayerPet.maxHealth} · DMG {localPlayerPet.damage}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Bottom-right: ability dock */}
+      <div className="absolute bottom-4 right-4">
+        <AbilityDock player={localPlayer} exploration={gameState.exploration} />
+      </div>
+
+      {/* Top-center: node / threat / status (arena mode only) */}
+      {!gameState.exploration && (
+        <div className="absolute left-1/2 top-4 w-[min(480px,calc(100vw-2rem))] -translate-x-1/2">
+          <div className={`${PANEL} px-2.5 py-2`}>
+            <div className="flex items-center justify-between gap-3 font-press-start text-[8px]">
+              <span className="text-slate-400">
+                NODE <span className="text-yellow-300">{mapDepth}</span>
+                <span className="text-slate-500">/{totalMapDepth}</span>
+              </span>
+              <span
+                className={`${
+                  status === "mapSelection"
+                    ? "text-cyan-200"
+                    : currentEncounterType === "hellhound"
+                      ? "text-red-300"
+                      : currentEncounterType === "shop"
+                        ? "text-yellow-300"
+                        : currentEncounterType === "boss"
+                          ? "text-fuchsia-300"
+                          : "text-green-400"
+                }`}
+              >
+                {statusText}
+              </span>
+              <span className="text-slate-400">
+                THREAT <span className="text-pink-400">{Math.max(0, wave)}</span>
+              </span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-xs">
+              <span className="text-slate-400">
+                {showCombatProgress
+                  ? combatPackLabel
+                  : currentEncounterType
+                    ? `NEXT TYPE: ${currentEncounterType.toUpperCase()}`
+                    : "SELECT A REACHABLE NODE"}
+              </span>
+              <span
+                className={`font-press-start text-[8px] ${
+                  isShopRound
+                    ? "text-yellow-300"
+                    : isHellhoundRound
+                      ? "text-red-300"
+                      : showCombatProgress
+                        ? encounterPhase === "intermission"
+                          ? "text-cyan-300"
+                          : encounterEnemiesRemaining > 0
+                            ? "text-white"
+                            : "text-green-300"
+                        : "text-slate-400"
+                }`}
+              >
+                {isHellhoundRound ? (
+                  <>{hellhoundsKilled || 0}/{totalHellhoundsInRound || 0} HELLHOUNDS</>
+                ) : showCombatProgress ? (
+                  encounterPhase === "intermission" ? (
+                    <>NEXT PACK IN {intermissionSeconds}s</>
+                  ) : (
+                    <>{encounterEnemiesRemaining} HOSTILES</>
+                  )
+                ) : status === "mapSelection" ? (
+                  <>ROUTE PLANNING</>
+                ) : status === "bossFight" ? (
+                  <>FINAL PUSH</>
+                ) : (
+                  <>SAFE ROOM</>
+                )}
+              </span>
+            </div>
+            {showCombatProgress && (
+              <div className="mt-1.5 h-1 overflow-hidden rounded-sm bg-white/10">
+                <div
+                  className="h-full bg-cyan-400 transition-all duration-1000 ease-linear"
+                  style={{ width: `${combatProgressPercentage}%`, boxShadow: "0 0 8px #22d3ee" }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

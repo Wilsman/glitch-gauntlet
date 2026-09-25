@@ -550,6 +550,26 @@ export class AudioManager {
     this.pickupSynth?.triggerAttackRelease("G6", "32n", time + 0.05);
   }
 
+  public playUpgradeReveal(tier: number) {
+    if (!this.isBrowser) return;
+    this.ensureInitialized();
+    if (!this.isContextRunning()) return;
+    const notes = ["C6", "E6", "G6", "C7"];
+    const note = notes[Math.max(0, Math.min(3, tier))];
+    this.pickupSynth?.triggerAttackRelease(note, "32n");
+  }
+
+  public playUpgradeSelect(tier: number) {
+    if (!this.isBrowser) return;
+    this.ensureInitialized();
+    if (!this.isContextRunning()) return;
+    const now = Tone.now();
+    const scale = ["C6", "E6", "G6", "C7", "E7"];
+    const count = 2 + Math.max(0, Math.min(3, tier));
+    for (let i = 0; i < count; i++) {
+      this.victorySynth?.triggerAttackRelease(scale[i], "16n", now + i * 0.07);
+    }
+  }
   public setMasterVolume(value: number) {
     if (!this.isBrowser) return;
     this.ensureInitialized();

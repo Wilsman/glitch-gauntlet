@@ -78,23 +78,21 @@ export default function StatsPanel({ player }: StatsPanelProps) {
   }, [player]);
 
   return (
-    <div
-      className="fixed right-0 top-1/2 -translate-y-1/2 w-64 p-4 border-2 border-neon-cyan bg-black/90 backdrop-blur-sm transition-transform duration-300 hover:translate-x-0 translate-x-[calc(100%-2rem)] z-40 group"
-      style={{ boxShadow: "0 0 10px #00FFFF" }}
-    >
+    <div className="group fixed right-0 top-[60%] z-40 -translate-y-1/2">
       {/* Hover Tab */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-full w-8 h-16 bg-neon-cyan/20 border-2 border-r-0 border-neon-cyan flex items-center justify-center group-hover:bg-neon-cyan/40 transition-colors">
-        <span className="font-press-start text-[8px] text-neon-cyan rotate-90">
+      <div className="absolute right-0 top-1/2 flex h-20 w-6 -translate-y-1/2 items-center justify-center rounded-l-md border border-r-0 border-white/10 bg-slate-950/70 backdrop-blur-sm transition-colors group-hover:bg-slate-800/70">
+        <span className="font-press-start text-[7px] tracking-widest text-slate-400 [writing-mode:vertical-rl]">
           STATS
         </span>
       </div>
-      <h2 className="font-press-start text-xs text-neon-yellow mb-3 text-center border-b border-neon-yellow pb-2">
+      <div className="max-h-[80vh] w-64 translate-x-full overflow-y-auto rounded-l-md border border-r-0 border-white/10 bg-slate-950/70 p-3 backdrop-blur-sm transition-transform duration-300 group-hover:translate-x-0">
+      <h2 className="font-press-start text-[9px] tracking-widest text-slate-400 mb-3 text-center border-b border-white/10 pb-2">
         STATS
       </h2>
 
       {/* Overall Stats */}
-      <div className="mb-3 pb-3 border-b border-neon-cyan/30">
-        <div className="space-y-1 font-vt323 text-sm">
+      <div className="mb-3 pb-3 border-b border-white/10">
+        <div className="space-y-1 text-xs">
           <StatRow
             label="Total DPS"
             value={stats.overallDps.toFixed(1)}
@@ -113,13 +111,13 @@ export default function StatsPanel({ player }: StatsPanelProps) {
         <div
           key={weapon.name}
           className={`mb-3 pb-3 ${
-            idx < stats.weapons.length - 1 ? "border-b border-neon-pink/30" : ""
+            idx < stats.weapons.length - 1 ? "border-b border-white/10" : ""
           }`}
         >
-          <h3 className="font-press-start text-[10px] text-neon-pink mb-2">
+          <h3 className="font-press-start text-[8px] tracking-widest text-slate-400 mb-2 uppercase">
             {weapon.name.toUpperCase()}
           </h3>
-          <div className="space-y-1 font-vt323 text-sm">
+          <div className="space-y-1 text-xs">
             <StatRow label="Base Damage" value={weapon.baseDamage.toFixed(1)} />
             <StatRow
               label="Total Damage"
@@ -149,11 +147,11 @@ export default function StatsPanel({ player }: StatsPanelProps) {
       ))}
 
       {/* Player Stats */}
-      <div className="mb-3 pb-3 border-b border-neon-yellow/30">
-        <h3 className="font-press-start text-[10px] text-neon-yellow mb-2">
+      <div className="mb-3 pb-3 border-b border-white/10">
+        <h3 className="font-press-start text-[8px] tracking-widest text-slate-400 mb-2 uppercase">
           PLAYER
         </h3>
-        <div className="space-y-1 font-vt323 text-sm">
+        <div className="space-y-1 text-xs">
           <StatRow
             label="Health"
             value={`${player.health.toFixed(0)}/${player.maxHealth}`}
@@ -183,15 +181,15 @@ export default function StatsPanel({ player }: StatsPanelProps) {
       </div>
 
       {/* Level & XP */}
-      <div className="mb-3 pb-3 border-b border-neon-cyan/30">
-        <h3 className="font-press-start text-[10px] text-neon-cyan mb-2">
+      <div className="mb-3 pb-3 border-b border-white/10">
+        <h3 className="font-press-start text-[8px] tracking-widest text-slate-400 mb-2 uppercase">
           PROGRESSION
         </h3>
-        <div className="space-y-1 font-vt323 text-sm">
+        <div className="space-y-1 text-xs">
           <StatRow
             label="Level"
             value={player.level.toString()}
-            color="text-neon-yellow"
+            color="text-yellow-300"
           />
           <StatRow
             label="XP"
@@ -211,11 +209,11 @@ export default function StatsPanel({ player }: StatsPanelProps) {
         player.characterType === "turret-tina" ||
         player.characterType === "vampire-vex" ||
         player.characterType === "null-ronin") && (
-        <div className="mb-3 pb-3 border-b border-neon-pink/30">
-          <h3 className="font-press-start text-[10px] text-neon-pink mb-2">
+        <div className="mb-3 pb-3 border-b border-white/10">
+          <h3 className="font-press-start text-[8px] tracking-widest text-slate-400 mb-2 uppercase">
             PASSIVES
           </h3>
-          <div className="space-y-1 font-vt323 text-sm">
+          <div className="space-y-1 text-xs">
             {player.characterType === "dash-dynamo" && (
               <StatRow
                 label="Blink (Space)"
@@ -263,10 +261,10 @@ export default function StatsPanel({ player }: StatsPanelProps) {
 
       {/* Active Ultimate Ability (Q) */}
       <div>
-        <h3 className="font-press-start text-[10px] text-neon-cyan mb-2">
+        <h3 className="font-press-start text-[8px] tracking-widest text-slate-400 mb-2 uppercase">
           ULTIMATE (Q)
         </h3>
-        <div className="space-y-1 font-vt323 text-sm">
+        <div className="space-y-1 text-xs">
           <StatRow
             label="Cooldown"
             value={
@@ -282,15 +280,16 @@ export default function StatsPanel({ player }: StatsPanelProps) {
           />
           {player.isAbilityActive && (
             <div className="flex justify-between items-center">
-              <span className="text-neon-pink animate-pulse font-bold">
+              <span className="text-pink-400 animate-pulse font-bold">
                 ACTIVE!
               </span>
-              <span className="text-neon-pink font-bold">
+              <span className="text-pink-400 font-bold">
                 {((player.abilityDuration || 0) / 1000).toFixed(1)}s
               </span>
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import React from "react";
 import type { Player } from "@shared/types";
-import { Star, Skull } from "lucide-react";
+import { Skull } from "lucide-react";
 
 interface PlayerListPanelProps {
   players: Player[];
@@ -12,7 +12,7 @@ export default function PlayerListPanel({
   localPlayerId,
 }: PlayerListPanelProps) {
   return (
-    <div className="fixed bottom-4 left-1/2 -translate-x-1/2 flex flex-row gap-2 z-50">
+    <div className="fixed left-4 top-1/2 z-50 flex w-44 -translate-y-1/2 flex-col gap-1.5">
       {players
         .filter((p) => p.id !== localPlayerId)
         .map((player) => {
@@ -24,31 +24,20 @@ export default function PlayerListPanel({
           return (
             <div
               key={player.id}
-              className={`w-48 p-2 border-2 bg-black/80 backdrop-blur-sm transition-all duration-300 ${
-                isDead
-                  ? "border-gray-600 opacity-60"
-                  : isLocalPlayer
-                  ? "border-neon-cyan"
-                  : "border-neon-pink"
+              className={`rounded-md border border-white/10 bg-slate-950/70 px-2 py-1.5 backdrop-blur-sm transition-all duration-300 ${
+                isDead ? "opacity-60" : ""
               }`}
-              style={{
-                boxShadow: isDead
-                  ? "none"
-                  : isLocalPlayer
-                  ? "0 0 10px #00FFFF"
-                  : "0 0 10px #FF00FF",
-              }}
             >
               {/* Player Name & Level */}
-              <div className="flex items-center justify-between font-press-start text-xs mb-2">
+              <div className="flex items-center justify-between font-press-start text-[8px]">
                 <span
-                  className={
+                  className={`truncate ${
                     isDead
-                      ? "text-gray-400"
+                      ? "text-slate-500"
                       : isLocalPlayer
-                      ? "text-neon-cyan"
-                      : "text-neon-pink"
-                  }
+                      ? "text-cyan-300"
+                      : "text-white"
+                  }`}
                 >
                   {player.name || `P${player.id.substring(0, 2).toUpperCase()}`}{" "}
                   {isLocalPlayer && "(YOU)"}
@@ -56,52 +45,51 @@ export default function PlayerListPanel({
                 {isDead ? (
                   <div className="flex items-center gap-1 text-red-500">
                     <Skull className="w-3 h-3" />
-                    <span className="text-[10px]">DOWN</span>
+                    <span className="text-[7px]">DOWN</span>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1 text-neon-yellow">
-                    <Star className="w-3 h-3" fill="#FFFF00" />
-                    <span className="text-[10px]">LVL {player.level}</span>
-                  </div>
+                  <span className="shrink-0 text-[7px] text-yellow-300">
+                    LV {player.level}
+                  </span>
                 )}
               </div>
 
               {/* Health Bar */}
-              <div className="mb-1">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-vt323 text-[10px] text-red-400">
+              <div className="mt-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="font-press-start text-[6px] tracking-widest text-slate-400">
                     HP
                   </span>
-                  <span className="font-vt323 text-[10px] text-white">
+                  <span className="font-press-start text-[6px] text-white">
                     {Math.ceil(player.health)}/{player.maxHealth}
                   </span>
                 </div>
-                <div className="w-full h-3 bg-red-900/50 border border-red-500">
+                <div className="mt-0.5 h-1 rounded-sm bg-white/10">
                   <div
-                    className="h-full bg-red-500 transition-all duration-300"
+                    className="h-full rounded-sm bg-red-500 transition-all duration-300"
                     style={{ width: `${healthPercentage}%` }}
                   />
                 </div>
               </div>
 
               {/* XP Bar */}
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-vt323 text-[10px] text-purple-400">
+              <div className="mt-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-press-start text-[6px] tracking-widest text-slate-400">
                     XP
                   </span>
-                  <span className="font-vt323 text-[10px] text-white">
+                  <span className="font-press-start text-[6px] text-white">
                     {Math.floor(player.xp)}/{player.xpToNextLevel}
                   </span>
                 </div>
-                <div className="w-full h-2 bg-purple-900/50 border border-purple-500">
+                <div className="mt-0.5 h-0.5 rounded-sm bg-white/10">
                   <div
-                    className="h-full bg-purple-500 transition-all duration-300"
+                    className="h-full rounded-sm bg-violet-500 transition-all duration-300"
                     style={{ width: `${xpPercentage}%` }}
                   />
                 </div>
-                <div className="mt-1 text-right font-vt323 text-[10px] text-yellow-300">
-                  ${Math.floor(player.coins || 0)}
+                <div className="mt-0.5 text-right font-press-start text-[6px] text-yellow-300">
+                  {Math.floor(player.coins || 0)} COINS
                 </div>
               </div>
             </div>

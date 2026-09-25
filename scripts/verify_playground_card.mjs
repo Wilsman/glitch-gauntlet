@@ -11,7 +11,7 @@ page.on('pageerror', error => errors.push(String(error)));
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 
 try {
-  await page.goto('http://localhost:3001');
+  await page.goto(process.env.BASE_URL || 'http://localhost:5174');
   const nameInput = page.locator('#player-name');
   if (await nameInput.isVisible()) {
     await nameInput.fill('UI Review');
@@ -49,6 +49,9 @@ try {
   console.log('navigated:', page.url());
   assert.match(page.url(), /character=vampire-vex/, 'selected character not in URL');
   await page.waitForTimeout(1500);
+  // The Glitch Loop starts Stage 1 directly — no route map is shown.
+  assert.equal(await page.locator('[data-map-node-selectable]').count(), 0, 'route map must not appear in the prototype');
+  await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).exploration?.stage === 1);
   await page.screenshot({ path: `${out}/04-prototype.png` });
 
   assert.deepEqual(errors, [], 'console/page errors');

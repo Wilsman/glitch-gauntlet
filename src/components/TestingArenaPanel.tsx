@@ -109,14 +109,14 @@ export default function TestingArenaPanel({
             <Button size="sm" onClick={() => engine.debugSetInvulnerability(!prototypeInvulnerable)}>Invulnerability: {prototypeInvulnerable ? "on" : "off"}</Button>
             <Button size="sm" onClick={() => { engine.debugExploration('anchor'); onClose(); }}>Go to anchor</Button>
             <Button size="sm" onClick={() => { engine.debugExploration('cache'); onClose(); }}>Go to cache</Button>
-            <Button size="sm" onClick={() => { engine.debugExploration('exit'); onClose(); }}>Return to route map</Button>
+            <Button size="sm" onClick={() => { engine.debugExploration('exit'); onClose(); }}>Force-clear anchor</Button>
           </> : <a className="rounded bg-cyan-950 px-3 py-2 text-cyan-100" href="/game/local?playerId=exploration-test&character=dash-dynamo&explorationPrototype=1">Launch exploration</a>}
         </div>
         {prototype && <div className="flex-1 space-y-4 overflow-y-auto p-6 text-sm text-slate-300">
           <p>Walk with WASD / arrows or the left stick. Interact with E / RT. Dynamo slides with Shift / A; Q / X activates the character ability.</p>
-          <p>Find the anchor, activate it, defeat the guardian and charge the field. Claim its upgrade, then interact again to return to the route map.</p>
+          <p>Find the anchor, activate it, defeat the guardian and charge the field. Claim a boss relic, then walk into a rift portal to pick the next stage.</p>
           <p>Press F for fullscreen. Opening these controls pauses the simulation. Restarting resets the region, discoveries, loadout and timers. Seeds 0–2 select the three anchor placements.</p>
-          <p className="text-cyan-200">{engine?.getGameState()?.exploration ? `Phase: ${engine.getGameState().exploration.phase} · position: ${Math.round(engine.getGameState().players[0].position.x)}, ${Math.round(engine.getGameState().players[0].position.y)}` : 'Select a combat node or restart to enter the yard.'}</p>
+          <p className="text-cyan-200">{engine?.getGameState()?.exploration ? `Stage ${engine.getGameState().exploration.stage} · Phase: ${engine.getGameState().exploration.phase} · position: ${Math.round(engine.getGameState().players[0].position.x)}, ${Math.round(engine.getGameState().players[0].position.y)}` : 'Restart to enter the world.'}</p>
         </div>}
         {!prototype && <>
         {/* Global Controls Bar */}

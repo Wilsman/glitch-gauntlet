@@ -118,8 +118,10 @@ import {
   PROJECTILE_BOMB_DELAY,
 } from "@shared/bossConfig";
 
-import { ExplorationStage } from './ExplorationStage';
-import { createExploration, SPAWN, distance, isWalkable, lineClear, moveWorld, WorldNavigator } from './explorationWorld';
+import { ExplorationStage, SHOP_PRICES, type ExplorationHooks } from './ExplorationStage';
+import { createExploration, distance, isWalkable, lineClear, moveWorld, wallsNear, WorldNavigator } from './explorationWorld';
+import { invalidateArt } from './explorationArt';
+import type { ExplorationState, StageModifierId, WorldWall } from '@shared/exploration';
 
 const MAX_PLAYERS = 4;
 const ARENA_WIDTH = 1280;
@@ -803,51 +805,101 @@ export class LocalGameEngine {
     this.prototypeEnabled = true;
     this.prototypeSeed = seed;
     this.gameState.explorationPrototype = true;
+    // The Glitch Loop drops straight into stage 1; the route map is never shown.
+    this.startExploration(this.gameState);
     this.markStateDirty();
   }
 
-  private startExploration(state: GameState) {
+  private startExploration(state: GameState, opts?: { stage?: number; modifier?: StageModifierId | null; carryFrom?: ExplorationState }) {
     this.resetArenaForEncounter(state);
     this.prototypeUsed = true;
     this.explorationController = new ExplorationStage();
     this.enemyNavigator = new WorldNavigator();
     this.bossNavigator = new WorldNavigator();
-    state.exploration = createExploration(this.prototypeSeed);
+    const stage = opts?.stage ?? 1;
+    const carry = opts?.carryFrom;
+    const run = carry ? {
+      stagesCleared: stage - 1,
+      totalKills: carry.run.totalKills,
+      bestCombo: carry.run.bestCombo,
+      items: carry.run.items,
+      maxTier: carry.run.maxTier,
+    } : undefined;
+    state.exploration = createExploration(this.prototypeSeed + (stage - 1) * 101, {
+      stage,
+      modifier: opts?.modifier ?? null,
+      elapsedMs: carry?.elapsedMs ?? 0,
+      run,
+    });
+    this.preparePedestals(state.exploration);
     state.status = 'playing'; state.currentEncounterType = 'combat';
     const player = state.players[0];
-    player.position = { ...SPAWN };
-    player.health = player.maxHealth;
-    player.projectileDamage = getCharacter(player.characterType!).baseDamage * 1.5;
+    player.position = { ...state.exploration.landing };
+    if (!carry) {
+      player.health = player.maxHealth;
+      player.projectileDamage = getCharacter(player.characterType!).baseDamage * 1.5;
+    }
     player.attackCooldown = 0;
     player.abilityCooldown = 0;
     state.turrets = []; state.pets = []; state.clones = [];
+    invalidateArt(state.exploration);
+  }
+
+  // Roll display items for pedestal kinds that need one, and price shop stock by rarity.
+  private preparePedestals(world: ExplorationState) {
+    for (const pedestal of world.pedestals) {
+      if (pedestal.option || pedestal.kind === 'heal') { if (pedestal.kind === 'heal' && pedestal.cost == null) pedestal.cost = 25; continue; }
+      const rarities: UpgradeRarity[] = pedestal.kind === 'shop'
+        ? ['common', 'uncommon', 'legendary', 'lunar', 'void']
+        : ['legendary', 'boss', 'void', 'lunar'];
+      pedestal.option = this.rollPedestalOption(rarities) || undefined;
+      if (pedestal.kind === 'shop') pedestal.cost = pedestal.option ? (SHOP_PRICES[pedestal.option.rarity] ?? 60) : 60;
+    }
+  }
+
+  private rollPedestalOption(rarities: UpgradeRarity[]): UpgradeOption | null {
+    const pool = EXPLORATION_ITEM_POOL.filter(o => rarities.includes(o.rarity));
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    return pick ? { ...pick, id: uuidv4() } : null;
+  }
+
+  private advanceStage(modifier: StageModifierId) {
+    const state = this.gameState, world = state.exploration;
+    if (!world) return;
+    this.startExploration(state, { stage: world.stage + 1, modifier, carryFrom: world });
+    this.markStateDirty();
   }
 
   restartExploration(character: CharacterType = 'dash-dynamo', seed = this.prototypeSeed) {
     if (!this.prototypeEnabled) return;
     const fresh = new LocalGameEngine(this.gameState.players[0].id, character, this.gameState.players[0].name);
-    const runMap = this.gameState.runMap;
     fresh.configureExploration(seed);
     this.gameState = fresh.gameState;
-    if (runMap?.currentNodeId) this.gameState.runMap = runMap;
     this.prototypeSeed = seed;
     this.upgradeChoices.clear();
     this.lastToasterDeployAt.clear();
     this.level10Tracked.clear();
     this.enemiesKilledCount = 0;
     this.inputState = { up: false, down: false, left: false, right: false };
-    if (!this.gameState.runMap?.currentNodeId) {
-      const node = this.gameState.runMap?.nodes.find(n => n.encounterType === 'combat' && this.gameState.runMap?.reachableNodeIds.includes(n.id));
-      if (node) { this.prototypeUsed = false; this.selectMapNode(node.id); }
-    } else this.startExploration(this.gameState);
+    this.explorationController = new ExplorationStage();
+    this.enemyNavigator = new WorldNavigator();
+    this.bossNavigator = new WorldNavigator();
     this.markStateDirty();
   }
 
-  debugExploration(action: 'spawns' | 'exit' | 'anchor' | 'cache' | 'elite' | 'guardian' | 'charge') {
+  debugExploration(action: 'spawns' | 'exit' | 'anchor' | 'cache' | 'elite' | 'guardian' | 'charge' | 'pedestal' | 'portal' | 'results') {
     const state = this.gameState, world = state.exploration;
     if (!world) return;
     if (action === 'spawns') world.spawnsEnabled = !world.spawnsEnabled;
-    if (action === 'exit') this.finishExploration(state);
+    if (action === 'exit' && (world.phase === 'anchorActive' || world.phase === 'exploring')) {
+      world.anchor.guardianDefeated = true; world.anchor.chargeMs = 45000;
+    }
+    if (action === 'pedestal') {
+      const pedestal = world.pedestals.find(p => p.kind === 'boss' && !p.taken);
+      if (pedestal) state.players[0].position = { ...pedestal.position };
+    }
+    if (action === 'results' && world.results) world.results.ms = 0;
+    if (action === 'portal' && world.portals.length) state.players[0].position = { ...world.portals[0].position };
     if (action === 'anchor' || action === 'cache' || action === 'elite') {
       state.players[0].position = { ...world[action].position };
       world.camera = { x: Math.max(0, Math.min(world.width - 1280, state.players[0].position.x - 640)), y: Math.max(0, Math.min(world.height - 720, state.players[0].position.y - 360)) };
@@ -857,12 +909,32 @@ export class LocalGameEngine {
     this.markStateDirty();
   }
 
-  private finishExploration(state: GameState) {
-    this.applyRunMapRewards(state, this.getCurrentNodeRewards(state));
-    state.exploration = null;
-    state.players.forEach(p => { p.position = { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 }; });
-    state.turrets = []; state.pets = []; state.clones = [];
-    this.enterMapSelection(state);
+  // Projectiles chip cracked secret-room walls; at 0 hp the wall is removed and the pocket opens.
+  private damageCrackedWall(state: GameState, wall: WorldWall, at: Vector2D) {
+    const world = state.exploration;
+    if (!world) return;
+    wall.hp = (wall.hp ?? 12) - 1;
+    this.explorationController.fx(world, 'burst', at, '#e2e8f0', 300, 24);
+    if (wall.hp > 0) return;
+    world.walls = world.walls.filter(w => w !== wall);
+    invalidateArt(world);
+    const player = state.players[0];
+    if (player) player.coins = (player.coins || 0) + 10;
+    world.biomeBanner = { name: 'SECRET FOUND!', neon: '#facc15', ms: 2500, sub: '+$10' };
+    this.explorationController.fx(world, 'ring', { x: wall.x + wall.width / 2, y: wall.y + wall.height / 2 }, '#facc15', 900, 420);
+    this.explorationController.fx(world, 'text', { x: wall.x + wall.width / 2, y: wall.y - 30 }, '#fde047', 2000, 30, 'SECRET FOUND! +$10');
+    this.markStateDirty();
+  }
+
+  private explorationHooks(state: GameState): ExplorationHooks {
+    return {
+      reward: () => this.explorationReward(),
+      grantItem: tier => this.grantExplorationItem(tier),
+      damagePlayer: (p, amount, now) => this.damagePlayer(p, amount, now),
+      rollPedestalItem: rarities => this.rollPedestalOption(rarities),
+      applyOption: option => { const p = this.gameState.players[0]; if (p) this.applyUpgradeChoice(p, option); },
+      nextStage: modifier => this.advanceStage(modifier),
+    };
   }
 
   private explorationReward() {
@@ -3419,7 +3491,7 @@ export class LocalGameEngine {
 
     // Only update game mechanics if still playing or in boss fight
     if (state.status === "playing" || state.status === "bossFight") {
-      if (state.exploration && localPlayer?.status === 'alive') this.explorationController.move(state.exploration, localPlayer, this.inputState, delta);
+      if (state.exploration && localPlayer?.status === 'alive') this.explorationController.move(state.exploration, localPlayer, this.inputState, delta, this.explorationHooks(state), now);
       else this.updatePlayerMovement(state, timeFactor, now);
       this.updatePlayerEffects(state, delta, now);
       this.updateVampireDrain(state, delta, now);
@@ -3477,7 +3549,7 @@ export class LocalGameEngine {
         const old = previousPositions?.get(actor.id);
         if (old) actor.position = moveWorld(world, old, actor.position, actor.id === state.boss?.id ? 40 : 18);
       }
-      this.explorationController.update(state, delta, { reward: () => this.explorationReward(), exit: () => this.finishExploration(state), grantItem: tier => this.grantExplorationItem(tier) });
+      this.explorationController.update(state, delta, this.explorationHooks(state));
     }
     // Always check game status to save stats when game ends
     this.updateGameStatus(state);
@@ -5442,7 +5514,12 @@ export class LocalGameEngine {
       const previousProjectilePosition = { ...proj.position };
       proj.position.x += proj.velocity.x * timeFactor;
       proj.position.y += proj.velocity.y * timeFactor;
-      if (state.exploration && !lineClear(state.exploration, previousProjectilePosition, proj.position, Math.max(3, proj.radius || 3))) return false;
+      if (state.exploration && !lineClear(state.exploration, previousProjectilePosition, proj.position, Math.max(3, proj.radius || 3))) {
+        // Player shots chip away at cracked secret-room walls.
+        const cracked = wallsNear(state.exploration, proj.position, 24).find(w => w.cracked);
+        if (cracked && owner) this.damageCrackedWall(state, cracked, proj.position);
+        return false;
+      }
 
       // Screen Wrap Projectiles
       if (owner && owner.hasScreenWrap) {
@@ -5937,7 +6014,11 @@ export class LocalGameEngine {
       let coinValue = hasLuckyPlayer
         ? COIN_DROP_PER_KILL * LUCKY_COIN_MULTIPLIER
         : COIN_DROP_PER_KILL;
-      if (state.exploration) coinValue *= 2;
+      if (state.exploration) {
+        coinValue *= 2;
+        if (state.exploration.modifier === 'goldRush') coinValue = Math.round(coinValue * 1.5);
+        if (state.exploration.modifier === 'hordeNight') coinValue = Math.round(coinValue * 1.25);
+      }
       // Unlimited Expense Account: richer coin drops
       if (expenseStacks > 0) coinValue = Math.round(coinValue * (1 + 0.5 * expenseStacks));
 
@@ -5966,7 +6047,7 @@ export class LocalGameEngine {
       if (xpRecipient) {
         xpRecipient.xp += dead.xpValue;
       }
-      if (state.exploration) this.explorationController.onKill(state, dead, xpRecipient);
+      if (state.exploration) this.explorationController.onKill(state, dead, xpRecipient, this.explorationHooks(state));
 
       // Track enemy kills
       this.enemiesKilledCount++;
