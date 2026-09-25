@@ -117,6 +117,25 @@ export function wallBlocks(wall: WorldWall, p: Vector2D, radius: number) {
   return circleRectOverlap(wall, p.x, p.y, radius);
 }
 
+// True when the wall's footprint touches a circle.
+function footprintHitsCircle(w: WorldWall, cx: number, cy: number, r: number) {
+  if (w.shape === 'circle') return Math.hypot(w.x + w.width / 2 - cx, w.y + w.height / 2 - cy) < r + w.width / 2;
+  return circleRectOverlap(w, cx, cy, r);
+}
+
+// True when the wall's footprint keeps at least `pad` px from every rect and every other wall.
+function footprintClear(w: WorldWall, rects: Rect[], pad: number, others: WorldWall[]) {
+  const grown: Rect = { x: w.x - pad, y: w.y - pad, width: w.width + pad * 2, height: w.height + pad * 2 };
+  const isCircle = w.shape === 'circle';
+  const cx = w.x + w.width / 2, cy = w.y + w.height / 2, r = w.width / 2;
+  for (const rect of rects) if (isCircle ? circleRectOverlap(rect, cx, cy, r + pad) : rectsOverlap(grown, rect)) return false;
+  for (const o of others) {
+    if (o.shape === 'circle') { if (footprintHitsCircle(w, o.x + o.width / 2, o.y + o.height / 2, o.width / 2 + pad)) return false; }
+    else if (isCircle ? circleRectOverlap(o, cx, cy, r + pad) : rectsOverlap(grown, o)) return false;
+  }
+  return true;
+}
+
 export interface LandingPedestalSpec { kind: 'treasure' | 'shop' | 'heal'; offset: Vector2D }
 
 export interface GeneratedWorld {
@@ -255,13 +274,16 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
   const vaultCount = 6 + (modifier === 'bloodMoon' ? 2 : 0);
   const vaultRegions = new Set<number>();
   const vaultEligible = regions.map((_, i) => i).filter(i => i !== landingIndex);
-  while (vaultRegions.size < vaultCount) vaultRegions.add(pick(vaultEligible));
+  // Own RNG stream so modifiers that add vaults never reshuffle the rest of the world.
+  const vaultRandom = rng(seed * 104729 + 3);
+  while (vaultRegions.size < vaultCount) vaultRegions.add(vaultEligible[Math.floor(vaultRandom() * vaultEligible.length)]);
 
   const corridorFree = (p: Vector2D, rad: number) => !corridors.some(c => circleRectOverlap(c, p.x, p.y, rad));
   const freeSpot = (rect: Rect, rad: number, extraWalls: WorldWall[]): Vector2D | null => {
-    for (let attempt = 0; attempt < 60; attempt++) {
+    for (let attempt = 0; attempt < 200; attempt++) {
       const p = { x: rect.x + 140 + random() * (rect.width - 280), y: rect.y + 140 + random() * (rect.height - 280) };
-      if (!corridorFree(p, rad + 60)) continue;
+      // Dense biomes: after many misses, allow spots on the corridor edge (never in the doorway itself).
+      if (attempt < 120 ? !corridorFree(p, rad + 60) : doorways.some(d => circleRectOverlap(d, p.x, p.y, rad + 120))) continue;
       if (reserved.some(k => Math.hypot(p.x - k.x, p.y - k.y) < k.r + rad)) continue;
       if (extraWalls.some(w => wallBlocks(w, p, rad + 40))) continue;
       if (walls.some(w => wallBlocks(w, p, rad + 30))) continue;
@@ -270,20 +292,73 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
     return null;
   };
 
+  // ---- Secret rooms: sealed pockets with one cracked (destructible) wall ----
+  // Carved first so dense biome obstacles route around them instead of crowding them out.
+  const secretWalls: string[] = [];
+  const secretRegions = regions.map((_, i) => i).filter(i => i !== landingIndex && i !== anchorIndex);
+  const secretCount = Math.min(secretRegions.length, 1 + (random() < 0.5 ? 1 : 0));
+  for (let s = 0; s < secretCount; s++) {
+    const ri = pick(secretRegions);
+    const rect = regionRect(ri);
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const cx = rect.x + 480 + random() * (rect.width - 960), cy = rect.y + 460 + random() * (rect.height - 920);
+      const outer: Rect = { x: cx - 236, y: cy - 206, width: 472, height: 412 };
+      if (!corridorFree({ x: cx, y: cy }, 320)) continue;
+      if (reserved.some(k => circleRectOverlap(outer, k.x, k.y, k.r))) continue;
+      if (walls.some(w => w.shape === 'circle' ? circleRectOverlap(outer, w.x + w.width / 2, w.y + w.height / 2, w.width / 2 + 30) : rectsOverlap({ x: w.x - 30, y: w.y - 30, width: w.width + 60, height: w.height + 60 }, outer))) continue;
+      if (hazards.some(h => circleRectOverlap(outer, h.x, h.y, h.radius))) continue;
+      const T = 56, W = 472, H = 412;
+      const parts: [string, number, number, number, number][] = [
+        ['top', outer.x, outer.y, W, T],
+        ['bottom', outer.x, outer.y + H - T, W, T],
+        ['left', outer.x, outer.y, T, H],
+        ['right', outer.x + W - T, outer.y, T, H],
+      ];
+      const crackedSide = pick([0, 1, 2, 3]);
+      parts.forEach(([side, x, y, w, h], pi) => {
+        const wall: WorldWall = { id: `secret-${s}-${side}`, x, y, width: w, height: h };
+        if (pi === crackedSide) { wall.cracked = true; wall.hp = 12; secretWalls.push(wall.id); }
+        walls.push(wall);
+      });
+      if (random() < 0.5) chests.push({ id: `secret-${s}-vault`, kind: 'large', position: { x: cx, y: cy }, secret: true });
+      else {
+        chests.push({ id: `secret-${s}-a`, kind: 'small', position: { x: cx - 90, y: cy }, secret: true });
+        chests.push({ id: `secret-${s}-b`, kind: 'small', position: { x: cx + 90, y: cy }, secret: true });
+      }
+      reserved.push({ x: cx, y: cy, r: 320 });
+      break;
+    }
+  }
+
   for (let i = 0; i < regions.length; i++) {
     if (hasYard && i === YARD_INDEX) continue;
     const region = regions[i], rect = regionRect(i), biome = BIOMES[region.biome];
     const local: WorldWall[] = [];
-    const tryAdd = (w: WorldWall, clearance = 60) => {
-      const cx = w.x + w.width / 2, cy = w.y + w.height / 2;
-      const rad = w.shape === 'circle' ? w.width / 2 : Math.hypot(w.width, w.height) / 2;
-      if (!corridorFree({ x: cx, y: cy }, rad + clearance)) return false;
-      if (reserved.some(k => Math.hypot(cx - k.x, cy - k.y) < k.r + rad)) return false;
-      if ([...walls, ...local].some(o => wallBlocks(o, { x: cx, y: cy }, rad + 50))) return false;
+    // Footprint-vs-footprint test: obstacles may pack tightly as long as a walkable gap remains.
+    const tryAdd = (w: WorldWall, gap = 110) => {
+      if (w.x < rect.x + 60 || w.y < rect.y + 60 || w.x + w.width > rect.x + rect.width - 60 || w.y + w.height > rect.y + rect.height - 60) return false;
+      if (!footprintClear(w, corridors, 20, [])) return false;
+      if (reserved.some(k => footprintHitsCircle(w, k.x, k.y, k.r))) return false;
+      if (!footprintClear(w, [], gap, [...walls, ...local])) return false;
       local.push(w); return true;
     };
-    const rx = (min: number, max: number) => rect.x + min + random() * (rect.width - min - max);
-    const ry = (min: number, max: number) => rect.y + min + random() * (rect.height - min - max);
+    // Uniform position inside the region keeping `margin` px from every edge for an obstacle of `size`.
+    const rx = (margin: number, size = 0) => rect.x + margin + random() * (rect.width - margin * 2 - size);
+    const ry = (margin: number, size = 0) => rect.y + margin + random() * (rect.height - margin * 2 - size);
+    // A clump is a tight group of circles that may touch each other but keeps a walkable gap from everything else.
+    const tryClump = (cx: number, cy: number, count: number, spread: number, rMin: number, rMax: number, prefix: string, gap = 110) => {
+      const clump: WorldWall[] = [];
+      for (let k = 0; k < count; k++) {
+        const r = rMin + random() * (rMax - rMin);
+        const w: WorldWall = { id: `${prefix}-${i}-${n++}`, x: cx + (random() - 0.5) * spread - r, y: cy + (random() - 0.5) * spread - r, width: r * 2, height: r * 2, shape: 'circle' };
+        if (w.x < rect.x + 60 || w.y < rect.y + 60 || w.x + w.width > rect.x + rect.width - 60 || w.y + w.height > rect.y + rect.height - 60) continue;
+        if (!footprintClear(w, corridors, 20, []) || reserved.some(k2 => footprintHitsCircle(w, k2.x, k2.y, k2.r))) continue;
+        if (!footprintClear(w, [], gap, [...walls, ...local])) continue;
+        clump.push(w);
+      }
+      local.push(...clump);
+      return clump.length;
+    };
     let n = 0;
     if (region.biome === 'frost') {
       // Dense parallel server-rack rows with cross-aisles every ~800px.
@@ -294,43 +369,37 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
           const w = 380 + random() * 120;
           const cx = x + w / 2;
           if (aisleXs.some(ax => Math.abs(cx - ax) < 200)) continue;
-          tryAdd({ id: `frost-${i}-${n++}`, x, y, width: w, height: 52 }, 70);
+          if (!tryAdd({ id: `frost-${i}-${n++}`, x, y, width: w, height: 52 }, 100)) tryAdd({ id: `frost-${i}-${n++}`, x: x + w * 0.25, y, width: w * 0.5, height: 52 }, 100);
         }
       }
-      for (let k = 0; k < 4; k++) tryAdd({ id: `frost-v-${i}-${n++}`, x: rx(200, 2600), y: ry(200, 1600), width: 52, height: 300 + random() * 320 }, 80);
+      for (let k = 0; k < 10; k++) { const h = 240 + random() * 260; tryAdd({ id: `frost-v-${i}-${n++}`, x: rx(160, 52), y: ry(160, h), width: 52, height: h }, 100); }
+      for (let k = 0; k < 10; k++) tryAdd({ id: `coolant-${i}-${n++}`, x: rx(160, 110), y: ry(160, 110), width: 110, height: 110 }, 110);
     } else if (region.biome === 'foundry') {
-      for (let k = 0; k < 9; k++) { const r = 70 + random() * 55; tryAdd({ id: `crucible-${i}-${n++}`, x: rx(160, 2600), y: ry(160, 1800), width: r * 2, height: r * 2, shape: 'circle' }, 80); }
-      for (let k = 0; k < 9; k++) tryAdd({ id: `girder-${i}-${n++}`, x: rx(160, 2400), y: ry(160, 1800), width: 240 + random() * 260, height: 64 }, 60);
-      for (let k = 0; k < 3; k++) tryAdd({ id: `girder-v-${i}-${n++}`, x: rx(160, 2600), y: ry(160, 1600), width: 64, height: 240 + random() * 300 }, 60);
+      for (let k = 0; k < 18; k++) { const r = 60 + random() * 60; tryAdd({ id: `crucible-${i}-${n++}`, x: rx(160, r * 2), y: ry(160, r * 2), width: r * 2, height: r * 2, shape: 'circle' }); }
+      for (let k = 0; k < 18; k++) { const w = 220 + random() * 260; tryAdd({ id: `girder-${i}-${n++}`, x: rx(160, w), y: ry(160, 64), width: w, height: 64 }); }
+      for (let k = 0; k < 10; k++) { const h = 220 + random() * 260; tryAdd({ id: `girder-v-${i}-${n++}`, x: rx(160, 64), y: ry(160, h), width: 64, height: h }); }
     } else if (region.biome === 'bloom') {
-      for (let c = 0; c < 14; c++) {
-        const cx = rx(300, 2600), cy = ry(300, 1800);
-        const count = 4 + Math.floor(random() * 3);
-        for (let k = 0; k < count; k++) {
-          const r = 36 + random() * 56;
-          tryAdd({ id: `bloom-${i}-${n++}`, x: cx + (random() - 0.5) * 340 - r, y: cy + (random() - 0.5) * 340 - r, width: r * 2, height: r * 2, shape: 'circle' }, 55);
-        }
-      }
+      // Overgrown hedge clumps with the odd lone giant bulb.
+      for (let c = 0; c < 34; c++) tryClump(rx(260), ry(260), 4 + Math.floor(random() * 4), 300, 34, 70, 'bloom');
+      for (let k = 0; k < 10; k++) { const r = 80 + random() * 40; tryAdd({ id: `bulb-${i}-${n++}`, x: rx(200, r * 2), y: ry(200, r * 2), width: r * 2, height: r * 2, shape: 'circle' }, 120); }
     } else if (region.biome === 'marsh') {
-      for (let k = 0; k < 20; k++) {
-        if (random() < 0.5) { const r = 40 + random() * 64; tryAdd({ id: `rock-${i}-${n++}`, x: rx(160, 2600), y: ry(160, 1800), width: r * 2, height: r * 2, shape: 'circle' }, 70); }
-        else tryAdd({ id: `wreck-${i}-${n++}`, x: rx(160, 2400), y: ry(160, 1800), width: 120 + random() * 220, height: 70 + random() * 70 }, 70);
+      for (let k = 0; k < 44; k++) {
+        if (random() < 0.5) { const r = 40 + random() * 64; tryAdd({ id: `rock-${i}-${n++}`, x: rx(160, r * 2), y: ry(160, r * 2), width: r * 2, height: r * 2, shape: 'circle' }); }
+        else { const w = 120 + random() * 220, h = 70 + random() * 70; tryAdd({ id: `wreck-${i}-${n++}`, x: rx(160, w), y: ry(160, h), width: w, height: h }); }
       }
     } else if (region.biome === 'void') {
-      for (let c = 0; c < 6; c++) {
-        const cx = rx(300, 2600), cy = ry(300, 1800);
-        const count = 2 + Math.floor(random() * 3);
-        for (let k = 0; k < count; k++) {
-          const r = 30 + random() * 48;
-          tryAdd({ id: `shard-${i}-${n++}`, x: cx + (random() - 0.5) * 380 - r, y: cy + (random() - 0.5) * 380 - r, width: r * 2, height: r * 2, shape: 'circle' }, 90);
-        }
-      }
+      // Floating shard archipelagos with wider lanes between them (warp pools need room too).
+      for (let c = 0; c < 22; c++) tryClump(rx(260), ry(260), 2 + Math.floor(random() * 4), 360, 28, 60, 'shard', 130);
+      for (let k = 0; k < 8; k++) { const w = 60 + random() * 40, h = 180 + random() * 160; tryAdd({ id: `monolith-${i}-${n++}`, x: rx(200, w), y: ry(200, h), width: w, height: h }, 130); }
     } else if (region.biome === 'arcade') {
       // Tight building grid: ~700px pitch, 400-480px blocks -> 220-300px streets.
       for (let gx = 0; gx < 4; gx++) for (let gy = 0; gy < 3; gy++) {
-        if (random() < 0.15) continue;
+        if (random() < 0.12) continue;
         const w = 400 + random() * 80, h = 400 + random() * 80;
-        tryAdd({ id: `building-${i}-${gx}-${gy}`, x: rect.x + 220 + gx * 700 + (random() - 0.5) * 80, y: rect.y + 260 + gy * 700 + (random() - 0.5) * 80, width: w, height: h }, 60);
+        const x = rect.x + 220 + gx * 700 + (random() - 0.5) * 80, y = rect.y + 260 + gy * 700 + (random() - 0.5) * 80;
+        if (tryAdd({ id: `building-${i}-${gx}-${gy}`, x, y, width: w, height: h }, 100)) continue;
+        // Blocked by a doorway lane or landmark: fall back to smaller kiosks on the same lot.
+        for (const [qx, qy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) tryAdd({ id: `kiosk-${i}-${gx}-${gy}-${qx}${qy}`, x: x + qx * (w / 2 + 30), y: y + qy * (h / 2 + 30), width: w / 2 - 30, height: h / 2 - 30 }, 100);
       }
     }
     walls.push(...local);
@@ -375,9 +444,10 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
     }
     // Dense non-colliding decor so every camera position shows the biome.
     const kinds2 = BIOME_PROPS[region.biome as Exclude<BiomeId, 'yard'>];
-    for (let k = 0; k < 60; k++) {
+    for (let k = 0; k < 170; k++) {
       const p = { x: rect.x + 90 + random() * (rect.width - 180), y: rect.y + 90 + random() * (rect.height - 180) };
-      if (!corridorFree(p, 60)) continue;
+      // Decor never collides, so it may line corridors; only the doorway mouth stays clean.
+      if (doorways.some(d => circleRectOverlap(d, p.x, p.y, 90))) continue;
       if (reserved.some(k2 => Math.hypot(p.x - k2.x, p.y - k2.y) < k2.r + 30)) continue;
       if (walls.some(w => wallBlocks(w, p, 10))) continue;
       props.push({ id: `prop-${region.id}-${k}`, x: p.x, y: p.y, kind: kinds2[Math.floor(random() * kinds2.length)] });
@@ -392,43 +462,6 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
     }
   }
 
-  // ---- Secret rooms: sealed pockets with one cracked (destructible) wall ----
-  const secretWalls: string[] = [];
-  const secretRegions = regions.map((_, i) => i).filter(i => i !== landingIndex && i !== anchorIndex);
-  const secretCount = Math.min(secretRegions.length, 1 + (random() < 0.5 ? 1 : 0));
-  for (let s = 0; s < secretCount; s++) {
-    const ri = pick(secretRegions);
-    const rect = regionRect(ri);
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const cx = rect.x + 480 + random() * (rect.width - 960), cy = rect.y + 460 + random() * (rect.height - 920);
-      const outer: Rect = { x: cx - 236, y: cy - 206, width: 472, height: 412 };
-      if (!corridorFree({ x: cx, y: cy }, 320)) continue;
-      if (reserved.some(k => circleRectOverlap(outer, k.x, k.y, k.r))) continue;
-      if (walls.some(w => w.shape === 'circle' ? circleRectOverlap(outer, w.x + w.width / 2, w.y + w.height / 2, w.width / 2 + 30) : rectsOverlap({ x: w.x - 30, y: w.y - 30, width: w.width + 60, height: w.height + 60 }, outer))) continue;
-      if (hazards.some(h => circleRectOverlap(outer, h.x, h.y, h.radius))) continue;
-      const T = 56, W = 472, H = 412;
-      const parts: [string, number, number, number, number][] = [
-        ['top', outer.x, outer.y, W, T],
-        ['bottom', outer.x, outer.y + H - T, W, T],
-        ['left', outer.x, outer.y, T, H],
-        ['right', outer.x + W - T, outer.y, T, H],
-      ];
-      const crackedSide = pick([0, 1, 2, 3]);
-      parts.forEach(([side, x, y, w, h], pi) => {
-        const wall: WorldWall = { id: `secret-${s}-${side}`, x, y, width: w, height: h };
-        if (pi === crackedSide) { wall.cracked = true; wall.hp = 12; secretWalls.push(wall.id); }
-        walls.push(wall);
-      });
-      if (random() < 0.5) chests.push({ id: `secret-${s}-vault`, kind: 'large', position: { x: cx, y: cy }, secret: true });
-      else {
-        chests.push({ id: `secret-${s}-a`, kind: 'small', position: { x: cx - 90, y: cy }, secret: true });
-        chests.push({ id: `secret-${s}-b`, kind: 'small', position: { x: cx + 90, y: cy }, secret: true });
-      }
-      reserved.push({ x: cx, y: cy, r: 320 });
-      break;
-    }
-  }
-
   // ---- Clearings: landing pad + anchor field must be free of obstacles/hazards ----
   const clearAt = (p: Vector2D, r: number) => {
     for (let i = walls.length - 1; i >= 0; i--) if (walls[i].id.startsWith('border-') || walls[i].id.startsWith('secret-') ? false : wallBlocks(walls[i], p, r)) walls.splice(i, 1);
@@ -440,7 +473,20 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
 
   // ---- Flood fill from the landing; relocate unreachable pickups ----
   const cell = 50, cols = Math.ceil(WORLD_W / cell), rows = Math.ceil(WORLD_H / cell);
-  const walkable = (p: Vector2D, r: number) => p.x >= r && p.y >= r && p.x <= WORLD_W - r && p.y <= WORLD_H - r && !walls.some(w => wallBlocks(w, p, r));
+  // Walls are final from here on; bucket them so the flood fill stays fast with dense biomes.
+  const BUCKET = 400, bucketCols = Math.ceil(WORLD_W / BUCKET);
+  const buckets = new Map<number, WorldWall[]>();
+  for (const w of walls) {
+    for (let bx = Math.floor((w.x - 100) / BUCKET); bx <= Math.floor((w.x + w.width + 100) / BUCKET); bx++) {
+      for (let by = Math.floor((w.y - 100) / BUCKET); by <= Math.floor((w.y + w.height + 100) / BUCKET); by++) {
+        const key = by * bucketCols + bx;
+        const list = buckets.get(key);
+        if (list) list.push(w); else buckets.set(key, [w]);
+      }
+    }
+  }
+  const walkable = (p: Vector2D, r: number) => p.x >= r && p.y >= r && p.x <= WORLD_W - r && p.y <= WORLD_H - r
+    && !(buckets.get(Math.floor(p.y / BUCKET) * bucketCols + Math.floor(p.x / BUCKET)) || []).some(w => wallBlocks(w, p, r));
   const reachable = new Uint8Array(cols * rows);
   const start = Math.floor(landing.y / cell) * cols + Math.floor(landing.x / cell);
   const bfs = [start]; reachable[start] = 1;
@@ -475,11 +521,13 @@ export function generateWorld(seed: number, opts: WorldGenOptions = {}): Generat
   // ---- Landing-pad pedestals for treasure/blackMarket modifiers ----
   const landingPedestals: LandingPedestalSpec[] = [];
   if (!hasYard && modifier === 'treasure') {
-    for (let k = 0; k < 3; k++) landingPedestals.push({ kind: 'treasure', offset: { x: Math.cos(-Math.PI / 2 + k * Math.PI * 2 / 3) * 150, y: Math.sin(-Math.PI / 2 + k * Math.PI * 2 / 3) * 150 } });
+    // Two flank the pad's upper corners and one sits below, leaving the RIFT LANDING label clear.
+    for (const a of [-Math.PI * 5 / 6, -Math.PI / 6, Math.PI / 2]) landingPedestals.push({ kind: 'treasure', offset: { x: Math.cos(a) * 170, y: Math.sin(a) * 170 } });
   }
   if (!hasYard && modifier === 'blackMarket') {
-    for (let k = 0; k < 4; k++) landingPedestals.push({ kind: 'shop', offset: { x: Math.cos(-Math.PI / 2 + k * Math.PI / 2) * 160, y: Math.sin(-Math.PI / 2 + k * Math.PI / 2) * 160 } });
-    landingPedestals.push({ kind: 'heal', offset: { x: 0, y: 190 } });
+    // Shops on the four corners, heal pedestal centred below; nothing overlaps the pad label.
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) landingPedestals.push({ kind: 'shop', offset: { x: sx * 180, y: sy * 110 - 10 } });
+    landingPedestals.push({ kind: 'heal', offset: { x: 0, y: 220 } });
   }
 
   regions[landingIndex].discovered = true;

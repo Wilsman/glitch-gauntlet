@@ -4,12 +4,15 @@ const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
 try {
   await page.goto(process.env.BASE_URL || 'http://localhost:5173');
-  const results = await page.evaluate(async () => {
+  // CHARACTERS=all (or a comma list) widens the default two-character playtest.
+  const ALL = ['spray-n-pray', 'boom-bringer', 'glass-cannon-carl', 'pet-pal-percy', 'vampire-vex', 'turret-tina', 'dash-dynamo', 'null-ronin'];
+  const roster = process.env.CHARACTERS === 'all' ? ALL : process.env.CHARACTERS ? process.env.CHARACTERS.split(',') : ['dash-dynamo', 'turret-tina'];
+  const results = await page.evaluate(async roster => {
     const { LocalGameEngine } = await import('/src/lib/LocalGameEngine.ts');
     const { WorldNavigator, distance } = await import('/src/lib/explorationWorld.ts');
     const runs = [];
     const neutral = { up: false, down: false, left: false, right: false };
-    for (const character of ['dash-dynamo', 'turret-tina']) for (const detour of [false, true]) {
+    for (const character of roster) for (const detour of [false, true]) {
       const e = new LocalGameEngine('playtest', character);
       e.configureExploration(0);
       const nav = new WorldNavigator();
@@ -62,7 +65,7 @@ try {
       runs.push({ character, route: detour ? 'cache detour' : 'direct', outcome: s.status === 'gameOver' ? 'defeated' : `stage ${w?.stage ?? '?'} ${w?.phase}`, stagesCleared: w?.run.stagesCleared ?? 0, activeSeconds: Math.round((w?.elapsedMs || 0) / 1000), health: s.players[0].health, level: s.players[0].level, guardianHealth: s.boss?.health || 0, chargePercent: Math.round((w?.anchor.chargeMs || 0) / 450), ...(w?.metrics || {}), simulationP95Ms: frames[Math.floor(frames.length * 0.95)] });
     }
     return runs;
-  });
+  }, roster);
   fs.mkdirSync('output/exploration', { recursive: true });
   fs.writeFileSync('output/exploration/playtest-runs.json', JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));

@@ -32,9 +32,16 @@ When you die you get a pixel-style screen with stages cleared, time, kills, best
 ## Two other changes
 
 - **Normal route map**: the redesign that was started has been dropped. Normal runs keep their existing route map unchanged.
-- **World polish**: a pass is still in progress because the biomes looked too empty in screenshots. It makes them much denser with obstacles and scenery, gives the floors visible textures, turns hazards into proper lava/goo/ice/warp pools, and fixes the full-map labels.
+- **World polish** (done): the biomes had looked empty because obstacle placement was broken (positions all piled into one corner, and footprints were checked with an oversized radius). Obstacle cover is now 4–10% in most biomes (about 16% in the arcade). Decor is about 3× denser, floors have textures, hazards are proper lava/goo/ice/warp pools, and full-map labels sit on backed tags. Secret rooms are carved out before obstacles are placed, and world generation takes about 85ms, down from about 230ms.
 
 ## Notes
 
 - Character select with everything unlocked for the Playground was already added in the last commit.
-- Follow-up: check every character works in the open world once this build lands, then send screenshots.
+- Every character has been checked in the open world (done). `scripts/verify_characters_open_world.mjs` drops all 8 characters into a different dense biome with an enemy pack and drives them with real keyboard input (move, fire, Shift blink, Q ability). All 8 move, deal damage and get kills with no page errors. `CHARACTERS=all node scripts/playtest_exploration.mjs` runs the playtest bot as every character.
+- Fixed during the check:
+  - The shared enemy/boss navigator could dead-end while hugging small obstacles. Stalls fell from 8/300 to 0 outside sealed pockets.
+  - Portal-card text overlapped. Cards are now measured, and cards for north portals sit beside them.
+  - The Black Market heal pedestal overlapped a shop pedestal.
+  - The "walk into a rift" prompt showed twice and wrongly showed the E key.
+  - Banners drew on top of the run summary.
+  - A 4px strip of the settings drawer peeked in at the top of the screen.
