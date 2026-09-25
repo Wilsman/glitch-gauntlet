@@ -511,7 +511,7 @@ export default function GameOverPage() {
           )}
         </motion.div>
       </div>
-      <SettingsPanel className="absolute right-4 top-1 z-30" />
+      <SettingsPanel className="absolute right-4 top-0 z-30" />
       <footer className="absolute bottom-4 text-center text-neon-cyan/50 font-vt323 text-xl z-20">
         <p>Built with ❤️ from Wilsman</p>
       </footer>

@@ -37,7 +37,6 @@ export default function ExplorationWorld({ world, player, now }: { world: Explor
     {world.hasYard && <Gate open={world.gateOpen} now={now} />}
     {!world.hasYard && inView(world.landing.x, world.landing.y, 300) && <LandingPad x={world.landing.x} y={world.landing.y} now={now} />}
     {world.pedestals.filter(p => inView(p.position.x, p.position.y, 220)).map(p => <PedestalView key={p.id} pedestal={p} now={now} />)}
-    {world.portals.filter(p => inView(p.position.x, p.position.y, 300)).map(p => <PortalView key={p.id} portal={p} now={now} />)}
     {world.walls.filter(w => w.cracked && inView(w.x + w.width / 2, w.y + w.height / 2, 300)).map(w => <CrackedGlint key={w.id} wall={w} now={now} />)}
     {world.pads.filter(p => inView(p.position.x, p.position.y)).map(pad => <BoostPadView key={pad.id} x={pad.position.x} y={pad.position.y} angle={pad.angle} now={now} />)}
     {world.chests.filter(c => inView(c.position.x, c.position.y)).map(chest => <ChestView key={chest.id} chest={chest} now={now} affordable={coins >= chest.cost} />)}
@@ -54,6 +53,8 @@ export default function ExplorationWorld({ world, player, now }: { world: Explor
       <Text x={-120} y={-112} width={240} align="center" text={elite.started ? 'ELITE ACTIVE' : 'ELITE CHALLENGE'} fill="#fcd34d" fontFamily={PIXEL_FONT} fontSize={11} />
     </Group>}
     {inView(anchor.position.x, anchor.position.y, anchor.radius + 400) && <AnchorView world={world} now={now} />}
+    {/* Portals draw after the anchor so its field rings never cross the modifier cards. */}
+    {world.portals.filter(p => inView(p.position.x, p.position.y, 300)).map(p => <PortalView key={p.id} portal={p} now={now} side={p.position.y < world.anchor.position.y - 40 ? (p.position.x < world.anchor.position.x - 40 ? -1 : 1) : 0} />)}
     {world.spawnWarnings?.map((warning, i) => {
       const t = warning.remainingMs / 900;
       return <Group key={i} x={warning.position.x} y={warning.position.y}>
@@ -312,10 +313,42 @@ function PedestalView({ pedestal, now }: { pedestal: WorldPedestal; now: number 
   </Group>;
 }
 
-// Swirling rift portal with a holographic modifier card floating above it.
-function PortalView({ portal, now }: { portal: { position: { x: number; y: number }; modifier: keyof typeof STAGE_MODIFIERS }; now: number }) {
+// Word-wrapped line count for card text, measured with the real font so lines never overlap.
+let measureCtx: CanvasRenderingContext2D | null = null;
+function wrappedLines(text: string, font: string, maxWidth: number) {
+  measureCtx ||= document.createElement('canvas').getContext('2d');
+  if (!measureCtx) return 1;
+  measureCtx.font = font;
+  let lines = 1, line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && measureCtx.measureText(next).width > maxWidth) { lines++; line = word; } else line = next;
+  }
+  return lines;
+}
+
+const CARD_FONT = '"VT323", monospace';
+
+// Swirling rift portal with a holographic modifier card. Cards float above the portal, except for portals
+// north of the anchor (side = ±1), whose cards sit beside them so they stay on screen and off the anchor.
+function PortalView({ portal, now, side }: { portal: { position: { x: number; y: number }; modifier: keyof typeof STAGE_MODIFIERS }; now: number; side: number }) {
   const mod = STAGE_MODIFIERS[portal.modifier];
   const swirl = now / 60;
+  const textW = 260;
+  const rows = [
+    { text: mod.flavour, size: 17, fill: '#cbd5e1' },
+    { text: `+ ${mod.reward}`, size: 15, fill: '#4ade80' },
+    { text: `- ${mod.risk}`, size: 15, fill: '#f87171' },
+  ];
+  let cursor = 26;
+  const laid = rows.map(row => {
+    const lineHeight = row.size + 2;
+    const y = cursor;
+    cursor += wrappedLines(row.text, `${row.size}px ${CARD_FONT}`, textW) * lineHeight + 4;
+    return { ...row, y, lineHeight };
+  });
+  const cardH = cursor + 6;
+  const cardX = side * 230, cardY = side ? -cardH / 2 : -96 - cardH;
   return <Group x={portal.position.x} y={portal.position.y}>
     <Circle radius={64} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={4} fillRadialGradientEndRadius={64} fillRadialGradientColorStops={[0, '#ffffff', 0.35, mod.color, 1, 'rgba(0,0,0,0)']} opacity={0.85} />
     {[0, 1, 2].map(i => <Arc key={i} innerRadius={48 + i * 12} outerRadius={54 + i * 12} angle={200} rotation={swirl * (1 + i * 0.4) + i * 120} fill={i === 1 ? '#ffffff' : mod.color} opacity={0.8 - i * 0.2} />)}
@@ -324,13 +357,11 @@ function PortalView({ portal, now }: { portal: { position: { x: number; y: numbe
       const d = 40 + ((now / 10 + i * 30) % 55);
       return <Rect key={i} x={Math.cos(a) * d} y={Math.sin(a) * d * 0.9} width={5} height={5} fill={mod.color} opacity={Math.max(0, 1 - d / 100)} />;
     })}
-    <Group y={-190 + Math.sin(now / 400) * 5}>
-      <Rect x={-140} y={-52} width={280} height={104} fill="#050914" stroke={mod.color} strokeWidth={3} cornerRadius={6} opacity={0.95} />
-      {[[-140, -52], [136, -52], [-140, 48], [136, 48]].map(([rx, ry], i) => <Rect key={i} x={rx} y={ry} width={8} height={8} fill={mod.color} />)}
-      <Text x={-136} y={-46} width={272} align="center" text={mod.name} fontFamily={PIXEL_FONT} fontSize={12} fill={mod.color} />
-      <Text x={-130} y={-24} width={260} align="center" text={mod.flavour} fontFamily='"VT323", monospace' fontSize={17} fill="#cbd5e1" />
-      <Text x={-130} y={-2} width={260} align="center" text={`+ ${mod.reward}`} fontFamily='"VT323", monospace' fontSize={15} fill="#4ade80" />
-      <Text x={-130} y={22} width={260} align="center" text={`- ${mod.risk}`} fontFamily='"VT323", monospace' fontSize={15} fill="#f87171" />
+    <Group x={cardX} y={cardY + Math.sin(now / 400) * 5}>
+      <Rect x={-140} y={0} width={280} height={cardH} fill="#050914" stroke={mod.color} strokeWidth={3} cornerRadius={6} opacity={0.95} />
+      {[[-140, 0], [132, 0], [-140, cardH - 8], [132, cardH - 8]].map(([rx, ry], i) => <Rect key={i} x={rx} y={ry} width={8} height={8} fill={mod.color} />)}
+      <Text x={-136} y={8} width={272} align="center" text={mod.name} fontFamily={PIXEL_FONT} fontSize={12} fill={mod.color} />
+      {laid.map((row, i) => <Text key={i} x={-textW / 2} y={row.y} width={textW} align="center" text={row.text} fontFamily={CARD_FONT} fontSize={row.size} lineHeight={row.lineHeight / row.size} fill={row.fill} />)}
     </Group>
   </Group>;
 }

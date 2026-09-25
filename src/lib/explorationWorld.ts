@@ -201,6 +201,18 @@ export class WorldNavigator {
       if (next < 0 || next >= this.field.length) continue;
       if (this.field[next] >= 0 && this.field[next] < cost && lineClear(world, from, point(next), radius)) { best = next; cost = this.field[next]; }
     }
+    if (best === current && this.field[current] !== 0) {
+      // Hugging an obstacle (or standing in a cell the grid calls blocked): no 4-neighbour is cleanly
+      // reachable at full radius. Widen to diagonals and a 2-cell ring with a relaxed line check;
+      // moveWorld slides the body around the corner, so this never returns our own cell as a dead end.
+      const col = current % cols;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        if ((!dx && !dy) || col + dx < 0 || col + dx >= cols) continue;
+        const next = current + dy * cols + dx;
+        if (next < 0 || next >= this.field.length || this.field[next] < 0 || this.field[next] >= cost) continue;
+        if (lineClear(world, from, point(next), Math.max(4, radius / 2))) { best = next; cost = this.field[next]; }
+      }
+    }
     return point(best);
   }
 }

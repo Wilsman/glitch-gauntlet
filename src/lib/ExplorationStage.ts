@@ -404,7 +404,7 @@ export class ExplorationStage {
       }
     } else if (world.phase === 'pedestals') {
       const pedestal = world.pedestals.find(p => p.kind === 'boss' && !p.taken && distance(p.position, player.position) < 55);
-      world.prompt = 'Claim a boss relic';
+      world.prompt = 'Walk onto a boss relic to claim it';
       if (pedestal) this.takePedestal(state, world, player, pedestal, hooks);
     } else if (world.phase === 'results') {
       world.prompt = 'Press E to continue';
@@ -412,7 +412,7 @@ export class ExplorationStage {
       if (pressed || !world.results || world.results.ms <= 0) { world.results = null; world.phase = 'portals'; this.openPortals(world); }
     } else if (world.phase === 'portals') {
       const near = world.portals.find(p => distance(p.position, player.position) < 220);
-      if (near) world.prompt = `Walk into a rift to choose the next stage`;
+      if (near) world.prompt = `Walk into the ${STAGE_MODIFIERS[near.modifier].name} rift to commit`;
       const portal = world.warpMs <= 0 && world.portals.find(p => distance(p.position, player.position) < 60);
       if (portal) {
         world.pendingModifier = portal.modifier;

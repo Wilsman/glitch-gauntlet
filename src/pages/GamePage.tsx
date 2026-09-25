@@ -543,7 +543,7 @@ export default function GamePage() {
           localPlayerPet={localPlayerPet}
         />
       )}
-      <SettingsPanel className="fixed right-4 top-1 z-50" />
+      <SettingsPanel className="fixed right-4 top-0 z-50" />
 
       <AnimatePresence mode="wait">
         {isLocalMode &&
@@ -618,7 +618,7 @@ function PrototypeRunSummary({ gameState, player, onRestart, onMenu }: { gameSta
     ['PEAK THREAT', tier?.label || 'EASY'],
     ['LEVEL', String(player?.level ?? 1)],
   ];
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" data-testid="prototype-run-summary">
+  return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" data-testid="prototype-run-summary">
     <div className="w-[min(560px,94vw)] rounded-lg border-4 border-cyan-400 bg-[#0a0f1e] p-6 text-white shadow-[0_0_80px_rgba(34,211,238,0.25)]">
       <div className="font-press-start text-center text-[10px] tracking-[0.5em] text-slate-400">GLITCH LOOP</div>
       <h2 className="mt-2 text-center font-press-start text-3xl text-cyan-300" style={{ textShadow: '3px 3px 0 #020617, 0 0 30px #22d3ee' }}>RUN SUMMARY</h2>

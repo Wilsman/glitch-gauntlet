@@ -79,11 +79,6 @@ function drawWorldMap(ctx: CanvasRenderingContext2D, world: ExplorationState, pl
     ctx.strokeStyle = '#67e8f9'; ctx.lineWidth = Math.max(2, 26 * scale);
     ctx.beginPath(); ctx.arc(ax, ay, 90 * scale, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#67e8f9'; ctx.beginPath(); ctx.arc(ax, ay, Math.max(3, 40 * scale), 0, Math.PI * 2); ctx.fill();
-    if (labels) {
-      ctx.font = '12px "Press Start 2P", monospace';
-      ctx.fillStyle = '#a5f3fc'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillText(`${Math.round(distance(player.position, world.anchor.position))}m`, ax, ay + Math.max(6, 100 * scale));
-    }
   }
   ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5;
   ctx.strokeRect(X(world.camera.x), Y(world.camera.y), VIEW_WIDTH * scale, VIEW_HEIGHT * scale);
@@ -95,23 +90,31 @@ function drawWorldMap(ctx: CanvasRenderingContext2D, world: ExplorationState, pl
   ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = Math.max(2, 18 * scale);
   ctx.beginPath(); ctx.arc(px, py, Math.max(4, 70 * scale), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   if (labels) {
+    // Region names sit on backed tags along each region's top edge, clear of the markers in the middle.
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const region of world.biomes) {
-      const maxW = region.width * scale * 0.9;
       const name = region.discovered ? region.name : '???';
-      // Fit the label inside the region: wrap to two lines, then shrink.
-      const words = name.split(' ');
-      const lines = words.length > 1 && ctx.measureText(name).width > maxW
-        ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')]
-        : [name];
-      let size = region.discovered ? 15 : 13;
+      const maxW = region.width * scale - 20;
+      let size = region.discovered ? 11 : 10;
       ctx.font = `${size}px "Press Start 2P", monospace`;
-      while (size > 7 && lines.some(line => ctx.measureText(line).width > maxW)) {
-        size -= 1; ctx.font = `${size}px "Press Start 2P", monospace`;
-      }
-      ctx.fillStyle = region.discovered ? region.neon : 'rgba(100,116,139,0.6)';
-      const cy = Y(region.y + region.height / 2) - (lines.length - 1) * (size + 4) / 2;
-      lines.forEach((line, i) => ctx.fillText(line, X(region.x + region.width / 2), cy + i * (size + 4)));
+      while (size > 6 && ctx.measureText(name).width > maxW - 16) { size -= 1; ctx.font = `${size}px "Press Start 2P", monospace`; }
+      const tw = ctx.measureText(name).width + 16, th = size + 10;
+      const tx = X(region.x + region.width / 2) - tw / 2, ty = Y(region.y) + 8;
+      ctx.fillStyle = 'rgba(5,9,18,0.88)'; ctx.fillRect(tx, ty, tw, th);
+      ctx.strokeStyle = region.discovered ? hexAlpha(region.neon, 0.7) : 'rgba(100,116,139,0.35)'; ctx.lineWidth = 1;
+      ctx.strokeRect(tx + 0.5, ty + 0.5, tw - 1, th - 1);
+      ctx.fillStyle = region.discovered ? region.neon : 'rgba(100,116,139,0.7)';
+      ctx.fillText(name, tx + tw / 2, ty + th / 2 + 1);
+    }
+    if (world.anchor.discovered) {
+      const label = `ANCHOR ${Math.round(distance(player.position, world.anchor.position))}m`;
+      ctx.font = '10px "Press Start 2P", monospace';
+      const tw = ctx.measureText(label).width + 12, th = 18;
+      const ax = X(world.anchor.position.x), ay = Y(world.anchor.position.y) + Math.max(10, 110 * scale);
+      const tx = Math.min(w - tw - 4, Math.max(4, ax - tw / 2)), ty = Math.min(h - th - 4, ay);
+      ctx.fillStyle = 'rgba(5,9,18,0.9)'; ctx.fillRect(tx, ty, tw, th);
+      ctx.strokeStyle = 'rgba(103,232,249,0.7)'; ctx.strokeRect(tx + 0.5, ty + 0.5, tw - 1, th - 1);
+      ctx.fillStyle = '#a5f3fc'; ctx.fillText(label, tx + tw / 2, ty + th / 2 + 1);
     }
   }
 }
@@ -290,7 +293,7 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
 
     <div className="fixed bottom-7 left-1/2 z-30 flex max-w-[60vw] -translate-x-1/2 flex-col items-center gap-2 pointer-events-none text-center">
       {world.noticeMs > 0 && <div className="rounded-md border border-cyan-300/40 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-cyan-100 backdrop-blur-sm">{world.notice}</div>}
-      {world.prompt && <div className="rounded-md border border-yellow-300/60 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"><kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>{world.prompt}</div>}
+      {world.prompt && <div className="rounded-md border border-yellow-300/60 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">{!/^walk /i.test(world.prompt) && <kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>}{world.prompt}</div>}
     </div>
   </div>;
 }
