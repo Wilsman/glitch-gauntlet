@@ -13,6 +13,8 @@ export interface SpriteInfo {
  * /assets/sprites/_archive/characters; flip this flag to render them again.
  */
 export const USE_LEGACY_CHARACTER_SPRITES = false;
+/** Same for enemies (archived under /assets/sprites/_archive/enemies). */
+export const USE_LEGACY_ENEMY_SPRITES = false;
 
 export const SPRITE_MAP = {
     legacyCharacters: {
@@ -66,23 +68,23 @@ export const SPRITE_MAP = {
             animationSpeed: 80
         }
     },
-    enemies: {
+    legacyEnemies: {
         'slugger': {
-            framePath: '/assets/sprites/slugger/{i}.png',
+            framePath: '/assets/sprites/_archive/enemies/slugger/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 150
         },
         'hellhound': {
-            framePath: '/assets/sprites/hellhound/{i}.png',
+            framePath: '/assets/sprites/_archive/enemies/hellhound/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 120
         },
         'grunt': {
-            framePath: '/assets/sprites/grunt/{i}.png',
+            framePath: '/assets/sprites/_archive/enemies/grunt/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
@@ -92,4 +94,4 @@ export const SPRITE_MAP = {
 } as const;
 
 export type LegacyCharacterSpriteType = keyof typeof SPRITE_MAP.legacyCharacters;
-export type EnemyType = keyof typeof SPRITE_MAP.enemies;
+export type LegacyEnemySpriteType = keyof typeof SPRITE_MAP.legacyEnemies;

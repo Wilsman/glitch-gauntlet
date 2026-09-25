@@ -8,9 +8,16 @@ import {
   type RenderVariant,
 } from "./engine";
 import { CHARACTER_ART, DACHSHUND_ART } from "./characters";
+import type { CreatureArt, CreatureContext } from "./draw";
+import { drawCreature, ENEMY_ART } from "./enemies";
+import { BOSS_ART } from "./bosses";
+import { hashId } from "./draw";
 
 export { CANVAS_SIZE, ART_PAD, ART_SIZE } from "./engine";
 export { CHARACTER_ART, DACHSHUND_ART } from "./characters";
+export { ENEMY_ART } from "./enemies";
+export { BOSS_ART } from "./bosses";
+export type { CreatureArt, CreatureContext } from "./draw";
 
 /** World units per art pixel for in-game rendering. */
 export const PIXEL_SCALE = 2.5;
@@ -275,4 +282,204 @@ export function resolvePetFrame(
     rim: !hitFlash,
   });
   return { canvas, facing: memory.facing };
+}
+
+// ---------------------------------------------------------------------------
+// Creatures (enemies & bosses)
+// ---------------------------------------------------------------------------
+
+export function getCreatureFrame(
+  art: CreatureArt,
+  ctx: CreatureContext,
+  variant: RenderVariant = "normal",
+  rim = true,
+): HTMLCanvasElement {
+  const key = [
+    art.id,
+    ctx.frame,
+    ctx.moving ? 1 : 0,
+    ctx.state,
+    ctx.charge,
+    ctx.enraged ? 1 : 0,
+    variant,
+    rim ? 1 : 0,
+  ].join("|");
+  const cached = frameCache.get(key);
+  if (cached) return cached;
+  const style = ctx.enraged && art.enragedPalette
+    ? { ...art, palette: { ...art.palette, ...art.enragedPalette } }
+    : art;
+  const canvas = rasterize(style, drawCreature(art, ctx), { variant, rim });
+  frameCache.set(key, canvas);
+  return canvas;
+}
+
+/** World units per art pixel for enemies (matches players) and bosses. */
+export const ENEMY_PIXEL_SCALE = 2.5;
+export const BOSS_PIXEL_SCALE = 3;
+
+const creatureMemory = new Map<
+  string,
+  { x: number; y: number; facing: 1 | -1; movingUntil: number; seenAt: number }
+>();
+
+function trackCreatureMotion(
+  id: string,
+  position: { x: number; y: number },
+  now: number,
+): { moving: boolean; facing: 1 | -1 } {
+  let memory = creatureMemory.get(id);
+  if (!memory) {
+    memory = { x: position.x, y: position.y, facing: 1, movingUntil: 0, seenAt: now };
+    creatureMemory.set(id, memory);
+  }
+  const dx = position.x - memory.x;
+  const dy = position.y - memory.y;
+  if (Math.abs(dx) + Math.abs(dy) > 0.25) memory.movingUntil = now + 140;
+  if (dx > 0.2) memory.facing = 1;
+  else if (dx < -0.2) memory.facing = -1;
+  memory.x = position.x;
+  memory.y = position.y;
+  memory.seenAt = now;
+  // Occasionally drop entries for creatures that are gone.
+  if (creatureMemory.size > 600) {
+    for (const [key, value] of creatureMemory) {
+      if (now - value.seenAt > 5000) creatureMemory.delete(key);
+    }
+  }
+  return { moving: now < memory.movingUntil, facing: memory.facing };
+}
+
+const bucket = (progress: number) =>
+  Math.max(0, Math.min(3, Math.floor(progress * 4)));
+
+interface AnimatableEnemy {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  attackCooldown?: number;
+  attackSpeed?: number;
+  pulseTelegraphUntil?: number;
+  chargeTelegraphUntil?: number;
+  chargeUntil?: number;
+  supportLinkUntil?: number;
+  explodeTelegraphUntil?: number;
+  eliteAffix?: string;
+  isPackAlpha?: boolean;
+}
+
+export interface CreatureFrame {
+  canvas: HTMLCanvasElement;
+  facing: 1 | -1;
+  state: CreatureContext["state"];
+  charge: number;
+}
+
+export function resolveEnemyFrame(
+  enemy: AnimatableEnemy,
+  now: number,
+  variant: RenderVariant = "normal",
+): CreatureFrame | null {
+  const art = (ENEMY_ART as Record<string, CreatureArt | undefined>)[enemy.type];
+  if (!art) return null;
+  const motion = trackCreatureMotion(enemy.id, enemy.position, now);
+
+  let state: CreatureContext["state"] = "idle";
+  let charge = 0;
+  const telegraph = (until: number | undefined, duration: number) => {
+    if (until && until > now) {
+      state = "telegraph";
+      charge = bucket(1 - (until - now) / duration);
+      return true;
+    }
+    return false;
+  };
+
+  switch (enemy.type) {
+    case "slugger": {
+      const cd = enemy.attackCooldown ?? Infinity;
+      const speed = enemy.attackSpeed ?? 2500;
+      if (speed - cd < 200 && cd > 0) {
+        state = "attack";
+      } else if (cd < 500) {
+        state = "telegraph";
+        charge = bucket(1 - Math.max(0, cd) / 500);
+      }
+      break;
+    }
+    case "neon-pulse":
+      telegraph(enemy.pulseTelegraphUntil, 900);
+      break;
+    case "tank-bot":
+      if (enemy.chargeUntil && enemy.chargeUntil > now) state = "attack";
+      else telegraph(enemy.chargeTelegraphUntil, 700);
+      break;
+    case "leech-beacon":
+      telegraph(enemy.supportLinkUntil, 1200);
+      break;
+    case "bomber":
+      telegraph(enemy.explodeTelegraphUntil, 750);
+      break;
+  }
+
+  const frameMs = art.frameMs ?? 140;
+  const phase = hashId(enemy.id) % 997;
+  const moving = motion.moving || state === "attack";
+  const ctx: CreatureContext = {
+    frame: Math.floor((now + phase) / (moving ? frameMs : frameMs * 1.5)) % 4,
+    moving,
+    state,
+    charge,
+    enraged: !!enemy.eliteAffix || !!enemy.isPackAlpha,
+  };
+  return {
+    canvas: getCreatureFrame(art, ctx, variant),
+    facing: art.directional ? motion.facing : 1,
+    state,
+    charge,
+  };
+}
+
+interface AnimatableBoss {
+  id: string;
+  type: string;
+  phase?: number;
+  isEnraged?: boolean;
+  currentAttack?: {
+    telegraphStartTime: number;
+    telegraphDuration: number;
+    executeTime?: number;
+  };
+}
+
+export function resolveBossFrame(
+  boss: AnimatableBoss,
+  now: number,
+  variant: RenderVariant = "normal",
+): CreatureFrame | null {
+  const art = (BOSS_ART as Record<string, CreatureArt | undefined>)[boss.type];
+  if (!art) return null;
+  let state: CreatureContext["state"] = "idle";
+  let charge = 0;
+  const attack = boss.currentAttack;
+  if (attack) {
+    const executeAt =
+      attack.executeTime ?? attack.telegraphStartTime + attack.telegraphDuration;
+    if (now < executeAt) {
+      state = "telegraph";
+      const duration = Math.max(1, executeAt - attack.telegraphStartTime);
+      charge = bucket((now - attack.telegraphStartTime) / duration);
+    } else if (now - executeAt < 450) {
+      state = "attack";
+    }
+  }
+  const frameMs = art.frameMs ?? 150;
+  const ctx: CreatureContext = {
+    frame: Math.floor(now / (state === "idle" ? frameMs : frameMs * 0.6)) % 4,
+    moving: false,
+    state,
+    charge,
+    enraged: !!boss.isEnraged || boss.phase === 2,
+  };
+  return { canvas: getCreatureFrame(art, ctx, variant), facing: 1, state, charge };
 }

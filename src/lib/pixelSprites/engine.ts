@@ -60,12 +60,16 @@ export interface FrameContext {
   damageLevel: number;
 }
 
-export interface CharacterArt {
+/** Colour information shared by every piece of pixel art. */
+export interface ArtStyle {
   id: string;
   palette: Record<string, string>;
   /** Signature colour used for the rim light and in-game glow. */
   signature: string;
   outline?: string;
+}
+
+export interface CharacterArt extends ArtStyle {
   back?: (ctx: FrameContext) => Part | null;
   legs: LegStyle;
   upper: Part;
@@ -78,9 +82,9 @@ export interface CharacterArt {
   attackFrames?: number;
 }
 
-export function createGrid(): Grid {
-  return Array.from({ length: ART_SIZE }, () =>
-    Array<string | null>(ART_SIZE).fill(null),
+export function createGrid(width = ART_SIZE, height = width): Grid {
+  return Array.from({ length: height }, () =>
+    Array<string | null>(width).fill(null),
   );
 }
 
@@ -138,7 +142,11 @@ function drawLeg(
   }
 }
 
-export function drawLegs(g: Grid, style: LegStyle, ctx: FrameContext) {
+export function drawLegs(
+  g: Grid,
+  style: LegStyle,
+  ctx: Pick<FrameContext, "moving" | "frame">,
+) {
   const pose = ctx.moving ? RUN_POSES[ctx.frame % 4] : [0, 0, 0, 0];
   drawLeg(g, style, style.backX + pose[0], pose[1], true);
   drawLeg(g, style, style.frontX + pose[2], pose[3], false);
@@ -213,7 +221,24 @@ export function composeFrame(art: CharacterArt, ctx: FrameContext): Grid {
   return g;
 }
 
-export type RenderVariant = "normal" | "white" | "ghost" | "dead";
+export type RenderVariant =
+  | "normal"
+  | "white"
+  | "ghost"
+  | "dead"
+  | "crit"
+  | "burn"
+  | "poison"
+  | "frozen"
+  | "flash";
+
+const TINTS: Partial<Record<RenderVariant, [number, number, number, number]>> = {
+  crit: [255, 70, 70, 0.55],
+  burn: [255, 110, 20, 0.42],
+  poison: [60, 255, 90, 0.4],
+  frozen: [120, 220, 255, 0.45],
+  flash: [255, 255, 255, 0.6],
+};
 
 export interface RasterOptions {
   variant?: RenderVariant;
@@ -238,6 +263,15 @@ function transformColor(
   variant: RenderVariant,
 ): [number, number, number] {
   if (variant === "white") return [255, 255, 255];
+  const tint = TINTS[variant];
+  if (tint) {
+    const [tr, tg, tb, amount] = tint;
+    return [
+      Math.round(rgb[0] + (tr - rgb[0]) * amount),
+      Math.round(rgb[1] + (tg - rgb[1]) * amount),
+      Math.round(rgb[2] + (tb - rgb[2]) * amount),
+    ];
+  }
   const lum = rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114;
   if (variant === "dead") {
     const v = Math.round(lum * 0.7 + 20);
@@ -258,33 +292,37 @@ function transformColor(
  * outline (and optional rim) around every non-FX pixel.
  */
 export function rasterize(
-  art: CharacterArt,
+  art: ArtStyle,
   grid: Grid,
   options: RasterOptions = {},
 ): HTMLCanvasElement {
   const variant = options.variant ?? "normal";
-  const size = CANVAS_SIZE;
-  const layer: (string | null)[][] = Array.from({ length: size }, () =>
-    Array<string | null>(size).fill(null),
+  const gridH = grid.length;
+  const gridW = grid[0]?.length ?? 0;
+  const width = gridW + ART_PAD * 2;
+  const height = gridH + ART_PAD * 2;
+  const layer: (string | null)[][] = Array.from({ length: height }, () =>
+    Array<string | null>(width).fill(null),
   );
-  for (let y = 0; y < ART_SIZE; y++) {
-    for (let x = 0; x < ART_SIZE; x++) {
+  for (let y = 0; y < gridH; y++) {
+    for (let x = 0; x < gridW; x++) {
       layer[y + ART_PAD][x + ART_PAD] = grid[y][x];
     }
   }
 
+  const inBounds = (x: number, y: number) =>
+    y >= 0 && y < height && x >= 0 && x < width;
   const isBody = (x: number, y: number) => {
-    if (y < 0 || y >= size || x < 0 || x >= size) return false;
+    if (!inBounds(x, y)) return false;
     const key = layer[y][x];
     return !!key && key !== OUTLINE_KEY && key !== RIM_KEY && !key.startsWith(FX_PREFIX);
   };
-  const isFilled = (x: number, y: number) =>
-    y >= 0 && y < size && x >= 0 && x < size && !!layer[y][x];
+  const isFilled = (x: number, y: number) => inBounds(x, y) && !!layer[y][x];
 
   // Outline: any empty pixel 4-adjacent to a body pixel.
   const outline: [number, number][] = [];
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       if (layer[y][x]) continue;
       if (isBody(x - 1, y) || isBody(x + 1, y) || isBody(x, y - 1) || isBody(x, y + 1)) {
         outline.push([x, y]);
@@ -295,8 +333,8 @@ export function rasterize(
 
   if (options.rim) {
     const rim: [number, number][] = [];
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
         if (layer[y][x]) continue;
         const touches = (nx: number, ny: number) =>
           isFilled(nx, ny) && layer[ny][nx] === OUTLINE_KEY;
@@ -309,17 +347,17 @@ export function rasterize(
   }
 
   const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = width;
+  canvas.height = height;
   const ctx2d = canvas.getContext("2d");
   if (!ctx2d) return canvas;
-  const image = ctx2d.createImageData(size, size);
+  const image = ctx2d.createImageData(width, height);
   const outlineRgb = hexToRgb(art.outline ?? "#0b0810");
   const rimRgb = hexToRgb(art.signature);
   const colorCache = new Map<string, [number, number, number]>();
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       const key = layer[y][x];
       if (!key) continue;
       let rgb: [number, number, number];
@@ -340,7 +378,7 @@ export function rasterize(
         }
         rgb = cached;
       }
-      const i = (y * size + x) * 4;
+      const i = (y * width + x) * 4;
       image.data[i] = rgb[0];
       image.data[i + 1] = rgb[1];
       image.data[i + 2] = rgb[2];

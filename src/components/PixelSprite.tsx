@@ -11,28 +11,34 @@ import { getPortraitFrame } from "@/lib/pixelSprites";
 export function PixelSpriteNode({
   image,
   size,
+  pixelScale,
   x = 0,
   y = 0,
   flipX = false,
   rotation = 0,
   opacity = 1,
   scaleY = 1,
+  scale = 1,
 }: {
   image: HTMLCanvasElement;
-  size: number;
+  /** Square draw size in world units, or use pixelScale for non-square art. */
+  size?: number;
+  pixelScale?: number;
   x?: number;
   y?: number;
   flipX?: boolean;
   rotation?: number;
   opacity?: number;
   scaleY?: number;
+  /** Uniform scale applied on top of flip / scaleY (squash & stretch). */
+  scale?: number;
 }) {
   return (
     <Shape
       x={x}
       y={y}
-      scaleX={flipX ? -1 : 1}
-      scaleY={scaleY}
+      scaleX={(flipX ? -1 : 1) * scale}
+      scaleY={scaleY * scale}
       rotation={rotation}
       opacity={opacity}
       listening={false}
@@ -41,7 +47,9 @@ export function PixelSpriteNode({
         const ctx = context._context;
         const previous = ctx.imageSmoothingEnabled;
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(image, -size / 2, -size / 2, size, size);
+        const w = pixelScale ? image.width * pixelScale : (size ?? image.width);
+        const h = pixelScale ? image.height * pixelScale : (size ?? image.height);
+        ctx.drawImage(image, -w / 2, -h / 2, w, h);
         ctx.imageSmoothingEnabled = previous;
       }}
     />

@@ -13,8 +13,16 @@ import {
 } from "react-konva";
 import ExplorationWorld, { ExplorationFX } from "./ExplorationWorld";
 import ExplorationScreenFX from "./ExplorationScreenFX";
-import { SPRITE_MAP, USE_LEGACY_CHARACTER_SPRITES } from "@/lib/spriteMap";
 import {
+  SPRITE_MAP,
+  USE_LEGACY_CHARACTER_SPRITES,
+  USE_LEGACY_ENEMY_SPRITES,
+} from "@/lib/spriteMap";
+import {
+  BOSS_PIXEL_SCALE,
+  ENEMY_PIXEL_SCALE,
+  resolveBossFrame,
+  resolveEnemyFrame,
   resolvePetFrame,
   resolvePlayerAnimation,
   SPRITE_WORLD_SIZE,
@@ -1471,21 +1479,19 @@ const EnemyVisuals = memo(
 
     const isBurning = enemy.statusEffects?.some((e) => e.type === "burning");
 
-    const spriteConfig = (SPRITE_MAP.enemies as any)[enemy.type];
-    const staticSprite = useSprite(spriteConfig?.url);
+    const spriteConfig = USE_LEGACY_ENEMY_SPRITES
+      ? (SPRITE_MAP.legacyEnemies as any)[enemy.type]
+      : undefined;
     const animatedFrames = useAnimatedSprite(
       spriteConfig?.framePath,
       spriteConfig?.frames,
     );
-
-    // Calculate current frame if it's an animation
-    const currentFrameIndex = spriteConfig?.frames
-      ? Math.floor(now / (spriteConfig.animationSpeed || 100)) %
-        spriteConfig.frames
-      : 0;
     const sprite = spriteConfig?.frames
-      ? animatedFrames[currentFrameIndex]
-      : staticSprite;
+      ? animatedFrames[
+          Math.floor(now / (spriteConfig.animationSpeed || 100)) %
+            spriteConfig.frames
+        ]
+      : undefined;
     const isPoisoned = enemy.statusEffects?.some((e) => e.type === "poisoned");
     const isSlowed = enemy.statusEffects?.some((e) => e.type === "slowed");
 
@@ -1535,6 +1541,33 @@ const EnemyVisuals = memo(
       size = 18;
     }
 
+    const enemyFrame = sprite
+      ? null
+      : resolveEnemyFrame(
+          enemy,
+          now,
+          isCrit
+            ? "crit"
+            : isHit
+              ? "white"
+              : isBurning
+                ? "burn"
+                : isPoisoned
+                  ? "poison"
+                  : isSlowed
+                    ? "frozen"
+                    : "normal",
+        );
+    const enemyDrawWidth = enemyFrame
+      ? (enemyFrame.canvas.width - 4) * ENEMY_PIXEL_SCALE
+      : 0;
+    const enemyDrawHeight = enemyFrame
+      ? enemyFrame.canvas.height * ENEMY_PIXEL_SCALE
+      : 0;
+    if (enemyFrame) {
+      size = Math.max(size, Math.max(enemyDrawWidth, enemyDrawHeight) * 0.75);
+    }
+
     if (isCrit) {
       fill = "#FF5A5A";
       shadow = "#FF5A5A";
@@ -1553,26 +1586,26 @@ const EnemyVisuals = memo(
 
     const isLowHealth = enemy.health / enemy.maxHealth < 0.25;
     const isPulseTelegraphing =
-      enemy.pulseTelegraphUntil && enemy.pulseTelegraphUntil > now;
+      !!enemy.pulseTelegraphUntil && enemy.pulseTelegraphUntil > now;
     const pulseTelegraphProgress = isPulseTelegraphing
       ? 1 - Math.max(0, (enemy.pulseTelegraphUntil - now) / 900)
       : 0;
     const isTankTelegraphing =
-      enemy.chargeTelegraphUntil && enemy.chargeTelegraphUntil > now;
-    const isTankCharging = enemy.chargeUntil && enemy.chargeUntil > now;
+      !!enemy.chargeTelegraphUntil && enemy.chargeTelegraphUntil > now;
+    const isTankCharging = !!enemy.chargeUntil && enemy.chargeUntil > now;
     const isSupportCasting =
-      enemy.supportLinkUntil && enemy.supportLinkUntil > now;
+      !!enemy.supportLinkUntil && enemy.supportLinkUntil > now;
     const isSupportBuffed =
-      enemy.supportBuffUntil && enemy.supportBuffUntil > now;
+      !!enemy.supportBuffUntil && enemy.supportBuffUntil > now;
     const isBomberTelegraphing =
-      enemy.explodeTelegraphUntil && enemy.explodeTelegraphUntil > now;
+      !!enemy.explodeTelegraphUntil && enemy.explodeTelegraphUntil > now;
     const bomberTelegraphProgress = isBomberTelegraphing
       ? 1 - Math.max(0, (enemy.explodeTelegraphUntil - now) / 750)
       : 0;
     const hasPackLeaderMark =
       enemy.type === "hellhound" &&
-      enemy.isPackAlpha &&
-      enemy.packMarkUntil &&
+      !!enemy.isPackAlpha &&
+      !!enemy.packMarkUntil &&
       enemy.packMarkUntil > now;
 
     return (
@@ -1783,226 +1816,30 @@ const EnemyVisuals = memo(
               offsetY={size * 0.75}
               opacity={isHit ? 1 : 0.9}
             />
-          ) : (
+          ) : enemyFrame ? (
             <>
-              {enemy.type === "hellhound" ? (
-                <Group>
-                  <Circle
-                    radius={size / 2}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={18}
-                    opacity={isHit ? 1 : 0.8}
-                  />
-                  <Text
-                    text="🐕"
-                    fontSize={24}
-                    offsetX={12}
-                    offsetY={12}
-                    rotation={Math.sin(now / 100 + enemy.position.x) * 15}
-                  />
-                </Group>
-              ) : enemy.type === "glitch-spider" ? (
-                <Group>
-                  <Circle
-                    radius={size / 2}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={15}
-                    opacity={isHit ? 1 : 0.8}
-                  />
-                  <Text
-                    text="🕷️"
-                    fontSize={18}
-                    offsetX={9}
-                    offsetY={9}
-                    rotation={Math.sin(now / 50 + enemy.position.x) * 20}
-                  />
-                </Group>
-              ) : enemy.type === "tank-bot" ? (
-                <Group>
-                  <Rect
-                    x={-size / 2}
-                    y={-size / 2}
-                    width={size}
-                    height={size}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={20}
-                    cornerRadius={4}
-                    stroke="#333333"
-                    strokeWidth={2}
-                    opacity={isHit ? 1 : 0.9}
-                  />
-                  <Circle radius={size / 2 - 5} fill="#222222" opacity={0.3} />
-                  <Text text="🤖" fontSize={28} offsetX={14} offsetY={14} />
-                </Group>
-              ) : enemy.type === "neon-pulse" ? (
-                <Group>
-                  <Circle
-                    radius={Math.max(0, size / 2 + Math.sin(now / 200) * 3)}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={25}
-                    opacity={0.4}
-                  />
-                  <Circle
-                    radius={size / 2}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={15}
-                    opacity={isHit ? 1 : 0.8}
-                  />
-                  <Text text="💠" fontSize={20} offsetX={10} offsetY={10} />
-                </Group>
-              ) : enemy.type === "leech-beacon" ? (
-                <Group rotation={now / 18}>
-                  <Circle
-                    radius={size / 2 + 3}
-                    fillEnabled={false}
-                    stroke="#C9FFD3"
-                    strokeWidth={2}
-                    opacity={0.75}
-                  />
-                  <Rect
-                    x={-size / 2 + 3}
-                    y={-size / 2 + 3}
-                    width={size - 6}
-                    height={size - 6}
-                    rotation={45}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={18}
-                    cornerRadius={3}
-                    opacity={isHit ? 1 : 0.84}
-                  />
-                  <Circle
-                    radius={size / 5}
-                    fill="#EFFFF2"
-                    opacity={0.9}
-                  />
-                </Group>
-              ) : enemy.type === "bomber" ? (
-                <Group>
-                  <Rect
-                    x={-size / 2}
-                    y={-size / 2}
-                    width={size}
-                    height={size}
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={20}
-                    cornerRadius={6}
-                    rotation={Math.sin(now / 260) * 6}
-                    opacity={isHit ? 1 : 0.9}
-                  />
-                  <Line
-                    points={[-2, -size / 2 + 2, 2, -size / 2 - 8, 7, -size / 2 - 3]}
-                    stroke="#FFF0B8"
-                    strokeWidth={2}
-                    lineCap="round"
-                    lineJoin="round"
-                  />
-                  <Circle
-                    x={8}
-                    y={-size / 2 - 4}
-                    radius={isBomberTelegraphing ? 4.5 : 3}
-                    fill={isBomberTelegraphing ? "#FFF4C7" : "#FFD36A"}
-                    opacity={0.7 + Math.sin(now / 70) * 0.25}
-                  />
-                </Group>
-              ) : enemy.type === "orbit-drone" ? (
-                <Group rotation={now / 16}>
-                  <Circle
-                    radius={size / 2 + 4}
-                    fillEnabled={false}
-                    stroke="#B8F7FF"
-                    strokeWidth={2}
-                    opacity={0.5}
-                  />
-                  <Line
-                    points={[0, -size / 2 - 2, size / 2, size / 2, -size / 2, size / 2]}
-                    closed
-                    fill={fill}
-                    shadowColor={shadow}
-                    shadowBlur={18}
-                    stroke="#E7FFFF"
-                    strokeWidth={1.5}
-                    opacity={isHit ? 1 : 0.9}
-                  />
-                  <Circle
-                    x={0}
-                    y={-size / 2 - 4}
-                    radius={2.5}
-                    fill="#E7FFFF"
-                    opacity={0.9}
-                  />
-                </Group>
-              ) : enemy.type === "slugger" ? (
-                <Group>
-                  <Circle
-                    radius={size / 2}
-                    fill={fill}
-                    stroke="#FFFFFF"
-                    strokeWidth={2}
-                    shadowColor={shadow}
-                    shadowBlur={18}
-                    opacity={isHit ? 1 : 0.9}
-                  />
-                  <Ring
-                    innerRadius={size / 4}
-                    outerRadius={size / 2 - 2}
-                    fill="#FFFFFF"
-                    opacity={0.3}
-                  />
-                </Group>
-              ) : enemy.type === "splitter" ? (
-                <Group rotation={now / 10}>
-                  {[0, 90, 180, 270].map((rot) => (
-                    <Rect
-                      key={rot}
-                      x={2}
-                      y={2}
-                      width={size / 2 - 2}
-                      height={size / 2 - 2}
-                      fill={fill}
-                      shadowColor={shadow}
-                      shadowBlur={15}
-                      rotation={rot}
-                      cornerRadius={2}
-                    />
-                  ))}
-                </Group>
-              ) : (
-                /* Grunts & Minis: Jagged Star / Polygon */
-                <Line
-                  points={[
-                    0,
-                    -size / 2,
-                    size / 4,
-                    -size / 4,
-                    size / 2,
-                    0,
-                    size / 4,
-                    size / 4,
-                    0,
-                    size / 2,
-                    -size / 4,
-                    size / 4,
-                    -size / 2,
-                    0,
-                    -size / 4,
-                    -size / 4,
-                  ]}
-                  closed
-                  fill={fill}
-                  shadowColor={shadow}
-                  shadowBlur={18}
-                  opacity={isLowHealth ? 0.7 + Math.sin(now / 50) * 0.3 : 1}
-                />
-              )}
+              <Circle
+                y={enemyDrawHeight / 2 - 6}
+                radius={enemyDrawWidth * 0.36}
+                scaleY={0.32}
+                fill="#000000"
+                opacity={0.38}
+              />
+              <PixelSpriteNode
+                image={enemyFrame.canvas}
+                pixelScale={ENEMY_PIXEL_SCALE}
+                flipX={enemyFrame.facing < 0}
+                scale={
+                  enemy.type === "bomber" && enemyFrame.state === "telegraph"
+                    ? 1 + enemyFrame.charge * 0.05 + Math.sin(now / 40) * 0.03
+                    : enemy.type === "neon-pulse"
+                      ? 1 + Math.sin(now / 200 + enemy.position.x) * 0.03
+                      : 1
+                }
+                opacity={isLowHealth ? 0.75 + Math.sin(now / 50) * 0.25 : 1}
+              />
             </>
-          )}
+          ) : null}
 
           {/* Low Health Sparkles - use deterministic position based on enemy.id + time */}
           {isLowHealth && (
@@ -3431,109 +3268,63 @@ export default function GameCanvas() {
                 })}
 
               {/* Boss body */}
-              <Circle
-                x={boss.position.x}
-                y={boss.position.y}
-                radius={40}
-                fill={
-                  boss.type === "berserker"
-                    ? boss.isEnraged
-                      ? "#8B0000"
-                      : "#FF0000"
-                    : boss.type === "summoner"
-                      ? boss.isEnraged
-                        ? "#4B0082"
-                        : "#9370DB"
-                      : boss.type === "architect"
-                        ? boss.isEnraged
-                          ? "#006666"
-                          : "#00CCCC"
-                        : boss.type === "glitch-golem"
-                          ? "#555555"
-                          : boss.type === "viral-swarm"
-                            ? "#00FF00"
-                            : boss.type === "overclocker"
-                              ? "#FFFF00"
-                              : boss.type === "magnetic-magnus"
-                                ? "#FF00FF"
-                                : boss.type === "neon-reaper"
-                                  ? "#0000FF"
-                                  : boss.type === "core-destroyer"
-                                    ? "#FF8800"
-                                    : "#FF0000"
-                }
-                stroke={
-                  boss.lastHitTimestamp &&
-                  now - boss.lastHitTimestamp < HIT_FLASH_DURATION
-                    ? "#FFFFFF"
-                    : "#000000"
-                }
-                strokeWidth={3}
-                shadowColor={
-                  boss.type === "berserker"
-                    ? boss.isEnraged
-                      ? "#FF0000"
-                      : "#8B0000"
-                    : boss.type === "summoner"
-                      ? boss.isEnraged
-                        ? "#9370DB"
-                        : "#4B0082"
-                      : boss.type === "architect"
-                        ? boss.isEnraged
-                          ? "#00CCCC"
-                          : "#006666"
-                        : boss.type === "glitch-golem"
-                          ? "#888888"
-                          : boss.type === "viral-swarm"
-                            ? "#AAFF00"
-                            : boss.type === "overclocker"
-                              ? "#FFCC00"
-                              : boss.type === "magnetic-magnus"
-                                ? "#CC00CC"
-                                : boss.type === "neon-reaper"
-                                  ? "#00FFFF"
-                                  : boss.type === "core-destroyer"
-                                    ? "#FF0000"
-                                    : "#8B0000"
-                }
-                shadowBlur={boss.isEnraged ? 40 : 25}
-                opacity={boss.isInvulnerable ? 0.5 : 1}
-              />
-
-              {/* Boss emoji/icon */}
-              <Text
-                text={
-                  boss.type === "berserker"
-                    ? "👹"
-                    : boss.type === "summoner"
-                      ? "🧙"
-                      : boss.type === "architect"
-                        ? "🤖"
-                        : boss.type === "glitch-golem"
-                          ? "🗿"
-                          : boss.type === "viral-swarm"
-                            ? "🦠"
-                            : boss.type === "overclocker"
-                              ? "⏲️"
-                              : boss.type === "magnetic-magnus"
-                                ? "🧲"
-                                : boss.type === "neon-reaper"
-                                  ? "👤"
-                                  : boss.type === "core-destroyer"
-                                    ? "☄️"
-                                    : "👹"
-                }
-                x={boss.position.x}
-                y={boss.position.y}
-                fontSize={48}
-                offsetX={24}
-                offsetY={24}
-              />
+              {(() => {
+                const isBossHit =
+                  !!boss.lastHitTimestamp &&
+                  now - boss.lastHitTimestamp < HIT_FLASH_DURATION;
+                const bossFrame = resolveBossFrame(
+                  boss,
+                  now,
+                  isBossHit ? "flash" : "normal",
+                );
+                if (!bossFrame) return null;
+                const drawW = bossFrame.canvas.width * BOSS_PIXEL_SCALE;
+                const drawH = bossFrame.canvas.height * BOSS_PIXEL_SCALE;
+                const shake =
+                  bossFrame.state === "telegraph" && bossFrame.charge >= 2
+                    ? Math.sin(now / 25) * 1.5
+                    : 0;
+                return (
+                  <>
+                    <Circle
+                      x={boss.position.x}
+                      y={boss.position.y + drawH / 2 - 10}
+                      radius={drawW * 0.36}
+                      scaleY={0.3}
+                      fill="#000000"
+                      opacity={0.45}
+                    />
+                    {boss.isEnraged && (
+                      <Circle
+                        x={boss.position.x}
+                        y={boss.position.y}
+                        radius={drawW * 0.55}
+                        fillRadialGradientEndRadius={drawW * 0.55}
+                        fillRadialGradientColorStops={[
+                          0,
+                          "#ff202055",
+                          1,
+                          "#ff202000",
+                        ]}
+                        opacity={0.6 + Math.sin(now / 120) * 0.3}
+                      />
+                    )}
+                    <PixelSpriteNode
+                      image={bossFrame.canvas}
+                      pixelScale={BOSS_PIXEL_SCALE}
+                      x={boss.position.x + shake}
+                      y={boss.position.y}
+                      scale={bossFrame.state === "attack" ? 1.04 : 1}
+                      opacity={boss.isInvulnerable ? 0.5 : 1}
+                    />
+                  </>
+                );
+              })()}
 
               {/* Boss health bar */}
               <Rect
                 x={boss.position.x - 50}
-                y={boss.position.y - 60}
+                y={boss.position.y - 72}
                 width={100}
                 height={8}
                 fill="#333333"
@@ -3542,7 +3333,7 @@ export default function GameCanvas() {
               />
               <Rect
                 x={boss.position.x - 50}
-                y={boss.position.y - 60}
+                y={boss.position.y - 72}
                 width={100 * (boss.health / boss.maxHealth)}
                 height={8}
                 fill={boss.isEnraged ? "#FF0000" : "#00FF00"}
@@ -3554,7 +3345,7 @@ export default function GameCanvas() {
               <Text
                 text={boss.type.toUpperCase()}
                 x={boss.position.x}
-                y={boss.position.y - 75}
+                y={boss.position.y - 88}
                 fontSize={12}
                 fontFamily='"Press Start 2P"'
                 fill={
