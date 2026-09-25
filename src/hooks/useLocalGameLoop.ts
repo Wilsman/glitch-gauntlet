@@ -94,7 +94,7 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
   useEffect(() => {
     if (!engine) return;
 
-    const updateLoop = setInterval(() => {
+    const feedInput = () => {
       const gamepadInput = getGamepadInput();
       let activeInput = { ...inputRef.current };
 
@@ -126,11 +126,28 @@ export function useLocalGameLoop(engine: LocalGameEngine | null, isPaused: boole
       }
 
       engine.updateInput(isPaused ? createNeutralInput() : activeInput);
+    };
+    const publish = () => {
       const snapshot = engine.getGameState();
       if (snapshot !== lastSnapshotRef.current) {
         lastSnapshotRef.current = snapshot;
         setGameState(snapshot, true);
       }
+    };
+
+    // The open map steps once per display frame: feed input right before the step and publish right after it,
+    // so every rendered frame shows a fresh simulation state.
+    if (engine.isFrameSynced()) {
+      engine.setFrameHooks({ before: feedInput, after: publish });
+      return () => {
+        engine.setFrameHooks({});
+        lastSnapshotRef.current = null;
+      };
+    }
+
+    const updateLoop = setInterval(() => {
+      feedInput();
+      publish();
     }, 33); // ~30 FPS
 
     return () => {

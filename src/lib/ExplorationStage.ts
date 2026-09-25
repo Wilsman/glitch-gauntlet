@@ -35,6 +35,8 @@ export class ExplorationStage {
   private lastLevel: number | null = null;
   private pending: { position: Vector2D; remainingMs: number; type: EnemyType; elite: boolean }[] = [];
   private lavaMs = 0;
+  private lastVisitedCell = -1;
+  private lastVisited: number[] | null = null;
 
   private observeVitals(world: ExplorationState, player: Player) {
     const vitality = player.health + (player.shield || 0);
@@ -92,13 +94,15 @@ export class ExplorationStage {
     const boosting = world.boostMs > 0;
     const targetX = boosting ? Math.cos(world.boostAngle) * speed * 2.6 + x * speed * 0.7 : x * speed;
     const targetY = boosting ? Math.sin(world.boostAngle) * speed * 2.6 + y * speed * 0.7 : y * speed;
-    const steering = (boosting ? Math.min(1, delta / 70) : world.slideMs > 0 ? Math.min(1, delta / 150) : Math.min(1, delta / 55)) * hazardSteer;
+    // Steering was tuned as a per-50ms-tick blend; compound it by elapsed ticks so any frame rate feels the same.
+    const blend = (perTick: number) => 1 - Math.pow(1 - perTick, delta / 50);
+    const steering = blend((boosting ? 50 / 70 : world.slideMs > 0 ? 50 / 150 : 50 / 55) * hazardSteer);
     world.velocity.x += (targetX - world.velocity.x) * steering;
     world.velocity.y += (targetY - world.velocity.y) * steering;
     if (!moving && world.slideMs <= 0 && !boosting) world.velocity = { x: 0, y: 0 };
     const old = player.position;
     player.position = moveWorld(world, old, { x: old.x + world.velocity.x * delta / (1000 / 60), y: old.y + world.velocity.y * delta / (1000 / 60) }, 18);
-    if (moving && distance(old, player.position) < 0.5) world.momentum = Math.max(0, world.momentum - delta / 350);
+    if (moving && distance(old, player.position) < 0.5 * delta / 50) world.momentum = Math.max(0, world.momentum - delta / 350);
   }
 
   private notice(world: ExplorationState, text: string) { world.notice = text; world.noticeMs = 4000; }
@@ -311,15 +315,20 @@ export class ExplorationStage {
     const targetCamera = { x: clamp(player.position.x + world.velocity.x * look - VIEW_WIDTH / 2, 0, world.width - VIEW_WIDTH), y: clamp(player.position.y + world.velocity.y * look - VIEW_HEIGHT / 2, 0, world.height - VIEW_HEIGHT) };
     for (const axis of ['x', 'y'] as const) {
       const difference = targetCamera[axis] - world.camera[axis];
-      if (Math.abs(difference) > 32) world.camera[axis] += (difference - Math.sign(difference) * 32) * Math.min(1, delta / 90);
+      if (Math.abs(difference) > 32) world.camera[axis] += (difference - Math.sign(difference) * 32) * (1 - Math.pow(1 - 50 / 90, delta / 50));
       world.camera[axis] = clamp(world.camera[axis], 0, world[axis === 'x' ? 'width' : 'height'] - (axis === 'x' ? VIEW_WIDTH : VIEW_HEIGHT));
     }
     const columns = Math.ceil(world.width / 100), rows = Math.ceil(world.height / 100);
-    const visited = new Set(world.visited);
-    for (let row = Math.max(0, Math.floor(player.position.y / 100) - 3); row <= Math.min(rows - 1, Math.floor(player.position.y / 100) + 3); row++) {
-      for (let col = Math.max(0, Math.floor(player.position.x / 100) - 4); col <= Math.min(columns - 1, Math.floor(player.position.x / 100) + 4); col++) visited.add(row * columns + col);
+    // The revealed area only changes when the player crosses into a new 100px cell.
+    const cell = Math.floor(player.position.y / 100) * columns + Math.floor(player.position.x / 100);
+    if (cell !== this.lastVisitedCell || world.visited !== this.lastVisited) {
+      const visited = new Set(world.visited);
+      for (let row = Math.max(0, Math.floor(player.position.y / 100) - 3); row <= Math.min(rows - 1, Math.floor(player.position.y / 100) + 3); row++) {
+        for (let col = Math.max(0, Math.floor(player.position.x / 100) - 4); col <= Math.min(columns - 1, Math.floor(player.position.x / 100) + 4); col++) visited.add(row * columns + col);
+      }
+      world.visited = [...visited];
+      this.lastVisitedCell = cell; this.lastVisited = world.visited;
     }
-    world.visited = [...visited];
     // Biome discovery: entering a new region pays out and raises the banner.
     const region = world.biomes[regionIndexAt(player.position)];
     if (region && region.id !== world.currentRegionId) {

@@ -128,6 +128,7 @@ const ARENA_WIDTH = 1280;
 const ARENA_HEIGHT = 720;
 const PLAYER_COLORS = ["#00FFFF", "#FF00FF", "#FFFF00", "#00FF00"];
 const TICK_RATE = 50; // ms
+const STATIC_WORLD_KEYS = ['props', 'walls', 'lamps', 'hazards', 'doorways', 'pads'] as const;
 const WIN_WAVE = 5;
 const REVIVE_DURATION = 3000; // 3 seconds to revive
 const EXTRACTION_DURATION = 5000; // 5 seconds to extract
@@ -964,6 +965,12 @@ export class LocalGameEngine {
   private cachedSnapshot: GameState | null = null;
   private lastTick: number = 0;
   private tickInterval: number | null = null;
+  // The open-map prototype ticks once per display frame (see start()).
+  private frameHandle: number | null = null;
+  private lastFrameTs: number | null = null;
+  private frameHooks: { before?: () => void; after?: () => void } = {};
+  // Deep copies of static open-map geometry, shared by every snapshot until the source array is replaced.
+  private staticSnapshotCache = new WeakMap<object, unknown>();
   private upgradeChoices: Map<string, UpgradeOption[]> = new Map();
   private combatSpawnQueue: CombatSpawnPack[] = [];
   private combatSpawnCooldownMs: number = 0;
@@ -1568,8 +1575,19 @@ export class LocalGameEngine {
   }
 
   start() {
-    if (this.tickInterval) return;
+    if (this.tickInterval || this.frameHandle !== null) return;
     this.lastTick = Date.now();
+    if (this.prototypeEnabled) {
+      // Open map: step the simulation once per display frame so movement, camera and effects advance every
+      // frame instead of every 50ms. The simulation is delta-based (timeFactor is relative to 60fps).
+      this.lastFrameTs = null;
+      const frame = (ts: number) => {
+        this.frameHandle = requestAnimationFrame(frame);
+        this.frameTick(ts);
+      };
+      this.frameHandle = requestAnimationFrame(frame);
+      return;
+    }
     this.tickInterval = window.setInterval(() => this.tick(), TICK_RATE);
   }
 
@@ -1578,6 +1596,29 @@ export class LocalGameEngine {
       clearInterval(this.tickInterval);
       this.tickInterval = null;
     }
+    if (this.frameHandle !== null) {
+      cancelAnimationFrame(this.frameHandle);
+      this.frameHandle = null;
+    }
+  }
+
+  /** Callbacks run around each frame-synced simulation step: `before` feeds input, `after` publishes state. */
+  setFrameHooks(hooks: { before?: () => void; after?: () => void }) {
+    this.frameHooks = hooks;
+  }
+
+  /** True when the engine drives itself from requestAnimationFrame (open-map prototype). */
+  isFrameSynced() {
+    return this.prototypeEnabled;
+  }
+
+  private frameTick(ts: number) {
+    this.frameHooks.before?.();
+    const delta = this.lastFrameTs === null ? 1000 / 60 : Math.min(100, Math.max(0, ts - this.lastFrameTs));
+    this.lastFrameTs = ts;
+    this.lastTick = Date.now();
+    this.runSimulationStep(this.lastTick, delta);
+    this.frameHooks.after?.();
   }
 
   setIsPaused(paused: boolean) {
@@ -1596,9 +1637,36 @@ export class LocalGameEngine {
       return this.cachedSnapshot;
     }
 
-    this.cachedSnapshot = JSON.parse(JSON.stringify(this.gameState));
+    const world = this.gameState.exploration;
+    if (!world) {
+      this.cachedSnapshot = JSON.parse(JSON.stringify(this.gameState));
+    } else {
+      // Open-map geometry is ~85% of the state and is only ever replaced wholesale (a broken secret wall swaps
+      // the walls array; wall.hp changes in place but is never drawn), so each source array is copied once and
+      // the copy is shared by every snapshot instead of being re-cloned every frame.
+      const statics = {} as Pick<ExplorationState, (typeof STATIC_WORLD_KEYS)[number]>;
+      for (const key of STATIC_WORLD_KEYS) {
+        (statics as Record<string, unknown>)[key] = world[key];
+        (world as unknown as Record<string, unknown>)[key] = undefined;
+      }
+      try {
+        this.cachedSnapshot = JSON.parse(JSON.stringify(this.gameState));
+      } finally {
+        Object.assign(world, statics);
+      }
+      const snapshotWorld = this.cachedSnapshot!.exploration!;
+      for (const key of STATIC_WORLD_KEYS) {
+        const source = statics[key] as unknown as object;
+        let copy = this.staticSnapshotCache.get(source);
+        if (!copy) {
+          copy = JSON.parse(JSON.stringify(source));
+          this.staticSnapshotCache.set(source, copy);
+        }
+        (snapshotWorld as unknown as Record<string, unknown>)[key] = copy;
+      }
+    }
     this.snapshotVersion = this.stateVersion;
-    return this.cachedSnapshot;
+    return this.cachedSnapshot!;
   }
 
   setOnUnlockCallback(callback: (characterType: CharacterType) => void) {
@@ -8997,18 +9065,21 @@ export class LocalGameEngine {
   private updateParticles(state: GameState, delta: number, now: number) {
     if (!state.particles || state.particles.length === 0) return;
 
+    // Particle velocities are tuned per 50ms tick; scale by elapsed ticks so frame-synced stepping matches.
+    const ticks = delta / TICK_RATE;
+    const friction = Math.pow(0.92, ticks);
     state.particles = state.particles.filter((p) => {
       const age = now - p.timestamp;
       p.life = Math.max(0, 1.0 - age / p.maxLife);
 
       if (p.life <= 0) return false;
 
-      p.position.x += p.velocity.x;
-      p.position.y += p.velocity.y;
+      p.position.x += p.velocity.x * ticks;
+      p.position.y += p.velocity.y * ticks;
 
       // Friction
-      p.velocity.x *= 0.92;
-      p.velocity.y *= 0.92;
+      p.velocity.x *= friction;
+      p.velocity.y *= friction;
 
       return true;
     });

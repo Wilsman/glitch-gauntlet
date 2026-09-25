@@ -23,9 +23,8 @@ export const useGameStore = create<GameStore>()(
     upgradeOptions: [],
     setGameState: (newState, skipCompare = false) => {
       if (skipCompare || !deepEqual(get().gameState, newState)) {
-        set((state) => {
-          state.gameState = newState;
-        });
+        // Plain replace: an Immer recipe would deep-walk and freeze the whole snapshot on every frame.
+        set({ gameState: newState });
       }
     },
     setLocalPlayerId: (playerId) => {
