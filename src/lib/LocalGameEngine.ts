@@ -5100,6 +5100,8 @@ export class LocalGameEngine {
           targetPosition.y - p.position.y,
           targetPosition.x - p.position.x,
         );
+        p.aimAngle = baseAngle;
+        const cooldownBeforeAttack = p.attackCooldown;
 
         // Weapon-specific behavior
         if (p.weaponType === "energy-blade") {
@@ -5368,6 +5370,10 @@ export class LocalGameEngine {
             };
             state.projectiles.push(bananarang);
           }
+        }
+
+        if (cooldownBeforeAttack <= 0 && p.attackCooldown > 0) {
+          p.lastAttackAt = now;
         }
       }
     });

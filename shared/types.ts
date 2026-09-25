@@ -180,6 +180,8 @@ export interface Player {
   meleeSwingArc?: number; // Null Ronin: slash render arc in degrees
   meleeSwingRange?: number; // Null Ronin: slash render range
   meleeSwingColor?: string; // Null Ronin: slash render color
+  lastAttackAt?: number; // Render cue: timestamp of the last weapon attack
+  aimAngle?: number; // Render cue: radians toward the last attack target
   // Legendary upgrade effects
   hasLucky?: boolean; // Lucky upgrade: double drops
   hasTimeWarp?: boolean; // TimeWarp upgrade: slow enemies

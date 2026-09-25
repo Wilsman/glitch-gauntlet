@@ -4,7 +4,8 @@ import ExplorationHUD from "./ExplorationHUD";
 import { AbilityDock } from "./AbilityDock";
 import { Coins } from "lucide-react";
 import { getCharacter } from "@shared/characterConfig";
-import { SPRITE_MAP } from "@/lib/spriteMap";
+import { SPRITE_MAP, USE_LEGACY_CHARACTER_SPRITES } from "@/lib/spriteMap";
+import { PixelCharacterPortrait } from "./PixelSprite";
 
 interface UnifiedHUDProps {
   gameState: GameState;
@@ -50,7 +51,9 @@ export default function UnifiedHUD({
 
   const characterType = localPlayer.characterType || "spray-n-pray";
   const character = getCharacter(characterType);
-  const spriteConfig = SPRITE_MAP.characters[characterType as keyof typeof SPRITE_MAP.characters];
+  const spriteConfig = USE_LEGACY_CHARACTER_SPRITES
+    ? SPRITE_MAP.legacyCharacters[characterType as keyof typeof SPRITE_MAP.legacyCharacters]
+    : undefined;
 
   useEffect(() => {
     if (!spriteConfig?.frames || spriteConfig.frames <= 1) return;
@@ -182,9 +185,10 @@ export default function UnifiedHUD({
                 style={{ imageRendering: "pixelated" }}
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-lg">
-                {character.emoji}
-              </div>
+              <PixelCharacterPortrait
+                type={characterType}
+                className="h-full w-full"
+              />
             )}
           </div>
           <div className="min-w-0 flex-1">

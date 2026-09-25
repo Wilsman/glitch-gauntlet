@@ -13,7 +13,13 @@ import {
 } from "react-konva";
 import ExplorationWorld, { ExplorationFX } from "./ExplorationWorld";
 import ExplorationScreenFX from "./ExplorationScreenFX";
-import { SPRITE_MAP } from "@/lib/spriteMap";
+import { SPRITE_MAP, USE_LEGACY_CHARACTER_SPRITES } from "@/lib/spriteMap";
+import {
+  resolvePetFrame,
+  resolvePlayerAnimation,
+  SPRITE_WORLD_SIZE,
+} from "@/lib/pixelSprites";
+import { PixelSpriteNode } from "./PixelSprite";
 import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
@@ -1096,47 +1102,20 @@ const PlayerVisuals = memo(
     const isLocal = player.id === localPlayerId;
     const isDead = player.status === "dead";
 
-    const legacyCharacterEmoji =
-      player.characterType === "spray-n-pray"
-        ? "🔫"
-        : player.characterType === "boom-bringer"
-          ? "💣"
-          : player.characterType === "glass-cannon-carl"
-            ? "🎯"
-            : player.characterType === "pet-pal-percy"
-              ? "🐾"
-              : player.characterType === "vampire-vex"
-                ? "🧛"
-                : player.characterType === "turret-tina"
-                  ? "🏗️"
-                  : player.characterType === "dash-dynamo"
-                    ? "⚡"
-                    : "🔫";
-
-    const characterEmoji =
-      player.characterType === "spray-n-pray"
-        ? "🔫"
-        : player.characterType === "boom-bringer"
-          ? "💣"
-          : player.characterType === "glass-cannon-carl"
-            ? "🎯"
-            : player.characterType === "pet-pal-percy"
-              ? "🐾"
-              : player.characterType === "vampire-vex"
-                ? "🧛"
-                : player.characterType === "turret-tina"
-                  ? "🏗️"
-                  : player.characterType === "dash-dynamo"
-                    ? "⚡"
-                    : player.characterType === "null-ronin"
-                      ? "⚔️"
-                      : "🔫";
-    const spriteConfig = (SPRITE_MAP.characters as any)[player.characterType];
-    const staticSprite = useSprite(spriteConfig?.url);
-    const animatedFrames = useAnimatedSprite(
-      spriteConfig?.framePath,
-      spriteConfig?.frames,
+    const legacySpriteConfig = USE_LEGACY_CHARACTER_SPRITES
+      ? (SPRITE_MAP.legacyCharacters as any)[player.characterType]
+      : undefined;
+    const legacyFrames = useAnimatedSprite(
+      legacySpriteConfig?.framePath,
+      legacySpriteConfig?.frames,
     );
+    const legacySprite = legacySpriteConfig?.frames
+      ? legacyFrames[
+          Math.floor(now / (legacySpriteConfig.animationSpeed || 100)) %
+            legacySpriteConfig.frames
+        ]
+      : undefined;
+    const animation = resolvePlayerAnimation(player, now, { hitFlash: !!isHit });
     const shakeMouseLeftIcon = useSprite(INPUT_PROMPT_ICONS.keyboardMouse.mouseLeft);
     const shakeSpaceIcon = useSprite(INPUT_PROMPT_ICONS.keyboardMouse.space);
     const shakeXboxBIcon = useSprite(INPUT_PROMPT_ICONS.xboxSeries.buttonB);
@@ -1149,15 +1128,6 @@ const PlayerVisuals = memo(
     const iconBob = Math.sin(now / 110) * 1.8;
     const iconPulseA = 1 + Math.sin(now / 70) * 0.1;
     const iconPulseB = 1 + Math.sin(now / 70 + 1.8) * 0.1;
-
-    // Calculate current frame if it's an animation
-    const currentFrameIndex = spriteConfig?.frames
-      ? Math.floor(now / (spriteConfig.animationSpeed || 100)) %
-        spriteConfig.frames
-      : 0;
-    const sprite = spriteConfig?.frames
-      ? animatedFrames[currentFrameIndex]
-      : staticSprite;
 
     const color = player.color || "#00FFFF";
     const glowColor = isBerserker ? "#FF0000" : color;
@@ -1250,112 +1220,53 @@ const PlayerVisuals = memo(
             />
           )}
 
-          {/* Layered Player Body */}
-          {/* 1. Outer Glow/Aura */}
+          {/* Ground shadow + signature glow keep the sprite readable on any floor */}
           {!isDead && (
-            <Circle
-              radius={18}
-              fillRadialGradientEndRadius={22}
-              fillRadialGradientColorStops={[
-                0,
-                `${glowColor}44`,
-                1,
-                `${glowColor}00`,
-              ]}
-              opacity={(0.5 + Math.sin(now / 150) * 0.2) * playerVisualOpacity}
-            />
-          )}
-
-          {/* 2. Character-Specific Geometry */}
-          {player.characterType === "spray-n-pray" && !isDead && (
-            <Group rotation={now / 5} opacity={playerVisualOpacity}>
-              <Rect
-                x={12}
-                y={-4}
-                width={8}
-                height={8}
-                fill={color}
-                cornerRadius={2}
+            <>
+              <Circle
+                y={19}
+                radius={26}
+                scaleY={0.38}
+                fillRadialGradientEndRadius={26}
+                fillRadialGradientColorStops={[
+                  0,
+                  `${glowColor}66`,
+                  1,
+                  `${glowColor}00`,
+                ]}
+                opacity={(0.75 + Math.sin(now / 150) * 0.2) * playerVisualOpacity}
               />
-              <Rect
-                x={-20}
-                y={-4}
-                width={8}
-                height={8}
-                fill={color}
-                cornerRadius={2}
+              <Circle
+                y={20}
+                radius={13}
+                scaleY={0.4}
+                fill="#000000"
+                opacity={0.45 * playerVisualOpacity}
               />
-            </Group>
+            </>
           )}
 
-          {player.characterType === "boom-bringer" && !isDead && (
-            <Ring
-              innerRadius={16}
-              outerRadius={20}
-              fill={glowColor}
-              opacity={(0.6 + Math.sin(now / 100) * 0.3) * playerVisualOpacity}
-            />
-          )}
-
-          {player.characterType === "glass-cannon-carl" && !isDead && (
-            <Line
-              points={[0, -22, 10, 5, -10, 5]}
-              closed
-              fill={color}
-              opacity={0.4 * playerVisualOpacity}
-              rotation={now / 10}
-            />
-          )}
-
-          {player.characterType === "null-ronin" && !isDead && (
-            <Group opacity={playerVisualOpacity}>
-              <Rect
-                x={-16}
-                y={-3}
-                width={14}
-                height={6}
-                fill="#7DD3FC"
-                cornerRadius={2}
-                rotation={-35 + Math.sin(now / 150) * 6}
+          {/* Dash Dynamo afterimages while Overdrive / dashing */}
+          {!isDead &&
+            player.characterType === "dash-dynamo" &&
+            animation.moving &&
+            (player.isAbilityActive ||
+              (player.lastDashTime && now - player.lastDashTime < 250)) &&
+            (player.history || []).slice(-3).map((pos: any, i: number) => (
+              <PixelSpriteNode
+                key={`afterimage-${player.id}-${i}`}
+                image={animation.canvas}
+                size={SPRITE_WORLD_SIZE}
+                x={pos.x - player.position.x}
+                y={pos.y - player.position.y - 8}
+                flipX={animation.facing < 0}
+                opacity={0.12 + i * 0.1}
               />
-              <Rect
-                x={2}
-                y={-3}
-                width={14}
-                height={6}
-                fill="#FDE047"
-                cornerRadius={2}
-                rotation={35 - Math.sin(now / 150) * 6}
-              />
-            </Group>
-          )}
+            ))}
 
-          {/* 3. Main Body - only show if no sprite or for hit effect if desired */}
-          {!sprite && (
-            <Circle
-              radius={15}
-              fill={isHit ? "#FFFFFF" : color}
-              stroke={isLocal && !isDead ? "#FFFFFF" : color}
-              strokeWidth={isLocal && !isDead ? 3 : 2}
-              shadowColor={glowColor}
-              shadowBlur={isBerserker ? 30 : 15}
-              opacity={isDead ? 0.3 : playerVisualOpacity}
-            />
-          )}
-
-          {/* 4. Core Inner Pulse */}
-          {!isDead && !sprite && (
-            <Circle
-              radius={8}
-              fill="#FFFFFF"
-              opacity={(0.2 + Math.sin(now / 100) * 0.1) * playerVisualOpacity}
-            />
-          )}
-
-          {/* 5. Sprite or Emoji */}
-          {sprite ? (
+          {legacySprite ? (
             <KonvaImage
-              image={sprite}
+              image={legacySprite}
               width={40}
               height={40}
               offsetX={20}
@@ -1363,12 +1274,18 @@ const PlayerVisuals = memo(
               opacity={isDead ? 0.3 : playerVisualOpacity}
             />
           ) : (
-            <Text
-              text={characterEmoji}
-              fontSize={18}
-              offsetX={9}
-              offsetY={9}
-              opacity={isDead ? 0.3 : 0.9 * playerVisualOpacity}
+            <PixelSpriteNode
+              image={animation.canvas}
+              size={SPRITE_WORLD_SIZE}
+              y={isDead ? 12 : -8}
+              flipX={animation.facing < 0}
+              rotation={animation.deathProgress * 90 * animation.facing}
+              scaleY={
+                isDead
+                  ? 1
+                  : 1 + (animation.moving ? Math.sin(now / 48) * 0.03 : 0)
+              }
+              opacity={isDead ? 0.55 : playerVisualOpacity}
             />
           )}
 
@@ -2931,27 +2848,23 @@ export default function GameCanvas() {
               const isHit =
                 pet.lastHitTimestamp &&
                 now - pet.lastHitTimestamp < HIT_FLASH_DURATION;
+              const petFrame = resolvePetFrame(pet, now, !!isHit);
               return (
                 <Group key={pet.id}>
-                  {/* Pet body */}
                   <Circle
                     x={pet.position.x}
-                    y={pet.position.y}
-                    radius={12}
-                    fill={isHit ? "#FFFFFF" : "#FFB6C1"}
-                    stroke="#FF69B4"
-                    strokeWidth={2}
-                    shadowColor="#FF69B4"
-                    shadowBlur={15}
+                    y={pet.position.y + 12}
+                    radius={14}
+                    scaleY={0.35}
+                    fill="#000000"
+                    opacity={0.4}
                   />
-                  {/* Pet emoji */}
-                  <Text
-                    text={pet.emoji}
+                  <PixelSpriteNode
+                    image={petFrame.canvas}
+                    size={SPRITE_WORLD_SIZE}
                     x={pet.position.x}
-                    y={pet.position.y}
-                    fontSize={16}
-                    offsetX={8}
-                    offsetY={8}
+                    y={pet.position.y - 16}
+                    flipX={petFrame.facing < 0}
                   />
                   {/* Health bar */}
                   <Rect
@@ -2981,44 +2894,19 @@ export default function GameCanvas() {
               // Haunted Halloween Mask: ghost recruits render pale and spooky
               const isGhost = (owner.ghostArmyStacks || 0) > 0;
               const ghostAura = isGhost ? "#c4b5fd" : "#9333EA";
-              const ghostBody = isGhost ? "#ede9fe" : owner.color || "#00FFFF";
 
-                // Character-specific emoji for clone
-                const legacyCharacterEmoji =
-                  owner.characterType === "spray-n-pray"
-                    ? "🔫"
-                    : owner.characterType === "boom-bringer"
-                      ? "💣"
-                      : owner.characterType === "glass-cannon-carl"
-                        ? "🎯"
-                        : owner.characterType === "pet-pal-percy"
-                          ? "🐾"
-                          : owner.characterType === "vampire-vex"
-                            ? "🧛"
-                            : owner.characterType === "turret-tina"
-                              ? "🏗️"
-                              : owner.characterType === "dash-dynamo"
-                                ? "⚡"
-                                : "🔫";
-
-                const characterEmoji =
-                  owner.characterType === "spray-n-pray"
-                    ? "🔫"
-                    : owner.characterType === "boom-bringer"
-                      ? "💣"
-                      : owner.characterType === "glass-cannon-carl"
-                        ? "🎯"
-                        : owner.characterType === "pet-pal-percy"
-                          ? "🐾"
-                          : owner.characterType === "vampire-vex"
-                            ? "🧛"
-                            : owner.characterType === "turret-tina"
-                              ? "🏗️"
-                              : owner.characterType === "dash-dynamo"
-                                ? "⚡"
-                                : owner.characterType === "null-ronin"
-                                  ? "⚔️"
-                                  : "🔫";
+              const cloneAnimation = resolvePlayerAnimation(
+                {
+                  ...owner,
+                  id: clone.id,
+                  position: clone.position,
+                  history: undefined,
+                  lastInput: undefined,
+                  status: "alive",
+                },
+                now,
+                { variant: "ghost" },
+              );
 
               return (
                 <Group key={clone.id}>
@@ -3032,27 +2920,13 @@ export default function GameCanvas() {
                       shadowColor={ghostAura}
                       shadowBlur={20}
                     />
-                    {/* Clone body */}
-                    <Circle
+                    <PixelSpriteNode
+                      image={cloneAnimation.canvas}
+                      size={SPRITE_WORLD_SIZE}
                       x={clone.position.x}
-                      y={clone.position.y}
-                      radius={15}
-                      fill={ghostBody}
-                      opacity={clone.opacity * (isGhost ? 0.35 : 0.5)}
-                      stroke={ghostAura}
-                      strokeWidth={2}
-                      shadowColor={ghostAura}
-                      shadowBlur={10}
-                    />
-                    {/* Clone emoji (semi-transparent) */}
-                    <Text
-                      text={isGhost ? "👻" : characterEmoji}
-                      x={clone.position.x}
-                      y={clone.position.y}
-                      fontSize={18}
-                      offsetX={9}
-                      offsetY={9}
-                      opacity={clone.opacity * 0.7}
+                      y={clone.position.y - 8}
+                      flipX={cloneAnimation.facing < 0}
+                      opacity={clone.opacity * (isGhost ? 0.55 : 0.7)}
                     />
                     {/* Afterimage effect indicator */}
                     <Text

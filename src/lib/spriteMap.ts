@@ -7,52 +7,59 @@ export interface SpriteInfo {
     animationSpeed: number;
 }
 
+/**
+ * Characters are drawn by the code-only pixel sprite engine
+ * (src/lib/pixelSprites). The original painted PNGs are archived under
+ * /assets/sprites/_archive/characters; flip this flag to render them again.
+ */
+export const USE_LEGACY_CHARACTER_SPRITES = false;
+
 export const SPRITE_MAP = {
-    characters: {
+    legacyCharacters: {
         'spray-n-pray': {
-            framePath: '/assets/sprites/spray-n-pray/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/spray-n-pray/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 100
         },
         'boom-bringer': {
-            framePath: '/assets/sprites/boom-bringer/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/boom-bringer/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 100
         },
         'glass-cannon-carl': {
-            framePath: '/assets/sprites/glass-cannon-carl/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/glass-cannon-carl/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 100
         },
         'pet-pal-percy': {
-            framePath: '/assets/sprites/pet-pal-percy/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/pet-pal-percy/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 120
         },
         'vampire-vex': {
-            framePath: '/assets/sprites/vampire-vex/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/vampire-vex/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 150
         },
         'turret-tina': {
-            framePath: '/assets/sprites/turret-tina/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/turret-tina/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
             animationSpeed: 100
         },
         'dash-dynamo': {
-            framePath: '/assets/sprites/dash-dynamo/{i}.png',
+            framePath: '/assets/sprites/_archive/characters/dash-dynamo/{i}.png',
             frames: 4,
             frameWidth: 64,
             frameHeight: 64,
@@ -84,5 +91,5 @@ export const SPRITE_MAP = {
     }
 } as const;
 
-export type CharacterType = keyof typeof SPRITE_MAP.characters;
+export type LegacyCharacterSpriteType = keyof typeof SPRITE_MAP.legacyCharacters;
 export type EnemyType = keyof typeof SPRITE_MAP.enemies;

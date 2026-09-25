@@ -11,7 +11,8 @@ import {
 } from "@/lib/progressionStorage";
 import { UnlockTooltip } from "./UnlockTooltip";
 import { useGamepad } from "@/hooks/useGamepad";
-import { SPRITE_MAP } from "@/lib/spriteMap";
+import { SPRITE_MAP, USE_LEGACY_CHARACTER_SPRITES } from "@/lib/spriteMap";
+import { PixelCharacterPortrait } from "./PixelSprite";
 import { toast } from "@/components/ui/sonner";
 
 interface CharacterSelectProps {
@@ -61,8 +62,8 @@ function CharacterPortrait({
   animated?: boolean;
 }) {
   const [frame, setFrame] = useState(0);
-  const spriteConfig = (
-    SPRITE_MAP.characters as Record<
+  const spriteConfig = USE_LEGACY_CHARACTER_SPRITES ? (
+    SPRITE_MAP.legacyCharacters as Record<
       string,
       {
         frames?: number;
@@ -71,7 +72,7 @@ function CharacterPortrait({
         url?: string;
       } | undefined
     >
-  )[character.type];
+  )[character.type] : undefined;
 
   useEffect(() => {
     if (!animated || !spriteConfig?.frames) {
@@ -101,9 +102,11 @@ function CharacterPortrait({
   }
 
   return (
-    <div className="flex h-28 w-28 items-center justify-center text-6xl md:h-32 md:w-32">
-      {character.emoji}
-    </div>
+    <PixelCharacterPortrait
+      type={character.type}
+      animated={animated}
+      className="h-28 w-28 drop-shadow-[0_0_18px_rgba(255,255,255,0.18)] md:h-32 md:w-32"
+    />
   );
 }
 
