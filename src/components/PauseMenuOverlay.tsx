@@ -1,5 +1,6 @@
 import { AudioSettingsPanel } from "@/components/AudioSettingsPanel";
 import { MusicSelectionPanel } from "@/components/MusicSelectionPanel";
+import { PerformanceSettings } from "@/components/PerfOverlay";
 import { Button } from "@/components/ui/button";
 import { Play, RotateCcw, Home, Volume2 } from "lucide-react";
 
@@ -79,6 +80,10 @@ export function PauseMenuOverlay({
               Press <span className="text-neon-yellow">Esc</span> again to drop
               back into the fight.
             </p>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <PerformanceSettings />
           </div>
         </section>
 

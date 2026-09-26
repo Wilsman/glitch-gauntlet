@@ -119,6 +119,7 @@ import {
 } from "@shared/bossConfig";
 
 import { ExplorationStage, SHOP_PRICES, type ExplorationHooks } from './ExplorationStage';
+import { perfMonitor } from './perfMonitor';
 import { createExploration, distance, isWalkable, lineClear, moveWorld, wallsNear, WorldNavigator } from './explorationWorld';
 import { invalidateArt } from './explorationArt';
 import type { ExplorationState, StageModifierId, WorldWall } from '@shared/exploration';
@@ -1617,8 +1618,12 @@ export class LocalGameEngine {
     const delta = this.lastFrameTs === null ? 1000 / 60 : Math.min(100, Math.max(0, ts - this.lastFrameTs));
     this.lastFrameTs = ts;
     this.lastTick = Date.now();
+    const simStart = performance.now();
     this.runSimulationStep(this.lastTick, delta);
+    const publishStart = performance.now();
+    perfMonitor.recordSim(publishStart - simStart);
     this.frameHooks.after?.();
+    perfMonitor.recordPublish(performance.now() - publishStart);
   }
 
   setIsPaused(paused: boolean) {
@@ -3115,7 +3120,9 @@ export class LocalGameEngine {
     const now = Date.now();
     const delta = Math.min(100, Math.max(0, now - this.lastTick));
     this.lastTick = now;
+    const simStart = performance.now();
     this.runSimulationStep(now, delta);
+    perfMonitor.recordSim(performance.now() - simStart);
   }
 
   advanceTime(ms: number) {

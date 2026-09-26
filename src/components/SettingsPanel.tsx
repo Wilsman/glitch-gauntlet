@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { PlayerNameDialog } from "@/components/PlayerNameDialog";
 import { AudioSettingsPanel } from "@/components/AudioSettingsPanel";
 import { MusicSelectionPanel } from "@/components/MusicSelectionPanel";
+import { PerformanceSettings } from "@/components/PerfOverlay";
 import {
   getPlayerName,
   setPlayerName as savePlayerName,
@@ -105,6 +106,11 @@ export function SettingsPanel({ className }: SettingsPanelProps) {
               <div className="bg-white/5 p-4 rounded-lg border border-white/10">
                 <AudioSettingsPanel embedded />
               </div>
+            </div>
+
+            {/* Performance overlay + log export */}
+            <div className="bg-white/5 p-4 rounded-lg border border-white/10">
+              <PerformanceSettings />
             </div>
 
             {/* Music Library Section */}

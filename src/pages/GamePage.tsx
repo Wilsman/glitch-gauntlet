@@ -30,6 +30,8 @@ import { getPlayerName, getLastRunStats } from "@/lib/progressionStorage";
 import RunMapOverlay from "@/components/RunMapOverlay";
 import { DIFFICULTY_TIERS } from "@/lib/explorationWorld";
 import { PauseMenuOverlay } from "@/components/PauseMenuOverlay";
+import PerfOverlay from "@/components/PerfOverlay";
+import { perfMonitor } from "@/lib/perfMonitor";
 
 const EMPTY_PLAYERS: Player[] = [];
 
@@ -376,6 +378,34 @@ export default function GamePage() {
     };
   }, [isLocalMode, setGameState]);
 
+  // Performance monitor runs for the whole game session so a log can be exported after the fact.
+  useEffect(() => {
+    perfMonitor.setContextProvider(() => {
+      const state = useGameStore.getState().gameState;
+      if (!state) return {};
+      const world = state.exploration;
+      return {
+        mode: isExplorationPrototype ? "playground" : isLocalMode ? "local" : "online",
+        stage: world?.stage,
+        modifier: world?.modifier ?? null,
+        phase: world?.phase,
+        status: state.status,
+        paused: !!state.levelingUpPlayerId || !!state.isPaused,
+        enemies: state.enemies?.length ?? 0,
+        projectiles: (state.projectiles?.length ?? 0) + (state.bossProjectiles?.length ?? 0),
+        particles: state.particles?.length ?? 0,
+        fx: world?.fx.length ?? 0,
+        hazards: state.hazards?.length ?? 0,
+        fireTrails: state.fireTrails?.length ?? 0,
+      };
+    });
+    perfMonitor.start();
+    return () => {
+      perfMonitor.stop();
+      perfMonitor.setContextProvider(null);
+    };
+  }, [isExplorationPrototype, isLocalMode]);
+
   const handleSelectUpgrade = async (upgradeId: string) => {
     if (!gameId || !localPlayerId) return;
 
@@ -544,6 +574,7 @@ export default function GamePage() {
         />
       )}
       <SettingsPanel className="fixed right-4 top-0 z-50" />
+      <PerfOverlay />
 
       <AnimatePresence mode="wait">
         {isLocalMode &&

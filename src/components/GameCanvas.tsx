@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, memo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, memo } from "react";
 import Konva from "konva";
 import {
   Stage,
@@ -31,6 +31,7 @@ import {
 import { PixelSpriteNode } from "./PixelSprite";
 import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
+import { perfMonitor } from "@/lib/perfMonitor";
 import { useShallow } from "zustand/react/shallow";
 import type { Particle, Hazard, ShopOffer, UpgradeRarity } from "@shared/types";
 
@@ -1990,6 +1991,7 @@ const selectGameState = (state: ReturnType<typeof useGameStore.getState>) => ({
 });
 
 export default function GameCanvas() {
+  const renderStart = performance.now();
   const { gameState, localPlayerId } = useGameStore(
     useShallow(selectGameState),
   );
@@ -2078,6 +2080,11 @@ export default function GameCanvas() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Render + commit time of the whole canvas tree (layout effects run after every child has committed).
+  useLayoutEffect(() => {
+    perfMonitor.recordRender(performance.now() - renderStart);
+  });
 
   const scale = displaySize.scaleX;
 
