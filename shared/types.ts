@@ -28,19 +28,23 @@ export type CharacterType = 'spray-n-pray' | 'boom-bringer' | 'glass-cannon-carl
 
 export type WeaponType = 'rapid-fire' | 'grenade-launcher' | 'sniper-shot' | 'burst-fire' | 'heavy-cannon' | 'shotgun' | 'energy-blade';
 
-export type UnlockCriteriaType =
-  | 'level10Count'
-  | 'waveReached'
-  | 'gamesPlayed'
-  | 'enemiesKilled'
-  | 'surviveWithoutHealth'
+// Lifetime stats an unlock route can target (see statValue in progressionStorage).
+export type UnlockStat =
   | 'bossesDefeated'
-  | 'survivalTime'
+  | 'enemiesKilled'
+  | 'waveReached'
+  | 'survivalMinutes'
   | 'extractions'
-  | 'noHitAfterWave5Win';
+  | 'noHitAfterWave5Win'
+  | 'riftStagesCleared'
+  | 'riftSRanks'
+  | 'riftFlawlessStages'
+  | 'riftSecretChests';
 
-export interface UnlockCriteria {
-  type: UnlockCriteriaType;
+// One way to earn a character; completing any of its routes unlocks it.
+export interface UnlockRoute {
+  mode: GameMode | 'any';
+  stat: UnlockStat;
   required: number;
   description: string;
 }
@@ -61,11 +65,23 @@ export interface CharacterStats {
   pro: string;
   con: string;
   locked?: boolean;
-  unlockCriteria?: UnlockCriteria;
+  unlockRoutes?: UnlockRoute[];
   startsWithPet?: boolean;
 }
 
-export interface LastRunStats {
+// 'rift' = open world (main mode), 'arena' = classic waves.
+export type GameMode = 'rift' | 'arena';
+
+// Mode-specific stats shared by the saved last run and the leaderboard submission.
+// Rift runs store the stage reached in waveReached so shared UI keeps working.
+export interface RunModeStats {
+  gameMode?: GameMode; // absent = arena (pre-Rift data)
+  stagesCleared?: number;
+  bestCombo?: number;
+  stage3TimeMs?: number | null;
+}
+
+export interface LastRunStats extends RunModeStats {
   characterType: CharacterType;
   waveReached: number;
   enemiesKilled: number;
@@ -85,12 +101,20 @@ export interface PlayerProgression {
   successfulExtractions: number;
   bestSurvivalTimeMs: number;
   noHitAfterWave5Wins: number;
+  // The Rift (arena-only stats above no longer count Rift runs, except kills and bosses).
+  bestRiftStagesCleared: number;
+  riftSRanks: number;
+  riftFlawlessStages: number;
+  riftSecretChests: number;
   lastUpdated: number;
   lastRunStats?: LastRunStats;
 }
 
+export type PetCoat = "red" | "black-tan" | "chocolate-tan" | "cream" | "dapple";
+
 export interface Pet {
   id: string;
+  coat?: PetCoat;
   ownerId: string;
   position: Vector2D;
   health: number;
@@ -735,7 +759,7 @@ export interface RunMapState {
 
 export type GameStatus = 'mapSelection' | 'playing' | 'bossFight' | 'bossDefeated' | 'gameOver' | 'won';
 
-export interface LeaderboardEntry {
+export interface LeaderboardEntry extends RunModeStats {
   id: number;
   playerName: string;
   characterType: CharacterType;
@@ -746,7 +770,7 @@ export interface LeaderboardEntry {
   createdAt: number;
 }
 
-export interface LeaderboardSubmission {
+export interface LeaderboardSubmission extends RunModeStats {
   playerName: string;
   characterType: CharacterType;
   waveReached: number;
@@ -756,10 +780,20 @@ export interface LeaderboardSubmission {
 }
 
 export type LeaderboardCategory =
+  // Arena
   | 'highest-wave'
   | 'most-kills'
   | 'longest-survival'
-  | 'fastest-victory';
+  | 'fastest-victory'
+  // Rift ('most-kills' is shared)
+  | 'most-stages'
+  | 'best-combo'
+  | 'fastest-stage3';
+
+export const LEADERBOARD_CATEGORIES: Record<GameMode, LeaderboardCategory[]> = {
+  rift: ['most-stages', 'most-kills', 'best-combo', 'fastest-stage3'],
+  arena: ['highest-wave', 'most-kills', 'longest-survival', 'fastest-victory'],
+};
 
 export interface LeaderboardResponse {
   category: LeaderboardCategory;
@@ -771,6 +805,8 @@ export type CombatEncounterPhase = 'spawning' | 'clearing' | 'intermission';
 
 export interface GameState {
   explorationPrototype?: boolean;
+  // Set by any testing/debug control; the run then records no stats, unlocks or leaderboard score.
+  debugUsed?: boolean;
   exploration?: import('./exploration').ExplorationState | null;
   simulationTime?: number;
   gameId: string;

@@ -1,580 +1,395 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
 import { useGamepad } from "@/hooks/useGamepad";
-import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
 import { AudioManager } from "@/lib/audio/AudioManager";
 import { rarityFx } from "./upgrade-modal/rarityFx";
-import {
-  UpgradeParticles,
-  type UpgradeParticlesHandle,
-} from "./upgrade-modal/UpgradeParticles";
-import { UpgradeCard, type CardPhase } from "./upgrade-modal/UpgradeCard";
+import { PixelFx, TIER_HINT } from "./upgrade-modal/pixelFx";
+import { drawBack, genCracks, type CrackTier } from "./upgrade-modal/cardBack";
+import { PixelUpgradeCard, type CardFate } from "./upgrade-modal/PixelUpgradeCard";
+import "./pixelCards.css";
+import "./upgrade-modal/upgradePixel.css";
 
 interface UpgradeModalProps {
   onSelectUpgrade: (upgradeId: string) => void;
 }
 
-const REDUCED_MOTION =
-  typeof window !== "undefined" &&
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+// Cards deal face-down and break open on their own, lowest rarity first so the best card lands last.
+// Every card gets the same short crunch; only rare cards earn extra time (a violet catch / gold rumble)
+// and screen-wide effects, so the 50th level-up stays quick and a legendary still stops you.
+const DEAL_MS = 250;
+const DEAL_STAGGER = 60;
+const REVEAL_STAGGER = 130;
+const CHARGE_MS = 220;
+const CRACK_AT = [0.1, 0.35, 0.6, 0.85];
+// Per rarity tier (common, uncommon, lunar/void, legendary/boss).
+const TIER = {
+  beatMs: [0, 0, 150, 350], // extra anticipation after the crunch
+  hitstopMs: [0, 30, 70, 150],
+  tile: [14, 8, 8, 8], // shatter tile size (logical px on the 56x80 back)
+  shatterPower: [0.15, 0.4, 0.8, 1],
+  rays: [0, 0, 0.45, 0.8],
+};
+const TITLE_COLORS = [
+  ["#ff6bd6", "#ffd1f3"], ["#ffcf4a", "#fff3b0"], ["#6fd46a", "#b6f28a"], ["#47d6c1", "#bff7f0"],
+  ["#4f8fff", "#bcd4ff"], ["#b86bff", "#e3c7ff"], ["#e8434f", "#ff9aa8"], ["#ff9f43", "#ffe0b8"],
+];
+
+// Sounds are decoration: a throwing audio call must never abort the reveal mid-frame.
+const sfx = (play: (audio: AudioManager) => void) => {
+  try { play(AudioManager.getInstance()); } catch (err) { console.warn("upgrade sfx failed", err); }
+};
+
+type Phase = "dealing" | "back" | "charging" | "beat" | "hitstop" | "revealed";
+interface CardSim {
+  phase: Phase;
+  dealAt: number;
+  revealAt: number;
+  charge: number;
+  beatMs: number;
+  reached: boolean[];
+  tease: number;
+  hitstopMs: number;
+  cracks: CrackTier[];
+  suckAcc: number;
+  boltAcc: number;
+  moteAcc: number;
+  rays: number;
+  aftershock: number;
+}
 
 export default function UpgradeModal({ onSelectUpgrade }: UpgradeModalProps) {
   const { isUpgradeModalOpen, upgradeOptions } = useGameStore(
-    useShallow((state) => ({
-      isUpgradeModalOpen: state.isUpgradeModalOpen,
-      upgradeOptions: state.upgradeOptions,
-    })),
+    useShallow((state) => ({ isUpgradeModalOpen: state.isUpgradeModalOpen, upgradeOptions: state.upgradeOptions })),
   );
   const gameState = useGameStore((state) => state.gameState);
   const localPlayerId = useGameStore((state) => state.localPlayerId);
-
-  const [isAnimatingIn, setIsAnimatingIn] = useState(false);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [isGamepadActive, setIsGamepadActive] = useState(false);
-  const [selectedUpgradeId, setSelectedUpgradeId] = useState<string | null>(
-    null,
-  );
-  const [phases, setPhases] = useState<CardPhase[]>([]);
-  const [flash, setFlash] = useState<{ color: string; key: number } | null>(
-    null,
-  );
-  const [glitchFx, setGlitchFx] = useState<{
-    color: string;
-    accent: string;
-    key: number;
-  } | null>(null);
-  const shakeControls = useAnimationControls();
-  const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const revealTimersRef = useRef<NodeJS.Timeout[]>([]);
-  const particlesRef = useRef<UpgradeParticlesHandle>(null);
-  const cardElsRef = useRef<(HTMLButtonElement | null)[]>([]);
-  const phasesRef = useRef<CardPhase[]>([]);
-  const flashKeyRef = useRef(0);
-
   const promptType = gameState?.upgradePromptType ?? "levelUp";
-  const localPlayer =
-    gameState?.players.find((player) => player.id === localPlayerId) ?? null;
+  const localPlayer = gameState?.players.find((player) => player.id === localPlayerId) ?? null;
   const playerCoins = Math.floor(localPlayer?.coins || 0);
-  const isShopPrompt =
-    promptType === "shop" ||
-    upgradeOptions.some((option) => option.source === "shop");
+  const isShopPrompt = promptType === "shop" || upgradeOptions.some((option) => option.source === "shop");
 
-  const topFx = upgradeOptions.reduce(
-    (best, option) => {
-      const fx = rarityFx(option.rarity);
-      return fx.tier > best.tier ? fx : best;
-    },
-    rarityFx("common"),
-  );
+  const [revealed, setRevealed] = useState<boolean[]>([]);
+  const [hot, setHot] = useState<number | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [barsKey, setBarsKey] = useState(0);
+  const [scale, setScale] = useState(5);
 
-  const { getGamepadInput } = useGamepad();
-  const lastGamepadInput = useRef<{
-    left: boolean;
-    right: boolean;
-    up: boolean;
-    down: boolean;
-    confirm: boolean;
-  }>({
-    left: false,
-    right: false,
-    up: false,
-    down: false,
-    confirm: false,
-  });
+  const fx = useMemo(() => new PixelFx(), []);
+  const backFxRef = useRef<HTMLCanvasElement>(null);
+  const frontFxRef = useRef<HTMLCanvasElement>(null);
+  const shakeRef = useRef<HTMLDivElement>(null);
+  const buttonEls = useRef<(HTMLButtonElement | null)[]>([]);
+  const innerEls = useRef<(HTMLDivElement | null)[]>([]);
+  const backEls = useRef<(HTMLCanvasElement | null)[]>([]);
+  const sims = useRef<CardSim[]>([]);
+  const hotRef = useRef<number | null>(null);
+  const optionsRef = useRef(upgradeOptions);
+  optionsRef.current = upgradeOptions;
+  const selectingRef = useRef(false);
+  const pendingPick = useRef<number | null>(null);
+  const selectRef = useRef<(i: number) => void>(() => {});
+  const selectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const cardCenter = useCallback((index: number) => {
-    const el = cardElsRef.current[index];
-    if (!el) return { x: window.innerWidth / 2, y: window.innerHeight / 2 };
-    const rect = el.getBoundingClientRect();
-    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-  }, []);
+  const setHotIndex = useCallback((i: number | null) => { hotRef.current = i; setHot(i); }, []);
 
-  const fireFlash = useCallback((color: string) => {
-    flashKeyRef.current += 1;
-    setFlash({ color, key: flashKeyRef.current });
-  }, []);
-
-  const fireGlitch = useCallback((color: string, accent: string) => {
-    flashKeyRef.current += 1;
-    setGlitchFx({ color, accent, key: flashKeyRef.current });
-  }, []);
-
-  const shake = useCallback(
-    (amp: number, duration = 0.32) => {
-      if (REDUCED_MOTION || amp <= 0) return;
-      shakeControls.start({
-        x: [0, -amp, amp * 0.9, -amp * 0.6, amp * 0.4, 0],
-        y: [0, 2, -2, 1, 0],
-        transition: { duration, ease: "easeInOut" },
-      });
-    },
-    [shakeControls],
-  );
-
-  const revealCard = useCallback(
-    (index: number) => {
-      const option = upgradeOptions[index];
-      if (!option) return;
-      const fx = rarityFx(option.rarity);
-      setPhases((prev) => {
-        if (prev[index] === 2) return prev;
-        const next = [...prev];
-        next[index] = 2;
-        phasesRef.current = next;
-        return next;
-      });
-      const { x, y } = cardCenter(index);
-      particlesRef.current?.burst(x, y, {
-        color: fx.color,
-        accent: fx.accent,
-        count: 30 + fx.tier * 90,
-        speed: 260 + fx.tier * 90,
-        kind: "square",
-      });
-      if (fx.tier >= 1) {
-        particlesRef.current?.burst(x, y, {
-          color: fx.color,
-          count: 1,
-          speed: 870,
-          kind: "ring",
-        });
-      }
-      if (fx.tier >= 3) {
-        particlesRef.current?.burst(x, y, {
-          color: fx.accent,
-          count: 1,
-          speed: 590,
-          kind: "ring",
-        });
-        fireFlash(fx.color);
-        fireGlitch(fx.color, fx.accent);
-        shake(4, 0.25);
-      }
-      AudioManager.getInstance().playUpgradeReveal(fx.tier);
-    },
-    [upgradeOptions, cardCenter, fireFlash, fireGlitch, shake],
-  );
-
-  const skipReveal = useCallback(() => {
-    revealTimersRef.current.forEach(clearTimeout);
-    revealTimersRef.current = [];
-    upgradeOptions.forEach((option, index) => {
-      if (phasesRef.current[index] !== 2) {
-        revealCard(index);
-      }
-    });
-  }, [upgradeOptions, revealCard]);
-
-  // Reset state when modal opens + schedule the deal/reveal timeline
+  // Fresh deal whenever a new set of options arrives; reveal order runs from lowest to highest tier.
   useEffect(() => {
-    if (isUpgradeModalOpen && upgradeOptions.length > 0) {
-      setIsAnimatingIn(false);
-      setHoveredIndex(null);
-      setIsSelecting(false);
-      setSelectedUpgradeId(null);
-      setIsGamepadActive(false);
-      const initial = upgradeOptions.map(() => 0 as CardPhase);
-      setPhases(initial);
-      phasesRef.current = initial;
+    if (!isUpgradeModalOpen || upgradeOptions.length === 0) return;
+    const now = performance.now();
+    const order = upgradeOptions.map((o, i) => ({ i, tier: rarityFx(o.rarity).tier })).sort((a, b) => a.tier - b.tier || a.i - b.i);
+    const dealDone = now + DEAL_MS + (upgradeOptions.length - 1) * DEAL_STAGGER;
+    sims.current = upgradeOptions.map((option, i) => ({
+      phase: "dealing", dealAt: now + DEAL_MS + i * DEAL_STAGGER,
+      revealAt: dealDone + 80 + order.findIndex((o) => o.i === i) * REVEAL_STAGGER,
+      charge: 0, beatMs: TIER.beatMs[rarityFx(option.rarity).tier], reached: [false, false, false, false], tease: 0,
+      hitstopMs: 0, cracks: genCracks(Math.floor(Math.random() * 1e9)), suckAcc: 0, boltAcc: 0, moteAcc: 0, rays: 0, aftershock: -1,
+    }));
+    setRevealed(upgradeOptions.map(() => false));
+    setSelectedId(null);
+    setHotIndex(null);
+    selectingRef.current = false;
+    pendingPick.current = null;
+    if (selectTimer.current) clearTimeout(selectTimer.current);
+  }, [isUpgradeModalOpen, upgradeOptions, setHotIndex]);
 
-      if (selectionTimeoutRef.current) {
-        clearTimeout(selectionTimeoutRef.current);
-        selectionTimeoutRef.current = null;
-      }
-      revealTimersRef.current.forEach(clearTimeout);
-      revealTimersRef.current = [];
+  useEffect(() => () => { if (selectTimer.current) clearTimeout(selectTimer.current); }, []);
 
-      upgradeOptions.forEach((option, index) => {
-        const fx = rarityFx(option.rarity);
-        const flipAt = 350 + index * 220 + (fx.tier >= 2 ? 250 : 0);
-        if (fx.tier >= 2) {
-          revealTimersRef.current.push(
-            setTimeout(() => {
-              setPhases((prev) => {
-                const next = [...prev];
-                if (next[index] === 0) next[index] = 1;
-                phasesRef.current = next;
-                return next;
-              });
-            }, flipAt - 250),
-          );
+  const rectOf = useCallback((i: number) => {
+    const el = buttonEls.current[i];
+    return el ? fx.toLogical(el.getBoundingClientRect()) : { x: fx.W / 2, y: fx.H / 2, w: 1, h: 1 };
+  }, [fx]);
+
+  // The break: effects escalate by tier and only rare cards touch the whole screen.
+  const release = useCallback((i: number) => {
+    const sim = sims.current[i], option = optionsRef.current[i], back = backEls.current[i];
+    if (!sim || !option) return;
+    const r = rarityFx(option.rarity), tier = r.tier, rect = rectOf(i), cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    sim.phase = "revealed";
+    setRevealed((prev) => { const next = [...prev]; next[i] = true; return next; });
+    if (back) fx.shatter(back, rect, TIER.tile[tier], TIER.shatterPower[tier]);
+    fx.sparksAt(cx, cy, [14, 36, 70, 130][tier], [r.color, r.accent], [90, 120, 170, 200][tier], [0.6, 0.8, 1.1, 1.3][tier]);
+    if (tier >= 1) fx.ring(cx, cy, r.color, 200, 2);
+    if (tier >= 2) {
+      fx.ring(cx, cy, "#ffffff", 220, 1, 0.05);
+      fx.ring(cx, cy, r.accent, 170, 2, 0.14);
+      for (let k = 0; k < 2 + tier * 2; k++) fx.bolt(rect, r.color);
+      fx.shake(tier === 3 ? 0.8 : 0.35);
+      sfx((a) => a.playUpgradeTease(tier));
+    }
+    if (tier >= 3) {
+      fx.sparksAt(cx, cy, 30, ["#ffffff"], 240, 0.5);
+      fx.ring(cx, cy, "#ffcf4a", 130, 3, 0.26);
+      fx.ring(cx, cy, "#fff3b0", 90, 1, 0.4);
+      fx.confettiAt(cx, cy, 150, ["#ffcf4a", "#fff3b0", "#e0781f", "#ffffff", "#e8434f"]);
+      sim.aftershock = 0.32;
+      sfx((a) => a.playUpgradeSelect(3));
+    }
+    if (tier >= 1) sfx((a) => a.playUpgradeReveal(tier));
+    if (pendingPick.current === i) { pendingPick.current = null; selectRef.current(i); }
+  }, [fx, rectOf]);
+
+  const burst = useCallback((i: number) => {
+    const sim = sims.current[i], option = optionsRef.current[i];
+    if (!sim || !option || sim.phase === "hitstop" || sim.phase === "revealed") return;
+    const tier = rarityFx(option.rarity).tier;
+    sim.charge = 1;
+    sim.cracks.forEach((t) => { t.shown = true; });
+    sim.phase = "hitstop";
+    sim.hitstopMs = fx.reduce ? 0 : TIER.hitstopMs[tier];
+    // No full-screen flashes (too harsh on a dark screen): rare cards punch locally with a burst + ring.
+    if (tier >= 2) { const rect = rectOf(i); fx.sparksAt(rect.x + rect.w / 2, rect.y + rect.h / 2, 20, ["#ffffff", TIER_HINT[tier]], 110, 0.3); fx.ring(rect.x + rect.w / 2, rect.y + rect.h / 2, "#ffffff", 120, 2); }
+    if (tier >= 3 && !fx.reduce) setBarsKey((k) => k + 1);
+  }, [fx, rectOf]);
+
+  // Break a face-down card right now (click, or a hotkey pick before it opened on its own).
+  const crackNow = useCallback((i: number) => {
+    const sim = sims.current[i], option = optionsRef.current[i];
+    if (!sim || !option || sim.phase === "hitstop" || sim.phase === "revealed") return;
+    sim.tease = rarityFx(option.rarity).tier;
+    burst(i);
+  }, [burst]);
+
+  const select = useCallback((i: number) => {
+    const option = optionsRef.current[i], sim = sims.current[i];
+    if (!option || !sim || selectingRef.current) return;
+    if (sim.phase !== "revealed") { crackNow(i); return; }
+    const unaffordable = isShopPrompt && !option.isSkipOption && (option.cost || 0) > playerCoins;
+    if (unaffordable) { fx.shake(0.25); return; }
+    selectingRef.current = true;
+    setSelectedId(option.id);
+    const r = rarityFx(option.rarity), rect = rectOf(i), cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+    fx.sparksAt(cx, cy, 60 + r.tier * 40, [r.color, r.accent, "#ffffff"], 180 + r.tier * 30, 1.1);
+    fx.confettiAt(cx, cy, 40 + r.tier * 30, [r.color, r.accent, "#ffffff", "#ffcf4a"]);
+    for (let k = 0; k < 2 + Math.min(1, r.tier); k++) fx.ring(cx, cy, k % 2 ? r.accent : r.color, 280 - k * 60, 3, k * 0.08);
+    fx.shake(0.3 + r.tier * 0.1);
+    sfx((a) => a.playUpgradeSelect(r.tier));
+    selectTimer.current = setTimeout(() => onSelectUpgrade(option.id), 480);
+  }, [crackNow, fx, isShopPrompt, onSelectUpgrade, playerCoins, rectOf]);
+  selectRef.current = select;
+
+  // Hotkey / gamepad pick: works whether or not the card has opened yet.
+  const pick = useCallback((i: number) => {
+    const sim = sims.current[i];
+    if (!sim || selectingRef.current) return;
+    if (sim.phase === "revealed") select(i);
+    else { pendingPick.current = i; crackNow(i); }
+  }, [crackNow, select]);
+
+  // Canvas setup + card scale follow the window.
+  useEffect(() => {
+    if (!isUpgradeModalOpen) return;
+    const fit = () => {
+      if (backFxRef.current && frontFxRef.current) fx.attach(backFxRef.current, frontFxRef.current);
+      setScale(window.innerWidth >= 1100 && window.innerHeight >= 780 ? 5 : window.innerWidth >= 760 ? 4 : 3);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [isUpgradeModalOpen, fx]);
+
+  // Frame loop: deal -> crunch -> (rare beat) -> hit-stop -> break, then FX simulate + draw.
+  useEffect(() => {
+    if (!isUpgradeModalOpen) return;
+    let raf = 0, last = performance.now(), t = 0, reported = false;
+    const loop = (now: number) => {
+      // Schedule first and catch below, so one bad frame can never freeze the whole reveal.
+      raf = requestAnimationFrame(loop);
+      try { frame(now); } catch (err) { if (!reported) { reported = true; console.error("upgrade reveal frame failed", err); } }
+    };
+    const frame = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now; t += dt;
+      const halos: typeof fx.halos = [], rays: typeof fx.rays = [];
+      let frozen = false;
+      optionsRef.current.forEach((option, i) => {
+        const sim = sims.current[i], inner = innerEls.current[i], back = backEls.current[i];
+        if (!sim) return;
+        const r = rarityFx(option.rarity), tier = r.tier, rect = rectOf(i), cx = rect.x + rect.w / 2, cy = rect.y + rect.h / 2;
+        const g = back?.getContext("2d");
+        if (sim.phase === "dealing" && now >= sim.dealAt) {
+          sim.phase = "back";
+          fx.sparksAt(cx, rect.y + rect.h, 8, ["#a9a3c9", "#6a6394"], 40, 0.4);
         }
-        revealTimersRef.current.push(
-          setTimeout(() => revealCard(index), flipAt),
-        );
-      });
-
-      requestAnimationFrame(() => {
-        setIsAnimatingIn(true);
-      });
-    }
-  }, [isUpgradeModalOpen, upgradeOptions, revealCard]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (selectionTimeoutRef.current) {
-        clearTimeout(selectionTimeoutRef.current);
-      }
-      revealTimersRef.current.forEach(clearTimeout);
-    };
-  }, []);
-
-  // Ambient embers tinted by the highest rarity on offer
-  useEffect(() => {
-    if (isUpgradeModalOpen) {
-      particlesRef.current?.setAmbient(topFx.color, topFx.tier);
-    }
-  }, [isUpgradeModalOpen, topFx]);
-
-  // Per-card edge emitters (updated on hover/phase change + slow interval)
-  useEffect(() => {
-    if (!isUpgradeModalOpen) return;
-    const push = () => {
-      const list = upgradeOptions
-        .map((option, index) => {
-          const el = cardElsRef.current[index];
-          if (!el || phasesRef.current[index] !== 2) return null;
-          const fx = rarityFx(option.rarity);
-          return {
-            rect: el.getBoundingClientRect(),
-            color: fx.color,
-            accent: fx.accent,
-            tier: fx.tier,
-            intensity: hoveredIndex === index ? 2.5 : 1,
-          };
-        })
-        .filter((e): e is NonNullable<typeof e> => e !== null);
-      particlesRef.current?.setEmitters(list);
-    };
-    push();
-    const interval = setInterval(push, 200);
-    return () => clearInterval(interval);
-  }, [isUpgradeModalOpen, upgradeOptions, hoveredIndex, phases]);
-
-  const allRevealed =
-    phases.length > 0 && phases.every((phase) => phase === 2);
-
-  const handleSelect = useCallback(
-    (upgradeId: string) => {
-      if (isSelecting || !allRevealed) return;
-
-      setSelectedUpgradeId(upgradeId);
-      setIsSelecting(true);
-
-      const index = upgradeOptions.findIndex((o) => o.id === upgradeId);
-      const option = upgradeOptions[index];
-      const fx = rarityFx(option?.rarity);
-      const { x, y } = cardCenter(index);
-      particlesRef.current?.burst(x, y, {
-        color: fx.color,
-        accent: fx.accent,
-        count: 90 + fx.tier * 180,
-        speed: 320 + fx.tier * 110,
-        kind: "square",
-      });
-      particlesRef.current?.burst(x, y, {
-        color: fx.color,
-        count: 16,
-        speed: 200,
-        kind: "emoji",
-        text: option?.emoji || "🎁",
-      });
-      if (fx.tier >= 1) {
-        particlesRef.current?.burst(x, y, {
-          color: fx.accent,
-          accent: fx.color,
-          count: 40 + fx.tier * 20,
-          speed: 240,
-          kind: "confetti",
-        });
-      }
-      const rings = 2 + Math.min(1, fx.tier);
-      for (let i = 0; i < rings; i++) {
-        setTimeout(() => {
-          particlesRef.current?.burst(x, y, {
-            color: i % 2 ? fx.accent : fx.color,
-            count: 1,
-            speed: 730 - i * 170,
-            kind: "ring",
+        if (sim.phase === "back" && now >= sim.revealAt && !selectingRef.current) sim.phase = "charging";
+        if (sim.phase === "charging") {
+          // The crunch: identical for every card so it never gives the rarity away.
+          sim.charge = Math.min(1, sim.charge + dt * 1000 / CHARGE_MS);
+          const c = sim.charge;
+          CRACK_AT.forEach((at, k) => {
+            if (!sim.reached[k] && c >= at) {
+              sim.reached[k] = true; sim.cracks[k].shown = true;
+              if (k === 0) sfx((a) => a.playUpgradeCrack(0));
+              fx.sparksAt(cx, cy, 5, [TIER_HINT[sim.tease]], 70, 0.3);
+            }
           });
-        }, i * 90);
-      }
-      fireFlash(fx.color);
-      shake(4 + fx.tier * 4);
-      AudioManager.getInstance().playUpgradeSelect(fx.tier);
+          if (tier >= 1 && c >= 0.5 && sim.tease < 1) sim.tease = 1;
+          halos.push({ rect, color: TIER_HINT[sim.tease], strength: c * 0.7 });
+          if (inner) inner.style.transform = fx.reduce ? "" : `translate(${Math.round((Math.random() - 0.5) * c * 2) * 2}px, 0)`;
+          if (c >= 1) {
+            if (sim.beatMs > 0) {
+              sim.phase = "beat";
+              sim.tease = 2;
+              sfx((a) => a.playUpgradeTease(2));
+              fx.ring(cx, cy, TIER_HINT[2], 150, 2);
+              fx.sparksAt(cx, cy, 18, [TIER_HINT[2], "#ffffff"], 110, 0.45);
+            } else burst(i);
+          }
+        } else if (sim.phase === "beat") {
+          // Rare-only anticipation: violet catch, and for legendary a gold rumble with lightning.
+          sim.beatMs -= dt * 1000;
+          const beatTotal = TIER.beatMs[tier];
+          if (tier >= 3 && sim.tease < 3 && sim.beatMs < beatTotal * 0.55) {
+            sim.tease = 3;
+            sfx((a) => a.playUpgradeTease(3));
+            fx.ring(cx, cy, TIER_HINT[3], 170, 2);
+            fx.sparksAt(cx, cy, 30, [TIER_HINT[3], "#ffffff"], 130, 0.5);
+            fx.shake(0.3);
+          }
+          const hint = TIER_HINT[sim.tease], k = 1 - Math.max(0, sim.beatMs) / beatTotal;
+          sim.suckAcc += dt * (40 + 160 * k) * (fx.reduce ? 0.3 : 1);
+          while (sim.suckAcc > 1) { sim.suckAcc--; fx.suck(rect, hint); }
+          if (tier >= 3) { sim.boltAcc += dt * 14 * (fx.reduce ? 0.3 : 1); while (sim.boltAcc > 1) { sim.boltAcc--; fx.bolt(rect, Math.random() < 0.3 ? "#ffffff" : hint); } }
+          halos.push({ rect, color: hint, strength: 0.7 + 0.3 * k });
+          if (inner) { const jit = fx.reduce ? 0 : 1 + k * 3; inner.style.transform = `translate(${Math.round((Math.random() - 0.5) * jit) * 2}px, ${Math.round((Math.random() - 0.5) * jit) * 2}px) scale(${1 + Math.round(k * 3) * 0.02})`; }
+          fx.warp = Math.max(fx.warp, tier >= 3 ? 1 + 4 * k : 0.5 + k);
+          if (sim.beatMs <= 0) burst(i);
+        } else if (sim.phase === "hitstop") {
+          frozen = true;
+          halos.push({ rect, color: TIER_HINT[sim.tease], strength: 1 });
+          if (inner) inner.style.transform = tier >= 2 ? "scale(1.06)" : "";
+          sim.hitstopMs -= dt * 1000;
+          if (sim.hitstopMs <= 0) { if (inner) inner.style.transform = ""; release(i); }
+        } else if (sim.phase === "revealed") {
+          sim.rays += (TIER.rays[tier] * (hotRef.current === i ? 1.25 : 1) - sim.rays) * Math.min(1, dt * 3);
+          if (sim.rays > 0.02) rays.push({ x: cx, y: cy, color: r.color, strength: sim.rays, tier });
+          if (tier >= 2) { sim.moteAcc += dt * (tier * 2 + (hotRef.current === i ? 3 : 0)) * (fx.reduce ? 0.4 : 1); while (sim.moteAcc > 1) { sim.moteAcc--; fx.mote(rect, r.color); } }
+          if (sim.aftershock > 0 && (sim.aftershock -= dt) <= 0) {
+            fx.ring(cx, cy, r.color, 220, 2);
+            fx.sparksAt(cx, cy, 50, [r.color, r.accent], 140, 0.7);
+            fx.confettiAt(cx, cy, 60, ["#ffcf4a", "#fff3b0", "#ffffff"]);
+            fx.shake(0.4);
+          }
+          if (tier >= 3 && Math.random() < dt * 1.2 * (fx.reduce ? 0.3 : 1)) fx.bolt(rect, r.color);
+        }
+        if (g && sim.phase !== "revealed") {
+          sim.cracks.forEach((tierCracks) => { if (tierCracks.shown) tierCracks.prog = Math.min(1, tierCracks.prog + dt * 12); });
+          drawBack(g, t, sim.charge, TIER_HINT[sim.tease], sim.cracks);
+        }
+      });
+      fx.halos = halos; fx.rays = rays;
+      fx.warp += (0.2 - fx.warp) * Math.min(1, dt * 1.6);
+      if (!frozen) fx.step(dt);
+      fx.render();
+      if (shakeRef.current) { const o = fx.shakeOffset(); shakeRef.current.style.transform = o.x || o.y ? `translate(${o.x * 2}px, ${o.y * 2}px)` : ""; }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [isUpgradeModalOpen, fx, rectOf, burst, release]);
 
-      // Longer delay so lock-in effects are visible and satisfying
-      selectionTimeoutRef.current = setTimeout(() => {
-        onSelectUpgrade(upgradeId);
-      }, 650);
-    },
-    [isSelecting, allRevealed, upgradeOptions, cardCenter, fireFlash, shake, onSelectUpgrade],
-  );
-
-  // Gamepad polling for menu navigation
+  // Keyboard: 1/2/3 pick instantly; arrows move focus, Enter/Space picks the focused card.
   useEffect(() => {
     if (!isUpgradeModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const n = optionsRef.current.length;
+      const digit = /^(Digit|Numpad)([1-9])$/.exec(e.code);
+      if (digit) { const i = Number(digit[2]) - 1; if (i < n) { e.preventDefault(); pick(i); } return; }
+      if (e.code === "ArrowLeft" || e.code === "ArrowUp") { e.preventDefault(); setHotIndex(Math.max(0, (hotRef.current ?? 1) - 1)); }
+      else if (e.code === "ArrowRight" || e.code === "ArrowDown") { e.preventDefault(); setHotIndex(Math.min(n - 1, (hotRef.current ?? -1) + 1)); }
+      else if ((e.code === "Enter" || e.code === "Space") && hotRef.current !== null) { e.preventDefault(); pick(hotRef.current); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isUpgradeModalOpen, pick, setHotIndex]);
 
-    const pollInterval = setInterval(() => {
+  // Gamepad: stick/d-pad moves focus, A / L1 picks.
+  const { getGamepadInput } = useGamepad();
+  const lastPad = useRef({ left: false, right: false, confirm: false });
+  useEffect(() => {
+    if (!isUpgradeModalOpen) return;
+    const poll = setInterval(() => {
       const input = getGamepadInput();
       if (!input) return;
-      setIsGamepadActive(true);
+      const n = optionsRef.current.length, cur = hotRef.current;
+      const left = !!(input.left || input.up), right = !!(input.right || input.down), confirm = !!input.blink;
+      if (left && !lastPad.current.left) setHotIndex(Math.max(0, (cur ?? 1) - 1));
+      if (right && !lastPad.current.right) setHotIndex(Math.min(n - 1, (cur ?? -1) + 1));
+      if (confirm && !lastPad.current.confirm) { if (cur === null) setHotIndex(0); else pick(cur); }
+      lastPad.current = { left, right, confirm };
+    }, 80);
+    return () => clearInterval(poll);
+  }, [isUpgradeModalOpen, getGamepadInput, pick, setHotIndex]);
 
-      // Handle navigation
-      const current = hoveredIndex ?? 0;
-      if (
-        (input.left && !lastGamepadInput.current.left) ||
-        (input.up && !lastGamepadInput.current.up)
-      ) {
-        setHoveredIndex(Math.max(0, current - 1));
-      }
-      if (
-        (input.right && !lastGamepadInput.current.right) ||
-        (input.down && !lastGamepadInput.current.down)
-      ) {
-        setHoveredIndex(Math.min(upgradeOptions.length - 1, current + 1));
-      }
+  if (!isUpgradeModalOpen || upgradeOptions.length === 0) return null;
 
-      // Handle Selection / skip reveal
-      if (input.blink && !lastGamepadInput.current.confirm) {
-        if (!allRevealed) {
-          skipReveal();
-        } else {
-          const option = upgradeOptions[hoveredIndex ?? 0];
-          const canAfford =
-            !isShopPrompt || option?.isSkipOption || (option?.cost || 0) <= playerCoins;
-          if (option && canAfford) {
-            handleSelect(option.id);
-          }
-        }
-      }
-
-      lastGamepadInput.current = {
-        left: !!input.left,
-        right: !!input.right,
-        up: !!input.up,
-        down: !!input.down,
-        confirm: !!input.blink,
-      };
-    }, 100);
-
-    const handleMouseMove = () => {
-      if (isGamepadActive) {
-        setIsGamepadActive(false);
-        setHoveredIndex(null);
-      }
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-
-    return () => {
-      clearInterval(pollInterval);
-      window.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [
-    getGamepadInput,
-    isUpgradeModalOpen,
-    hoveredIndex,
-    upgradeOptions,
-    handleSelect,
-    isGamepadActive,
-    isShopPrompt,
-    playerCoins,
-    allRevealed,
-    skipReveal,
-  ]);
-
-  if (!isUpgradeModalOpen || upgradeOptions.length === 0) {
-    return null;
-  }
-
-  const isSelectionFxActive = isSelecting && selectedUpgradeId !== null;
-  const fanCenter = (upgradeOptions.length - 1) / 2;
   const title = isShopPrompt ? "SHOP ROUND" : "LEVEL UP!";
-
+  const legendaryOut = upgradeOptions.some((o, i) => revealed[i] && rarityFx(o.rarity).tier >= 3);
   return (
-    <motion.div
-      className="fixed inset-0 bg-black/85 flex flex-col items-center justify-center z-50 overflow-hidden"
-      animate={shakeControls}
-      onClick={() => {
-        if (!allRevealed) skipReveal();
-      }}
-    >
-      {/* Radial glow behind the cards in the top rarity colour */}
-      <motion.div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background: `radial-gradient(circle at 50% 52%, ${topFx.color}30 0%, transparent 55%)`,
-        }}
-        animate={{ opacity: [0.5, 1, 0.5] }}
-        transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
-      />
-      {/* Rotating light rays for high-rarity line-ups */}
-      {topFx.tier >= 2 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center mix-blend-screen">
-          <motion.div
-            className="h-[130vmin] w-[130vmin] rounded-full opacity-[0.12]"
-            style={{
-              background: `conic-gradient(from 0deg, transparent 0deg, ${topFx.color} 12deg, transparent 26deg, transparent 90deg, ${topFx.accent} 104deg, transparent 118deg, transparent 200deg, ${topFx.color} 214deg, transparent 228deg, transparent 300deg, ${topFx.accent} 314deg, transparent 330deg)`,
-            }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 36, repeat: Infinity, ease: "linear" }}
-          />
-        </div>
-      )}
-      {/* Scanlines */}
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.05]"
-        style={{
-          background:
-            "repeating-linear-gradient(0deg, #ffffff 0px, #ffffff 1px, transparent 1px, transparent 3px)",
-        }}
-      />
-      {/* Full-screen rarity flash */}
-      <AnimatePresence>
-        {flash && (
-          <motion.div
-            key={flash.key}
-            className="pointer-events-none absolute inset-0 mix-blend-screen"
-            style={{ backgroundColor: flash.color }}
-            initial={{ opacity: 0.55 }}
-            animate={{ opacity: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.12, ease: "easeOut" }}
-          />
-        )}
-      </AnimatePresence>
-      {/* Glitch slices on tier-3 reveal */}
-      {glitchFx && (
-        <div key={glitchFx.key} className="pointer-events-none absolute inset-0 mix-blend-screen">
-          {[0, 1, 2, 3].map((i) => (
-            <motion.div
-              key={i}
-              className="absolute left-0 h-[5px] w-full"
-              style={{
-                top: `${18 + i * 17 + (glitchFx.key % 7)}%`,
-                backgroundColor: i % 2 ? glitchFx.accent : glitchFx.color,
-              }}
-              initial={{ opacity: 0.8, x: i % 2 ? 70 : -70 }}
-              animate={{ opacity: 0, x: i % 2 ? -30 : 30 }}
-              transition={{ duration: 0.15, ease: "easeOut" }}
-            />
-          ))}
-        </div>
-      )}
-
-      <UpgradeParticles ref={particlesRef} />
-
-      <AnimatePresence>
-        {isSelectionFxActive && (
-          <>
-            <motion.div
-              className="absolute inset-0 pointer-events-none mix-blend-screen"
-              style={{
-                background:
-                  "radial-gradient(circle at 50% 45%, rgba(255,255,255,0.95) 0%, rgba(0,0,0,0) 55%)",
-              }}
-              initial={{ opacity: 0.85, scale: 0.85 }}
-              animate={{ opacity: 0, scale: 1.45 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.35, ease: "easeOut" }}
-            />
-            <motion.div
-              className="absolute inset-0 pointer-events-none mix-blend-screen"
-              style={{
-                background:
-                  "linear-gradient(90deg, rgba(255,0,110,0.35), transparent 45%, rgba(0,255,255,0.35))",
-              }}
-              initial={{ opacity: 0.7, x: -20 }}
-              animate={{ opacity: 0, x: 20 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.28, ease: "easeOut" }}
-            />
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Title */}
-      <div className="relative z-10 mb-8 text-center">
-        <motion.h2
-          className="font-press-start text-4xl md:text-5xl text-neon-yellow text-center"
-          animate={{
-            textShadow: [
-              "2px 0 0 rgba(255,0,60,0.7), -2px 0 0 rgba(0,255,255,0.7), 0 0 16px #FFFF00, 0 0 30px #FFFF00",
-              "2px 0 0 rgba(255,0,60,0.7), -2px 0 0 rgba(0,255,255,0.7), 0 0 32px #FFFF00, 0 0 70px #FFFF00",
-              "4px 1px 0 rgba(255,0,60,0.9), -4px -1px 0 rgba(0,255,255,0.9), 0 0 20px #FFFF00",
-              "2px 0 0 rgba(255,0,60,0.7), -2px 0 0 rgba(0,255,255,0.7), 0 0 16px #FFFF00, 0 0 30px #FFFF00",
-            ],
-          }}
-          transition={{ duration: 2, repeat: Infinity, times: [0, 0.45, 0.5, 0.56] }}
-        >
-          {title.split("").map((char, i) => (
-            <motion.span
-              key={`${title}-${i}`}
-              className="inline-block"
-              initial={{ opacity: 0, y: -26, scale: 0.4 }}
-              animate={
-                isAnimatingIn
-                  ? { opacity: 1, y: 0, scale: 1 }
-                  : { opacity: 0, y: -26, scale: 0.4 }
-              }
-              transition={{
-                delay: 0.08 + i * 0.05,
-                type: "spring",
-                stiffness: 320,
-                damping: 14,
-              }}
-            >
-              {char === " " ? " " : char}
-            </motion.span>
-          ))}
-        </motion.h2>
-        <p className="mt-3 font-sans text-base text-slate-200">
-          {isShopPrompt
-            ? `Spend coins on one upgrade or leave. Coins: ${playerCoins}`
-            : "XP bar filled. Choose your next upgrade."}
-        </p>
-        {!isShopPrompt && localPlayer && (
-          <div className="mt-2 inline-block rounded-md border border-yellow-300/40 bg-yellow-400/10 px-2.5 py-1 font-press-start text-[10px] text-yellow-300">
-            LV {localPlayer.level}
+    <div className="pxu-root fixed inset-0 z-50 overflow-hidden" data-testid="upgrade-modal">
+      <canvas ref={backFxRef} className="pxu-fx" aria-hidden />
+      <div ref={shakeRef} className="relative z-10 flex h-full flex-col items-center justify-center gap-5 px-4">
+        <div className="text-center">
+          <h2 className={`pxu-title ${legendaryOut ? "pxu-title-rainbow" : ""}`} aria-label={title}>
+            {title.split("").map((ch, i) => {
+              const [c, a] = TITLE_COLORS[i % TITLE_COLORS.length];
+              return <span key={`${title}-${i}`} style={{ "--i": i, "--c": c, "--a": a, "--d": "#2b2461" } as CSSProperties}>{ch === " " ? " " : ch}</span>;
+            })}
+          </h2>
+          <div className="mt-4 flex items-center justify-center gap-4">
+            <span className="pxu-sub">{isShopPrompt ? `Spend coins on one upgrade or leave · $${playerCoins}` : "XP bar filled. Pick an upgrade."}</span>
+            {!isShopPrompt && localPlayer && <span className="pxu-lv">LV {localPlayer.level}</span>}
           </div>
-        )}
+        </div>
+        <div className="mt-10 flex items-end justify-center gap-6 md:gap-10">
+          {upgradeOptions.map((option, index) => {
+            const fate: CardFate = selectedId === null ? "none" : selectedId === option.id ? "lock" : "drop";
+            return (
+              <PixelUpgradeCard
+                key={`${option.id}-${index}`}
+                option={option}
+                index={index}
+                scale={scale}
+                revealed={!!revealed[index]}
+                hot={hot === index}
+                fate={fate}
+                isShopPrompt={isShopPrompt}
+                playerCoins={playerCoins}
+                dealDelayMs={index * DEAL_STAGGER}
+                onActivate={() => pick(index)}
+                onHover={(h) => { if (h) setHotIndex(index); else if (hotRef.current === index) setHotIndex(null); }}
+                buttonRef={(el) => { buttonEls.current[index] = el; }}
+                innerRef={(el) => { innerEls.current[index] = el; }}
+                backRef={(el) => { backEls.current[index] = el; }}
+              />
+            );
+          })}
+        </div>
+        <div className="pxu-hint mt-4">{selectedId ? " " : <>CLICK A CARD OR PRESS <b>1 / 2 / 3</b> TO PICK</>}</div>
       </div>
-
-      {/* Cards */}
-      <div className="relative z-10 flex flex-col gap-6 px-4 md:flex-row">
-        {upgradeOptions.map((option, index) => {
-          const isLockedIn = selectedUpgradeId === option.id;
-          return (
-            <UpgradeCard
-              key={`${option.id}-${index}`}
-              option={option}
-              index={index}
-              phase={phases[index] ?? 0}
-              isAnimatingIn={isAnimatingIn}
-              isHovered={hoveredIndex === index}
-              isDimmed={isSelecting && !isLockedIn}
-              isLockedIn={isLockedIn}
-              isSelecting={isSelecting}
-              isOtherCardFocused={hoveredIndex !== null && hoveredIndex !== index}
-              isShopPrompt={isShopPrompt}
-              playerCoins={playerCoins}
-              fanOffset={(index - fanCenter) * 42}
-              fanRotate={(index - fanCenter) * -5}
-              onSelect={() => handleSelect(option.id)}
-              onHover={(i) => {
-                setIsGamepadActive(false);
-                setHoveredIndex(i);
-              }}
-              cardRef={(el) => {
-                cardElsRef.current[index] = el;
-              }}
-            />
-          );
-        })}
-      </div>
-    </motion.div>
+      <canvas ref={frontFxRef} className="pxu-fx z-20" aria-hidden />
+      {barsKey > 0 && <div key={`bars-${barsKey}`} className="pxu-bars absolute inset-0 pointer-events-none" />}
+      <div className="pxu-scan" />
+    </div>
   );
 }

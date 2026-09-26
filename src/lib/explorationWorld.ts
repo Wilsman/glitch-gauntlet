@@ -1,7 +1,7 @@
 import type { Vector2D } from '@shared/types';
 import type { ExplorationState, RunStats, StageModifierId, WorldChest, WorldWall } from '@shared/exploration';
-import { BIOMES, GATE, generateWorld, regionIndexAt, SPAWN, wallBlocks, WORLD_H, WORLD_W, YARD_LANDMARKS } from './worldGen';
-import { STAGE_MODIFIERS } from './stageModifiers';
+import { BIOME_PROPS, BIOMES, GATE, generateWorld, regionIndexAt, rng, SPAWN, wallBlocks, WORLD_H, WORLD_W, YARD_LANDMARKS } from './worldGen';
+import { rollStageModifiers, STAGE_MODIFIERS } from './stageModifiers';
 
 export const WORLD_WIDTH = WORLD_W;
 export const WORLD_HEIGHT = WORLD_H;
@@ -28,7 +28,7 @@ export function regionAt(world: ExplorationState, p: Vector2D) {
   return world.biomes[regionIndexAt(p)];
 }
 
-const freshRun = (): RunStats => ({ stagesCleared: 0, totalKills: 0, bestCombo: 0, items: [], maxTier: 0 });
+const freshRun = (): RunStats => ({ stagesCleared: 0, totalKills: 0, bestCombo: 0, items: [], maxTier: 0, clearTimesMs: [] });
 
 export interface CreateExplorationOptions {
   stage?: number;
@@ -79,9 +79,102 @@ export function createExploration(seed = 0, opts: CreateExplorationOptions = {})
     gateOpen: false, prompt: '', notice: gen.hasYard ? 'Explore the world. Follow the signal.' : `${STAGE_MODIFIERS[modifier!]?.name || 'RIFT'} — find the Glitch Anchor`, noticeMs: 5000,
     momentum: 0, velocity: { x: 0, y: 0 }, slideMs: 0, slideCooldownMs: 0, stationaryMs: 0, established: false, spawnsEnabled: true,
     metrics: { discoveryMs: null, damageTaken: 0, outsideChargeMs: 0, detourRewards: 0, itemsTaken: 0 },
-    run: opts.run ? { ...opts.run, items: [...opts.run.items] } : freshRun(),
+    run: opts.run ? { ...opts.run, items: [...opts.run.items], clearTimesMs: [...opts.run.clearTimesMs] } : freshRun(),
     chests: gen.chests.map(c => ({ ...c, position: { ...c.position }, cost: chestCost(c.kind), opened: false, uses: 0, openedMs: 0 })),
     pads: gen.pads.map(p => ({ ...p, position: { ...p.position } })), boostMs: 0, boostAngle: 0,
+    combo: { count: 0, timerMs: 0, best: 0, milestone: '', milestoneMs: 0 }, kills: 0, hitStopMs: 0, hurtMs: 0, fx: [], itemFeed: [],
+  };
+}
+
+// ---- Glitch Grotto: the safe shop cave between stages ----
+// One elliptical cavern inside region 0 (so regionIndexAt still resolves to the single cave region).
+export const CAVE = { width: 3200, height: 2400, cx: 1600, cy: 1200, rx: 1150, ry: 800 } as const;
+export const CAVE_LAYOUT = {
+  entry: { x: CAVE.cx - 820, y: CAVE.cy },
+  keeper: { x: CAVE.cx, y: CAVE.cy - 430 },
+  shops: [-360, -120, 120, 360].map(dx => ({ x: CAVE.cx + dx, y: CAVE.cy - 150 })),
+  heal: { x: CAVE.cx, y: CAVE.cy + 190 },
+  shrine: { x: CAVE.cx - 460, y: CAVE.cy + 400 },
+  portals: [{ x: CAVE.cx + 800, y: CAVE.cy - 320 }, { x: CAVE.cx + 880, y: CAVE.cy }, { x: CAVE.cx + 800, y: CAVE.cy + 320 }],
+};
+export const insideCave = (p: Vector2D, scale = 1) => ((p.x - CAVE.cx) / (CAVE.rx * scale)) ** 2 + ((p.y - CAVE.cy) / (CAVE.ry * scale)) ** 2 < 1;
+
+export interface CreateInterludeOptions { stage: number; stageSeed: number; elapsedMs: number; run: RunStats }
+
+export function createInterlude(seed: number, opts: CreateInterludeOptions): ExplorationState {
+  seed = Math.abs(Math.trunc(seed)) % 100000;
+  const random = rng(seed * 4099 + 11);
+  const { cx, cy, rx, ry } = CAVE;
+  const L = CAVE_LAYOUT;
+  const walls: WorldWall[] = [];
+  // Two overlapping boulder rings seal the cavern; the art paints solid rock beyond them.
+  const ring = (count: number, pad: number, rMin: number, rMax: number, prefix: string) => {
+    for (let i = 0; i < count; i++) {
+      const a = i / count * Math.PI * 2 + random() * 0.04;
+      const r = rMin + random() * (rMax - rMin);
+      const x = cx + Math.cos(a) * (rx + pad), y = cy + Math.sin(a) * (ry + pad);
+      walls.push({ id: `${prefix}-${i}`, x: x - r, y: y - r, width: r * 2, height: r * 2, shape: 'circle' });
+    }
+  };
+  ring(68, 120, 130, 165, 'cave-rim');
+  ring(48, 340, 180, 230, 'cave-outer');
+  const reserved = [
+    { ...L.entry, r: 260 }, { ...L.keeper, r: 200 }, { x: cx, y: cy + 20, r: 520 }, { ...L.shrine, r: 150 },
+    ...L.portals.map(p => ({ ...p, r: 240 })),
+  ];
+  const clear = (p: Vector2D, pad: number) => !reserved.some(k => Math.hypot(p.x - k.x, p.y - k.y) < k.r + pad);
+  // Stalagmite clumps line the cave walls without crowding the shop floor.
+  for (let c = 0, placed = 0; c < 60 && placed < 9; c++) {
+    const a = random() * Math.PI * 2, t = 0.62 + random() * 0.22;
+    const center = { x: cx + Math.cos(a) * rx * t, y: cy + Math.sin(a) * ry * t };
+    if (!clear(center, 110)) continue;
+    placed++;
+    for (let k = 0; k < 2 + Math.floor(random() * 2); k++) {
+      const r = 28 + random() * 30;
+      const x = center.x + (random() - 0.5) * 110, y = center.y + (random() - 0.5) * 90;
+      walls.push({ id: `cave-stal-${c}-${k}`, x: x - r, y: y - r, width: r * 2, height: r * 2, shape: 'circle' });
+    }
+  }
+  const lamps: { x: number; y: number; color: string }[] = [];
+  for (let i = 0; i < 16; i++) {
+    const a = i / 16 * Math.PI * 2 + 0.1;
+    const p = { x: cx + Math.cos(a) * rx * 0.86, y: cy + Math.sin(a) * ry * 0.84 };
+    if (clear(p, 20) && !walls.some(w => wallBlocks(w, p, 30))) lamps.push({ ...p, color: i % 3 ? '#fbbf24' : '#f97316' });
+  }
+  const propKinds = BIOME_PROPS.cave;
+  const props = [];
+  for (let k = 0; k < 150; k++) {
+    const p = { x: cx + (random() * 2 - 1) * rx, y: cy + (random() * 2 - 1) * ry };
+    if (!insideCave(p, 0.93) || !clear(p, 30) || walls.some(w => wallBlocks(w, p, 10))) continue;
+    props.push({ id: `prop-cave-${k}`, x: p.x, y: p.y, kind: propKinds[Math.floor(random() * propKinds.length)] });
+  }
+  const mods = rollStageModifiers(opts.stageSeed, opts.stage);
+  const hidden = { x: -9999, y: -9999 };
+  return {
+    seed, stage: opts.stage, modifier: null, hasYard: false, interlude: true,
+    landing: { ...L.entry },
+    width: CAVE.width, height: CAVE.height, phase: 'portals',
+    elapsedMs: opts.elapsedMs, stageStartMs: opts.elapsedMs, pressure: 1,
+    camera: { x: clamp(L.entry.x - VIEW_WIDTH / 2, 0, CAVE.width - VIEW_WIDTH), y: clamp(L.entry.y - VIEW_HEIGHT / 2, 0, CAVE.height - VIEW_HEIGHT) },
+    walls, visited: [], hazards: [], doorways: [], lamps, props,
+    biomes: [{ id: 'cave', biome: 'cave', name: BIOMES.cave.name, x: 0, y: 0, width: CAVE.width, height: CAVE.height, neon: BIOMES.cave.neon, discovered: true }],
+    currentRegionId: 'cave', biomeBanner: null,
+    stageBanner: { title: 'THE GLITCH GROTTO', subtitle: 'SAFE ZONE', neon: BIOMES.cave.neon, ms: 2200 },
+    results: null, pendingModifier: null, warpMs: 0,
+    portals: L.portals.map((position, k) => ({ id: `portal-${k}`, position: { ...position }, modifier: mods[k] })),
+    pedestals: [
+      ...L.shops.map((position, k) => ({ id: `cave-shop-${k}`, kind: 'shop' as const, position: { ...position }, taken: false })),
+      { id: 'cave-heal', kind: 'heal', position: { ...L.heal }, taken: false, cost: 25 },
+    ],
+    anchor: { position: hidden, radius: 260, discovered: false, chargeMs: 0, guardianDefeated: true, occupied: false },
+    cache: { position: hidden, discovered: false, claimed: true },
+    elite: { position: hidden, discovered: false, started: false, defeated: true, id: 'yard-elite' },
+    gateOpen: false, prompt: '', notice: 'A safe pocket between rifts · spend your coins', noticeMs: 5000,
+    momentum: 0, velocity: { x: 0, y: 0 }, slideMs: 0, slideCooldownMs: 0, stationaryMs: 0, established: false, spawnsEnabled: false,
+    metrics: { discoveryMs: null, damageTaken: 0, outsideChargeMs: 0, detourRewards: 0, itemsTaken: 0 },
+    run: { ...opts.run, items: [...opts.run.items], clearTimesMs: [...opts.run.clearTimesMs] },
+    chests: [{ id: 'cave-shrine', kind: 'shrine', position: { ...L.shrine }, cost: CHEST_COSTS.shrine, opened: false, uses: 0, openedMs: 0 }],
+    pads: [], boostMs: 0, boostAngle: 0,
     combo: { count: 0, timerMs: 0, best: 0, milestone: '', milestoneMs: 0 }, kills: 0, hitStopMs: 0, hurtMs: 0, fx: [], itemFeed: [],
   };
 }

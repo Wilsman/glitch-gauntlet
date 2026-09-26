@@ -1,8 +1,8 @@
 import { useEffect, useRef } from "react";
 import { Shape } from "react-konva";
 import type Konva from "konva";
-import type { CharacterType } from "@shared/types";
-import { getPortraitFrame } from "@/lib/pixelSprites";
+import type { CharacterType, PetCoat } from "@shared/types";
+import { getPetPreviewFrame, getPortraitFrame } from "@/lib/pixelSprites";
 
 /**
  * Konva node that draws a pixel-art canvas with image smoothing disabled so
@@ -52,6 +52,40 @@ export function PixelSpriteNode({
         ctx.drawImage(image, -w / 2, -h / 2, w, h);
         ctx.imageSmoothingEnabled = previous;
       }}
+    />
+  );
+}
+
+export function PixelPetPortrait({ coat, className }: { coat: PetCoat; className?: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (!canvas || !ctx) return;
+    let raf = 0;
+    let lastFrame: HTMLCanvasElement | null = null;
+    const draw = () => {
+      const frame = getPetPreviewFrame(coat, performance.now());
+      if (frame !== lastFrame) {
+        canvas.width = frame.width;
+        canvas.height = frame.height;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(frame, 0, 0);
+        lastFrame = frame;
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => cancelAnimationFrame(raf);
+  }, [coat]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={className}
+      style={{ imageRendering: "pixelated" }}
+      aria-hidden="true"
     />
   );
 }

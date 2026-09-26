@@ -44,16 +44,19 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
   marsh: { name: 'TOXIC DATA MARSH', neon: '#2dd4bf', floorA: '#12302b', floorB: '#0a1e1a', speckle: '#5eead4', hazard: 'sludge', roster: ['slugger', 'splitter', 'leech-beacon'] },
   void: { name: 'VOID RIFT', neon: '#c084fc', floorA: '#1d1136', floorB: '#0e0722', speckle: '#d8b4fe', hazard: 'warp', roster: ['neon-pulse', 'glitch-spider', 'orbit-drone'] },
   arcade: { name: 'ARCADE DISTRICT', neon: '#f472b6', floorA: '#221030', floorB: '#130820', speckle: '#f9a8d4', hazard: null, roster: ['grunt', 'bomber', 'neon-pulse'] },
+  // Interlude-only: never rolled into the open world's biome pool.
+  cave: { name: 'THE GLITCH GROTTO', neon: '#fbbf24', floorA: '#1f1a17', floorB: '#110d0b', speckle: '#fcd34d', hazard: null, roster: [] },
 };
 
 // Non-colliding decor baked into chunk art; clustered so every camera shows biome character.
-const BIOME_PROPS: Record<Exclude<BiomeId, 'yard'>, string[]> = {
+export const BIOME_PROPS: Record<Exclude<BiomeId, 'yard'>, string[]> = {
   frost: ['snowdrift', 'icecrystal', 'cabletray', 'frostcrate', 'snowdrift', 'icecrystal'],
   foundry: ['conveyor', 'pipe', 'anvil', 'slag', 'embercrack', 'pipe', 'slag'],
   bloom: ['mushroom', 'vine', 'flowerbed', 'fern', 'mushroom', 'flowerbed'],
   marsh: ['reeds', 'lily', 'wrecksm', 'puddle', 'reeds', 'puddle'],
   void: ['stardust', 'rift', 'shardfrag', 'stardust', 'rift'],
   arcade: ['lane', 'crosswalk', 'sign', 'cabinet', 'vending', 'reflect', 'sign'],
+  cave: ['geode', 'pebbles', 'mushroom', 'geode', 'pebbles', 'icecrystal'],
 };
 
 // ---- Authored Broken Circuit Yard (local coords, y += YARD_OY in the world) ----

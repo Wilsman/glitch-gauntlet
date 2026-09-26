@@ -1,4 +1,5 @@
 import type {
+  LastRunStats,
   CombatEncounterPhase,
   GameState,
   RunMapEncounterType,
@@ -17,6 +18,7 @@ import type {
   Explosion,
   ChainLightning,
   Pet,
+  PetCoat,
   CharacterType,
   OrbitalSkull,
   FireTrail,
@@ -54,6 +56,8 @@ import {
   recordExtractionWin,
   recordSurvivalTime,
   recordNoHitAfterWave5Win,
+  recordRiftStageClear,
+  recordRiftSecretChest,
 } from "./progressionStorage";
 import {
   createBoss,
@@ -120,7 +124,7 @@ import {
 
 import { ExplorationStage, SHOP_PRICES, type ExplorationHooks } from './ExplorationStage';
 import { perfMonitor } from './perfMonitor';
-import { createExploration, distance, isWalkable, lineClear, moveWorld, wallsNear, WorldNavigator } from './explorationWorld';
+import { createExploration, createInterlude, distance, isWalkable, lineClear, moveWorld, wallsNear, WorldNavigator } from './explorationWorld';
 import { invalidateArt } from './explorationArt';
 import type { ExplorationState, StageModifierId, WorldWall } from '@shared/exploration';
 
@@ -799,6 +803,7 @@ export class LocalGameEngine {
   private explorationController = new ExplorationStage();
   private enemyNavigator = new WorldNavigator();
   private bossNavigator = new WorldNavigator();
+  private petCoat: PetCoat;
   private get arenaWidth() { return this.gameState?.exploration?.width || ARENA_WIDTH; }
   private get arenaHeight() { return this.gameState?.exploration?.height || ARENA_HEIGHT; }
   private now() { return this.prototypeEnabled ? this.prototypeTime : Date.now(); }
@@ -812,7 +817,7 @@ export class LocalGameEngine {
     this.markStateDirty();
   }
 
-  private startExploration(state: GameState, opts?: { stage?: number; modifier?: StageModifierId | null; carryFrom?: ExplorationState }) {
+  private startExploration(state: GameState, opts?: { stage?: number; modifier?: StageModifierId | null; carryFrom?: ExplorationState; interlude?: boolean }) {
     this.resetArenaForEncounter(state);
     this.prototypeUsed = true;
     this.explorationController = new ExplorationStage();
@@ -821,18 +826,22 @@ export class LocalGameEngine {
     const stage = opts?.stage ?? 1;
     const carry = opts?.carryFrom;
     const run = carry ? {
-      stagesCleared: stage - 1,
+      stagesCleared: carry.run.clearTimesMs.length,
       totalKills: carry.run.totalKills,
       bestCombo: carry.run.bestCombo,
       items: carry.run.items,
       maxTier: carry.run.maxTier,
+      clearTimesMs: carry.run.clearTimesMs,
     } : undefined;
-    state.exploration = createExploration(this.prototypeSeed + (stage - 1) * 101, {
-      stage,
-      modifier: opts?.modifier ?? null,
-      elapsedMs: carry?.elapsedMs ?? 0,
-      run,
-    });
+    const stageSeed = this.prototypeSeed + (stage - 1) * 101;
+    state.exploration = opts?.interlude && carry && run
+      ? createInterlude(stageSeed + 50, { stage, stageSeed, elapsedMs: carry.elapsedMs, run })
+      : createExploration(stageSeed, {
+        stage,
+        modifier: opts?.modifier ?? null,
+        elapsedMs: carry?.elapsedMs ?? 0,
+        run,
+      });
     this.preparePedestals(state.exploration);
     state.status = 'playing'; state.currentEncounterType = 'combat';
     const player = state.players[0];
@@ -843,7 +852,8 @@ export class LocalGameEngine {
     }
     player.attackCooldown = 0;
     player.abilityCooldown = 0;
-    state.turrets = []; state.pets = []; state.clones = [];
+    state.turrets = []; state.clones = [];
+    state.pets = (state.pets || []).map((pet) => ({ ...pet, position: { ...player.position }, attackCooldown: 0 }));
     invalidateArt(state.exploration);
   }
 
@@ -865,6 +875,14 @@ export class LocalGameEngine {
     return pick ? { ...pick, id: uuidv4() } : null;
   }
 
+  // Boss rift -> the Glitch Grotto shop cave; its modifier rifts lead on to the next stage.
+  private enterCave() {
+    const state = this.gameState, world = state.exploration;
+    if (!world) return;
+    this.startExploration(state, { stage: world.stage, carryFrom: world, interlude: true });
+    this.markStateDirty();
+  }
+
   private advanceStage(modifier: StageModifierId) {
     const state = this.gameState, world = state.exploration;
     if (!world) return;
@@ -874,7 +892,7 @@ export class LocalGameEngine {
 
   restartExploration(character: CharacterType = 'dash-dynamo', seed = this.prototypeSeed) {
     if (!this.prototypeEnabled) return;
-    const fresh = new LocalGameEngine(this.gameState.players[0].id, character, this.gameState.players[0].name);
+    const fresh = new LocalGameEngine(this.gameState.players[0].id, character, this.gameState.players[0].name, this.petCoat);
     fresh.configureExploration(seed);
     this.gameState = fresh.gameState;
     this.prototypeSeed = seed;
@@ -889,7 +907,12 @@ export class LocalGameEngine {
     this.markStateDirty();
   }
 
+  // Any testing control taints the run: no stats, unlocks or leaderboard score (flag lives on the state,
+  // so restarting clears it along with the debug effects).
+  private markDebugUsed() { this.gameState.debugUsed = true; }
+
   debugExploration(action: 'spawns' | 'exit' | 'anchor' | 'cache' | 'elite' | 'guardian' | 'charge' | 'pedestal' | 'portal' | 'results') {
+    this.markDebugUsed();
     const state = this.gameState, world = state.exploration;
     if (!world) return;
     if (action === 'spawns') world.spawnsEnabled = !world.spawnsEnabled;
@@ -936,6 +959,17 @@ export class LocalGameEngine {
       rollPedestalItem: rarities => this.rollPedestalOption(rarities),
       applyOption: option => { const p = this.gameState.players[0]; if (p) this.applyUpgradeChoice(p, option); },
       nextStage: modifier => this.advanceStage(modifier),
+      enterCave: () => this.enterCave(),
+      stageCleared: (stagesCleared, results) => {
+        if (this.autoplay || this.gameState.debugUsed) return;
+        recordRiftStageClear(stagesCleared, results.rank, results.damageTaken);
+        this.notifyUnlocks();
+      },
+      secretChestOpened: () => {
+        if (this.autoplay || this.gameState.debugUsed) return;
+        recordRiftSecretChest();
+        this.notifyUnlocks();
+      },
     };
   }
 
@@ -1004,8 +1038,10 @@ export class LocalGameEngine {
     playerId: string,
     characterType: CharacterType = "pet-pal-percy",
     playerName?: string,
+    petCoat: PetCoat = "red",
   ) {
     const character = getCharacter(characterType);
+    this.petCoat = petCoat;
     this.characterType = characterType;
     this.gameStartTime = this.now();
     const initialRunMap = createInitialRunMap(
@@ -1092,6 +1128,7 @@ export class LocalGameEngine {
         attackSpeed: 600,
         attackCooldown: 0,
         emoji: "🐕",
+        coat: this.petCoat,
       };
       this.gameState.pets = [startingPet];
       initialPlayer.hasPet = true;
@@ -2542,6 +2579,7 @@ export class LocalGameEngine {
         attackSpeed: 800,
         attackCooldown: 0,
         emoji: randomEmoji,
+        coat: this.petCoat,
       };
       this.gameState.pets.push(newPet);
     }
@@ -2903,6 +2941,7 @@ export class LocalGameEngine {
 
   // Debug/Sandbox methods
   debugToggleSandbox(toggle: boolean) {
+    this.markDebugUsed();
     this.gameState.isSandboxMode = toggle;
     if (toggle) {
       this.gameState.status = "playing"; // Ensure we're in playing state
@@ -2913,6 +2952,7 @@ export class LocalGameEngine {
   }
 
   debugSpawnEnemy(type: EnemyType) {
+    this.markDebugUsed();
     const player = this.gameState.players[0];
     if (!player) return;
 
@@ -2947,6 +2987,7 @@ export class LocalGameEngine {
   }
 
   debugSpawnBoss(type: BossType) {
+    this.markDebugUsed();
     const player = this.gameState.players[0];
     if (!player) return;
 
@@ -2969,6 +3010,7 @@ export class LocalGameEngine {
       | UpgradeType
       | Pick<UpgradeOption, "type" | "title" | "rarity" | "emoji">,
   ) {
+    this.markDebugUsed();
     const player = this.gameState.players[0];
     if (!player) return;
     const type = typeof upgrade === "string" ? upgrade : upgrade.type;
@@ -3025,6 +3067,7 @@ export class LocalGameEngine {
         attackSpeed: 800,
         attackCooldown: 0,
         emoji: "🐕",
+        coat: this.petCoat,
       };
       this.gameState.pets.push(newPet);
       player.hasPet = true;
@@ -3058,17 +3101,20 @@ export class LocalGameEngine {
   }
 
   debugTriggerBossRound() {
+    this.markDebugUsed();
     this.startBossEncounter(this.gameState);
     this.markStateDirty();
   }
 
   debugTriggerShopRound() {
+    this.markDebugUsed();
     this.gameState.currentEncounterType = "shop";
     this.startShopRound(this.gameState);
     this.markStateDirty();
   }
 
   debugClearEnemies() {
+    this.markDebugUsed();
     this.combatSpawnQueue = [];
     this.combatSpawnCooldownMs = 0;
     this.gameState.enemies = [];
@@ -3096,6 +3142,7 @@ export class LocalGameEngine {
   }
 
   debugSetInvulnerability(toggle: boolean) {
+    this.markDebugUsed();
     if (this.gameState.exploration) this.gameState.exploration.debugInvulnerable = toggle;
     const player = this.gameState.players[0];
     if (!player) return;
@@ -3109,6 +3156,7 @@ export class LocalGameEngine {
   }
 
   debugLevelUp() {
+    this.markDebugUsed();
     const player = this.gameState.players[0];
     if (!player) return;
     player.xp = player.xpToNextLevel;
@@ -6625,7 +6673,7 @@ export class LocalGameEngine {
         if (p.level === 10 && !this.level10Tracked.has(p.id)) {
           this.level10Tracked.add(p.id);
 
-          if (!this.autoplay && !this.prototypeEnabled) {
+          if (!this.autoplay && !this.gameState.debugUsed) {
             incrementLevel10Count();
 
             // Check for unlocks
@@ -6787,20 +6835,22 @@ export class LocalGameEngine {
   }
 
   private saveGameStats(state: GameState) {
-    // Autoplay runs never record score, stats, or unlocks
-    if (this.autoplay || this.prototypeEnabled) return;
+    // Autoplay and debug-assisted runs never record score, stats, or unlocks
+    if (this.autoplay || state.debugUsed) return;
+    if (this.prototypeEnabled) { this.saveRiftStats(state); return; }
     const survivalTimeMs = this.now() - this.gameStartTime;
-    const stats = {
+    const stats: LastRunStats = {
       characterType: this.characterType,
       waveReached: state.wave,
       enemiesKilled: this.enemiesKilledCount,
       survivalTimeMs,
       isVictory: state.status === "won",
-      timestamp: this.now(),
+      timestamp: Date.now(),
+      gameMode: "arena",
     };
     console.log("Saving game stats:", stats, "Game status:", state.status);
     saveLastRunStats(stats);
-    recordGameEnd(state.wave, this.enemiesKilledCount);
+    recordGameEnd(this.enemiesKilledCount, state.wave);
     recordSurvivalTime(survivalTimeMs);
     if (state.status === "won") {
       recordExtractionWin();
@@ -6809,7 +6859,33 @@ export class LocalGameEngine {
       }
     }
 
-    // Check for unlocks after updating progression
+    this.notifyUnlocks();
+  }
+
+  // The Rift: play time excludes relic/results/shop pauses; waveReached carries the stage reached.
+  // Stage clears and secret chests already counted toward unlocks as they happened.
+  private saveRiftStats(state: GameState) {
+    const world = state.exploration;
+    if (!world) return;
+    const run = world.run;
+    const stats: LastRunStats = {
+      characterType: this.characterType,
+      waveReached: world.stage,
+      enemiesKilled: run.totalKills,
+      survivalTimeMs: Math.round(world.elapsedMs),
+      isVictory: false,
+      timestamp: Date.now(),
+      gameMode: "rift",
+      stagesCleared: run.clearTimesMs.length,
+      bestCombo: run.bestCombo,
+      stage3TimeMs: run.clearTimesMs[2] ?? null,
+    };
+    saveLastRunStats(stats);
+    recordGameEnd(run.totalKills);
+    this.notifyUnlocks();
+  }
+
+  private notifyUnlocks() {
     const newlyUnlocked = checkUnlocks();
     if (newlyUnlocked.length > 0 && this.onUnlock) {
       newlyUnlocked.forEach((charType) => this.onUnlock!(charType));
@@ -6908,10 +6984,10 @@ export class LocalGameEngine {
 
     // Check if boss is defeated
     if (boss.health <= 0) {
-      if (state.exploration) { state.exploration.anchor.guardianDefeated = true; this.explorationController.onGuardianDefeated(state, boss.position); state.boss = null; this.enemiesKilledCount++; return; }
+      if (state.exploration) { if (!this.autoplay && !state.debugUsed) incrementBossDefeats(); state.exploration.anchor.guardianDefeated = true; this.explorationController.onGuardianDefeated(state, boss.position); state.boss = null; this.enemiesKilledCount++; return; }
       const currentNode = this.getCurrentMapNode(state);
       this.enemiesKilledCount++;
-      if (!this.autoplay && !this.prototypeEnabled) incrementBossDefeats();
+      if (!this.autoplay && !state.debugUsed) incrementBossDefeats();
       state.boss = null;
       if (state.currentEncounterType === "boss" && currentNode?.depth === 10) {
         state.currentEncounterType = null;

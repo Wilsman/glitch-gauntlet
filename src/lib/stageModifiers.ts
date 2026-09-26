@@ -10,6 +10,9 @@ export interface StageModifier {
   risk: string;
 }
 
+// Card for the single post-boss rift that leads down into the shop cave.
+export const CAVE_PORTAL = { name: 'GLITCH GROTTO', color: '#fbbf24', flavour: 'A quiet pocket between rifts.', reward: 'Shop stock, a heal and a shrine', risk: '' };
+
 export const STAGE_MODIFIERS: Record<StageModifierId, StageModifier> = {
   goldRush: { id: 'goldRush', name: 'GOLD RUSH', color: '#facc15', flavour: 'Every glitch bleeds coins.', reward: 'Chest & shrine costs −30% · coin drops ×1.5', risk: 'Enemy packs +1' },
   bloodMoon: { id: 'bloodMoon', name: 'BLOOD MOON', color: '#f43f5e', flavour: 'The elites are hunting tonight.', reward: 'Elites may drop items (25%) · +2 legendary vaults', risk: 'Elite chance ×3' },

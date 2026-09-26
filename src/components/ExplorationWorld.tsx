@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Arc, Circle, Group, Image as KonvaImage, Line, Rect, RegularPolygon, Ring, Text } from 'react-konva';
-import type { ExplorationState, WorldChest, WorldPedestal } from '@shared/exploration';
+import type { ExplorationState, WorldChest, WorldPedestal, WorldPortal } from '@shared/exploration';
 import type { Player } from '@shared/types';
-import { CHARGE_MS, GATE, VIEW_HEIGHT, VIEW_WIDTH } from '@/lib/explorationWorld';
+import { CAVE_LAYOUT, CHARGE_MS, GATE, VIEW_HEIGHT, VIEW_WIDTH } from '@/lib/explorationWorld';
 import { CHUNK, CONDUITS, getChunk, invalidateArt, prebakeAround } from '@/lib/explorationArt';
-import { STAGE_MODIFIERS } from '@/lib/stageModifiers';
+import { CAVE_PORTAL, STAGE_MODIFIERS } from '@/lib/stageModifiers';
 
 const PIXEL_FONT = '"Press Start 2P", monospace';
 const RARITY_COLORS: Record<string, string> = { common: '#e2e8f0', uncommon: '#4ade80', legendary: '#f87171', boss: '#facc15', lunar: '#60a5fa', void: '#c084fc' };
@@ -35,8 +35,9 @@ export default function ExplorationWorld({ world, player, now }: { world: Explor
     {world.hasYard && <ConduitPulses now={now} inView={inView} />}
     <AmbientMotes camera={camera} now={now} />
     {world.hasYard && <Gate open={world.gateOpen} now={now} />}
-    {!world.hasYard && inView(world.landing.x, world.landing.y, 300) && <LandingPad x={world.landing.x} y={world.landing.y} now={now} />}
-    {world.pedestals.filter(p => inView(p.position.x, p.position.y, 220)).map(p => <PedestalView key={p.id} pedestal={p} now={now} />)}
+    {!world.hasYard && inView(world.landing.x, world.landing.y, 300) && <LandingPad x={world.landing.x} y={world.landing.y} now={now} label={world.interlude ? 'GROTTO ENTRANCE' : 'RIFT LANDING'} />}
+    {world.interlude && inView(CAVE_LAYOUT.keeper.x, CAVE_LAYOUT.keeper.y, 300) && <Shopkeeper x={CAVE_LAYOUT.keeper.x} y={CAVE_LAYOUT.keeper.y} now={now} />}
+    {world.pedestals.filter(p => inView(p.position.x, p.position.y, 220)).map(p => <PedestalView key={p.id} pedestal={p} now={now} focused={world.focusId === p.id} affordable={coins >= (p.cost || 0)} />)}
     {world.walls.filter(w => w.cracked && inView(w.x + w.width / 2, w.y + w.height / 2, 300)).map(w => <CrackedGlint key={w.id} wall={w} now={now} />)}
     {world.pads.filter(p => inView(p.position.x, p.position.y)).map(pad => <BoostPadView key={pad.id} x={pad.position.x} y={pad.position.y} angle={pad.angle} now={now} />)}
     {world.chests.filter(c => inView(c.position.x, c.position.y)).map(chest => <ChestView key={chest.id} chest={chest} now={now} affordable={coins >= chest.cost} />)}
@@ -54,7 +55,7 @@ export default function ExplorationWorld({ world, player, now }: { world: Explor
     </Group>}
     {inView(anchor.position.x, anchor.position.y, anchor.radius + 400) && <AnchorView world={world} now={now} />}
     {/* Portals draw after the anchor so its field rings never cross the modifier cards. */}
-    {world.portals.filter(p => inView(p.position.x, p.position.y, 300)).map(p => <PortalView key={p.id} portal={p} now={now} side={p.position.y < world.anchor.position.y - 40 ? (p.position.x < world.anchor.position.x - 40 ? -1 : 1) : 0} />)}
+    {world.portals.filter(p => inView(p.position.x, p.position.y, 300)).map(p => <PortalView key={p.id} portal={p} now={now} focused={world.focusId === p.id} placement={portalCardPlacement(world, p)} />)}
     {world.spawnWarnings?.map((warning, i) => {
       const t = warning.remainingMs / 900;
       return <Group key={i} x={warning.position.x} y={warning.position.y}>
@@ -281,35 +282,73 @@ function LampGlows({ world, now, inView }: { world: ExplorationState; now: numbe
 }
 
 // Rift landing pad shown on stage >= 2 worlds (no yard).
-function LandingPad({ x, y, now }: { x: number; y: number; now: number }) {
+function LandingPad({ x, y, now, label }: { x: number; y: number; now: number; label: string }) {
   const pulse = (now % 1600) / 1600;
   return <Group x={x} y={y}>
     <Circle radius={120} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={0} fillRadialGradientEndRadius={120} fillRadialGradientColorStops={[0, 'rgba(34,211,238,0.25)', 1, 'rgba(34,211,238,0)']} />
     <RegularPolygon sides={8} radius={96} fill="#061420" stroke="#22d3ee" strokeWidth={4} rotation={now / 400} />
     <RegularPolygon sides={8} radius={70} stroke="#a5f3fc" strokeWidth={2} opacity={0.6} rotation={-now / 250} />
     <Circle radius={96 + pulse * 60} stroke="#22d3ee" strokeWidth={3} opacity={1 - pulse} />
-    <Text x={-140} y={-140} width={280} align="center" text="RIFT LANDING" fontFamily={PIXEL_FONT} fontSize={11} fill="#a5f3fc" stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
+    <Text x={-140} y={-140} width={280} align="center" text={label} fontFamily={PIXEL_FONT} fontSize={11} fill="#a5f3fc" stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
   </Group>;
 }
 
-// Isaac-style item pedestal: pixel frame, floating item, rarity beam.
-function PedestalView({ pedestal, now }: { pedestal: WorldPedestal; now: number }) {
+// Isaac-style item pedestal: pixel frame, floating item, rarity beam. Standing on one focuses it
+// (brackets lock on; the HUD's hover card shows what the interact button will take or buy).
+function PedestalView({ pedestal, now, focused, affordable }: { pedestal: WorldPedestal; now: number; focused: boolean; affordable: boolean }) {
   const item = pedestal.option;
   const color = pedestal.kind === 'heal' ? '#4ade80' : pedestal.kind === 'shop' ? '#a78bfa' : RARITY_COLORS[item?.rarity || 'legendary'] || '#facc15';
   const bob = Math.sin(now / 300 + pedestal.position.x) * 6;
+  const priced = pedestal.kind === 'shop' || pedestal.kind === 'heal';
+  const label = pedestal.taken ? '' : pedestal.kind === 'heal' ? `HEAL · $${pedestal.cost}` : pedestal.kind === 'shop' ? `$${pedestal.cost}` : item?.title || 'RELIC';
   return <Group x={pedestal.position.x} y={pedestal.position.y} opacity={pedestal.taken ? 0.25 : 1}>
     {!pedestal.taken && <>
-      <Circle radius={58} fill={color} opacity={0.10 + Math.sin(now / 260) * 0.04} />
-      <Rect x={-10} y={-160} width={20} height={140} fillLinearGradientStartPoint={{ x: 0, y: 140 }} fillLinearGradientEndPoint={{ x: 0, y: 0 }} fillLinearGradientColorStops={[0, color, 1, 'rgba(0,0,0,0)']} opacity={0.4} />
+      <Circle radius={58} fill={color} opacity={(focused ? 0.22 : 0.10) + Math.sin(now / 260) * 0.04} />
+      <Rect x={-10} y={-160} width={20} height={140} fillLinearGradientStartPoint={{ x: 0, y: 140 }} fillLinearGradientEndPoint={{ x: 0, y: 0 }} fillLinearGradientColorStops={[0, color, 1, 'rgba(0,0,0,0)']} opacity={focused ? 0.75 : 0.4} />
     </>}
+    {focused && <FocusRing color={color} now={now} radius={70} />}
     <Rect x={-26} y={-6} width={52} height={18} fill="#0b1020" stroke={color} strokeWidth={3} cornerRadius={3} />
     <Rect x={-14} y={-26} width={28} height={22} fill="#111a30" stroke={color} strokeWidth={2} />
-    {!pedestal.taken && <Group y={-58 + bob}>
+    {!pedestal.taken && <Group y={-58 + bob} scaleX={focused ? 1.15 : 1} scaleY={focused ? 1.15 : 1}>
       <Rect x={-24} y={-24} width={48} height={48} fill="#050914" stroke={color} strokeWidth={4} cornerRadius={4} />
       {[[-24, -24], [20, -24], [-24, 20], [20, 20]].map(([rx, ry], i) => <Rect key={i} x={rx} y={ry} width={6} height={6} fill={color} />)}
       <Text x={-24} y={-17} width={48} align="center" text={pedestal.kind === 'heal' ? '❤' : item?.emoji || '?'} fontSize={26} />
     </Group>}
-    <Text x={-110} y={26} width={220} align="center" text={pedestal.taken ? '' : pedestal.kind === 'heal' ? `HEAL · $${pedestal.cost}` : pedestal.kind === 'shop' ? `$${pedestal.cost}` : item?.title || 'RELIC'} fontFamily={PIXEL_FONT} fontSize={9} fill={pedestal.kind === 'shop' || pedestal.kind === 'heal' ? '#fde047' : color} stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
+    <Text x={-120} y={26} width={240} align="center" text={label} fontFamily={PIXEL_FONT} fontSize={9} fill={priced ? (affordable ? '#fde047' : '#f87171') : color} stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
+  </Group>;
+}
+
+// Rotating corner brackets marking the focused pedestal/portal.
+function FocusRing({ color, now, radius }: { color: string; now: number; radius: number }) {
+  const r = radius + Math.sin(now / 160) * 4;
+  return <Group rotation={now / 40}>
+    {[0, 1, 2, 3].map(i => <Arc key={i} innerRadius={r - 3} outerRadius={r + 3} angle={40} rotation={i * 90 - 20} fill={color} opacity={0.95} />)}
+    <Circle radius={r + 10} stroke={color} strokeWidth={1} opacity={0.35} dash={[4, 8]} />
+  </Group>;
+}
+
+// Hooded glitch merchant who watches over the Grotto's shop floor.
+const KEEPER_LINES = ['NO REFUNDS.', 'COINS, TRAVELLER?', 'FRESH FROM THE RIFT.', 'EVERYTHING MUST GO.', 'NOTHING HUNTS HERE.'];
+function Shopkeeper({ x, y, now }: { x: number; y: number; now: number }) {
+  const bob = Math.sin(now / 500) * 3;
+  const blink = now % 3400 < 140;
+  const line = KEEPER_LINES[Math.floor(now / 4200) % KEEPER_LINES.length];
+  return <Group x={x} y={y}>
+    <Circle radius={110} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={0} fillRadialGradientEndRadius={110} fillRadialGradientColorStops={[0, 'rgba(251,191,36,0.22)', 1, 'rgba(251,191,36,0)']} />
+    <Rect x={-70} y={24} width={140} height={20} fill="#2b211b" stroke="#fbbf24" strokeWidth={3} />
+    <Rect x={-60} y={44} width={12} height={22} fill="#1c1512" />
+    <Rect x={48} y={44} width={12} height={22} fill="#1c1512" />
+    <Group y={bob}>
+      <Line points={[-30, 24, -22, -30, 0, -48, 22, -30, 30, 24]} closed fill="#3b1d5c" stroke="#a78bfa" strokeWidth={3} />
+      <Rect x={-16} y={-34} width={32} height={22} fill="#050914" />
+      {!blink && <>
+        <Rect x={-11} y={-27} width={6} height={6} fill="#fbbf24" />
+        <Rect x={5} y={-27} width={6} height={6} fill="#fbbf24" />
+      </>}
+      <Rect x={-4} y={-8} width={8} height={30} fill="#fbbf24" opacity={0.5} />
+    </Group>
+    <Text x={-40} y={10} width={80} align="center" text="$" fontFamily={PIXEL_FONT} fontSize={12} fill="#fde047" opacity={0.6 + Math.abs(Math.sin(now / 300)) * 0.4} />
+    <Text x={-160} y={-86} width={320} align="center" text={line} fontFamily={PIXEL_FONT} fontSize={10} fill="#fde68a" stroke="#020617" strokeWidth={4} fillAfterStrokeEnabled />
   </Group>;
 }
 
@@ -329,16 +368,27 @@ function wrappedLines(text: string, font: string, maxWidth: number) {
 
 const CARD_FONT = '"VT323", monospace';
 
-// Swirling rift portal with a holographic modifier card. Cards float above the portal, except for portals
-// north of the anchor (side = ±1), whose cards sit beside them so they stay on screen and off the anchor.
-function PortalView({ portal, now, side }: { portal: { position: { x: number; y: number }; modifier: keyof typeof STAGE_MODIFIERS }; now: number; side: number }) {
-  const mod = STAGE_MODIFIERS[portal.modifier];
-  const swirl = now / 60;
+type CardPlacement = 'above' | 'below' | 'left' | 'right';
+
+// Cards float above the portal by default. The post-boss cave rift sits below the anchor, so its card
+// goes underneath; open-world rifts north of the anchor put cards beside them; Grotto exits stack on
+// the cave's east wall with cards to their right.
+function portalCardPlacement(world: ExplorationState, portal: WorldPortal): CardPlacement {
+  if (world.interlude) return 'right';
+  if (portal.kind === 'cave') return 'below';
+  if (portal.position.y < world.anchor.position.y - 40) return portal.position.x < world.anchor.position.x - 40 ? 'left' : 'right';
+  return 'above';
+}
+
+// Swirling rift portal with a holographic destination card.
+function PortalView({ portal, now, focused, placement }: { portal: WorldPortal; now: number; focused: boolean; placement: CardPlacement }) {
+  const mod = portal.kind === 'cave' ? CAVE_PORTAL : STAGE_MODIFIERS[portal.modifier!];
+  const swirl = now / (focused ? 35 : 60);
   const textW = 260;
   const rows = [
     { text: mod.flavour, size: 17, fill: '#cbd5e1' },
     { text: `+ ${mod.reward}`, size: 15, fill: '#4ade80' },
-    { text: `- ${mod.risk}`, size: 15, fill: '#f87171' },
+    ...(mod.risk ? [{ text: `- ${mod.risk}`, size: 15, fill: '#f87171' }] : []),
   ];
   let cursor = 26;
   const laid = rows.map(row => {
@@ -348,21 +398,23 @@ function PortalView({ portal, now, side }: { portal: { position: { x: number; y:
     return { ...row, y, lineHeight };
   });
   const cardH = cursor + 6;
-  const cardX = side * 230, cardY = side ? -cardH / 2 : -96 - cardH;
+  const cardX = placement === 'left' ? -230 : placement === 'right' ? 230 : 0;
+  const cardY = placement === 'above' ? -96 - cardH : placement === 'below' ? 96 : -cardH / 2;
   return <Group x={portal.position.x} y={portal.position.y}>
-    <Circle radius={64} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={4} fillRadialGradientEndRadius={64} fillRadialGradientColorStops={[0, '#ffffff', 0.35, mod.color, 1, 'rgba(0,0,0,0)']} opacity={0.85} />
+    <Circle radius={64} fillRadialGradientStartPoint={{ x: 0, y: 0 }} fillRadialGradientEndPoint={{ x: 0, y: 0 }} fillRadialGradientStartRadius={4} fillRadialGradientEndRadius={64} fillRadialGradientColorStops={[0, '#ffffff', 0.35, mod.color, 1, 'rgba(0,0,0,0)']} opacity={focused ? 1 : 0.85} />
     {[0, 1, 2].map(i => <Arc key={i} innerRadius={48 + i * 12} outerRadius={54 + i * 12} angle={200} rotation={swirl * (1 + i * 0.4) + i * 120} fill={i === 1 ? '#ffffff' : mod.color} opacity={0.8 - i * 0.2} />)}
     {Array.from({ length: 8 }, (_, i) => {
       const a = swirl / 4 + i * Math.PI / 4;
       const d = 40 + ((now / 10 + i * 30) % 55);
       return <Rect key={i} x={Math.cos(a) * d} y={Math.sin(a) * d * 0.9} width={5} height={5} fill={mod.color} opacity={Math.max(0, 1 - d / 100)} />;
     })}
-    <Group x={cardX} y={cardY + Math.sin(now / 400) * 5}>
-      <Rect x={-140} y={0} width={280} height={cardH} fill="#050914" stroke={mod.color} strokeWidth={3} cornerRadius={6} opacity={0.95} />
+    {focused && <FocusRing color={mod.color} now={now} radius={96} />}
+    {!focused && <Group x={cardX} y={cardY + Math.sin(now / 400) * 5}>
+      <Rect x={-140} y={0} width={280} height={cardH} fill="#050914" stroke={mod.color} strokeWidth={focused ? 4 : 3} cornerRadius={6} opacity={0.95} />
       {[[-140, 0], [132, 0], [-140, cardH - 8], [132, cardH - 8]].map(([rx, ry], i) => <Rect key={i} x={rx} y={ry} width={8} height={8} fill={mod.color} />)}
       <Text x={-136} y={8} width={272} align="center" text={mod.name} fontFamily={PIXEL_FONT} fontSize={12} fill={mod.color} />
       {laid.map((row, i) => <Text key={i} x={-textW / 2} y={row.y} width={textW} align="center" text={row.text} fontFamily={CARD_FONT} fontSize={row.size} lineHeight={row.lineHeight / row.size} fill={row.fill} />)}
-    </Group>
+    </Group>}
   </Group>;
 }
 

@@ -1,4 +1,4 @@
-import type { CharacterType } from "@shared/types";
+import type { CharacterType, PetCoat } from "@shared/types";
 import {
   CANVAS_SIZE,
   composeFrame,
@@ -7,14 +7,14 @@ import {
   type FrameContext,
   type RenderVariant,
 } from "./engine";
-import { CHARACTER_ART, DACHSHUND_ART } from "./characters";
+import { CHARACTER_ART, DACHSHUND_ART, DACHSHUND_COATS } from "./characters";
 import type { CreatureArt, CreatureContext } from "./draw";
 import { drawCreature, ENEMY_ART } from "./enemies";
 import { BOSS_ART } from "./bosses";
 import { hashId } from "./draw";
 
 export { CANVAS_SIZE, ART_PAD, ART_SIZE } from "./engine";
-export { CHARACTER_ART, DACHSHUND_ART } from "./characters";
+export { CHARACTER_ART, DACHSHUND_ART, DACHSHUND_COATS, PET_COATS } from "./characters";
 export { ENEMY_ART } from "./enemies";
 export { BOSS_ART } from "./bosses";
 export type { CreatureArt, CreatureContext } from "./draw";
@@ -251,9 +251,31 @@ export function resolvePlayerAnimation(
 // ---------------------------------------------------------------------------
 
 const petMemory = new Map<string, { x: number; y: number; facing: 1 | -1; movingUntil: number }>();
+const dachshundArtByCoat = new Map<PetCoat, CharacterArt>();
+
+function getDachshundArt(coat: PetCoat = "red"): CharacterArt {
+  let art = dachshundArtByCoat.get(coat);
+  if (!art) {
+    const palette = (DACHSHUND_COATS[coat] ?? DACHSHUND_COATS.red).palette;
+    art = { ...DACHSHUND_ART, id: `dachshund-${coat}`, palette: { ...DACHSHUND_ART.palette, ...palette } };
+    dachshundArtByCoat.set(coat, art);
+  }
+  return art;
+}
+
+/** Idle trot-in-place frame for menus. */
+export function getPetPreviewFrame(coat: PetCoat, now: number): HTMLCanvasElement {
+  return getArtFrame(getDachshundArt(coat), {
+    frame: Math.floor(now / 110) % 4,
+    moving: true,
+    attackFrame: -1,
+    abilityActive: false,
+    damageLevel: 0,
+  });
+}
 
 export function resolvePetFrame(
-  pet: { id: string; position: { x: number; y: number } },
+  pet: { id: string; position: { x: number; y: number }; coat?: PetCoat },
   now: number,
   hitFlash: boolean,
 ): { canvas: HTMLCanvasElement; facing: 1 | -1 } {
@@ -272,7 +294,7 @@ export function resolvePetFrame(
 
   const moving = now < memory.movingUntil;
   const frame = Math.floor(now / (moving ? 90 : 260)) % 4;
-  const canvas = getArtFrame(DACHSHUND_ART, {
+  const canvas = getArtFrame(getDachshundArt(pet.coat), {
     frame,
     moving,
     attackFrame: -1,

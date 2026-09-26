@@ -9,7 +9,8 @@ import { UnlockNotification } from "@/components/UnlockNotification";
 import { PlayerNameDialog } from "@/components/PlayerNameDialog";
 import { LastRunStatsCard } from "@/components/LastRunStatsCard";
 import { LeaderboardPanel } from "@/components/LeaderboardPanel";
-import type { CharacterType } from "@shared/types";
+import type { CharacterType, GameMode } from "@shared/types";
+import { GAME_MODES } from "@/lib/gameModes";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useSyncAudioSettings } from "@/hooks/useSyncAudioSettings";
 import { AudioManager } from "@/lib/audio/AudioManager";
@@ -27,7 +28,9 @@ export function HomePage() {
   const navigate = useNavigate();
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
   const [autoplayPending, setAutoplayPending] = useState(false);
-  const [prototypePending, setPrototypePending] = useState(false);
+  const [pendingMode, setPendingMode] = useState<GameMode>("rift");
+  // Leaderboard follows the last hovered/focused mode button (default: the Rift, the main mode).
+  const [boardMode, setBoardMode] = useState<GameMode>("rift");
   const [showNameDialog, setShowNameDialog] = useState(false);
   const setLocalPlayerId = useGameStore((state) => state.setLocalPlayerId);
   const resetGameState = useGameStore((state) => state.resetGameState);
@@ -50,10 +53,14 @@ export function HomePage() {
     const pollInterval = setInterval(() => {
       const input = getGamepadInput();
       if (input) {
-        // Handle Confirm (A button)
+        // Up/down pick a mode, A starts it.
+        if (!showCharacterSelect && !showNameDialog) {
+          if (input.up && !lastGamepadInput.current.up) setBoardMode("rift");
+          if (input.down && !lastGamepadInput.current.down) setBoardMode("arena");
+        }
         if (input.blink && !lastGamepadInput.current.confirm) {
           if (!showCharacterSelect && !showNameDialog) {
-            handleLocalGame();
+            startMode(boardMode);
           }
           lastGamepadInput.current.confirm = true;
         } else if (!input.blink) {
@@ -73,6 +80,7 @@ export function HomePage() {
     getGamepadInput,
     showCharacterSelect,
     showNameDialog,
+    boardMode,
   ]);
 
   useEffect(() => {
@@ -116,25 +124,20 @@ export function HomePage() {
     };
   }, []);
 
-  const handleLocalGame = () => {
+  function startMode(mode: GameMode) {
     if (!hasPlayerName()) {
       setShowNameDialog(true);
       return;
     }
     setAutoplayPending(false);
+    setPendingMode(mode);
     setShowCharacterSelect(true);
-  };
+  }
 
   const handleAutoplay = () => {
     if (showNameDialog) return;
     setAutoplayPending(true);
-    setShowCharacterSelect(true);
-  };
-
-  const handlePrototype = () => {
-    if (showNameDialog) return;
-    setAutoplayPending(false);
-    setPrototypePending(true);
+    setPendingMode("arena");
     setShowCharacterSelect(true);
   };
 
@@ -150,11 +153,8 @@ export function HomePage() {
     const playerId = `local-${Date.now()}`;
     setLocalPlayerId(playerId);
     setShowCharacterSelect(false);
-    if (prototypePending) {
-      setPrototypePending(false);
-      toast.success("Entering the Playground", {
-        description: "Unstable beta build — expect weirdness.",
-      });
+    if (pendingMode === "rift" && !autoplayPending) {
+      toast.success("Entering the Rift");
       navigate(
         `/game/local?playerId=${playerId}&character=${characterType}&explorationPrototype=1`
       );
@@ -170,7 +170,7 @@ export function HomePage() {
       );
       return;
     }
-    toast.success("Starting local game!");
+    toast.success("Entering the Arena");
     navigate(`/game/local?playerId=${playerId}&character=${characterType}`);
   };
 
@@ -212,9 +212,7 @@ export function HomePage() {
             onCancel={() => {
               setShowCharacterSelect(false);
               setAutoplayPending(false);
-              setPrototypePending(false);
             }}
-            unlockAll={prototypePending}
           />
         )}
       </AnimatePresence>
@@ -252,33 +250,35 @@ export function HomePage() {
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 1.2, duration: 0.8 }}
-          className="space-y-6 w-full max-w-sm"
+          className="space-y-4 w-full max-w-sm"
         >
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button
-              onClick={handleLocalGame}
-              className="w-full font-press-start text-sm bg-neon-yellow border border-neon-yellow text-black h-14 shadow-glow-yellow transition hover:bg-yellow-200 focus-visible:ring-neon-cyan"
-            >
-              Play Local
-            </Button>
-          </motion.div>
+          {(["rift", "arena"] as GameMode[]).map((mode) => (
+            <ModeButton
+              key={mode}
+              mode={mode}
+              primary={mode === "rift"}
+              active={boardMode === mode}
+              onFocusMode={() => setBoardMode(mode)}
+              onStart={() => startMode(mode)}
+            />
+          ))}
 
-          <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-            <Button
-              onClick={handleAutoplay}
-              variant="outline"
-              className="w-full font-press-start text-sm border-neon-cyan text-neon-cyan h-14 transition hover:bg-neon-cyan/10 hover:text-neon-cyan focus-visible:ring-neon-cyan"
-            >
-              Autoplay
-            </Button>
-          </motion.div>
+          <Button
+            onClick={handleAutoplay}
+            onMouseEnter={() => setBoardMode("arena")}
+            onFocus={() => setBoardMode("arena")}
+            variant="outline"
+            className="w-full font-press-start text-[11px] border-white/20 text-slate-300 h-11 transition hover:border-neon-yellow/60 hover:bg-neon-yellow/5 hover:text-neon-yellow focus-visible:ring-neon-cyan"
+          >
+            Arena Autoplay
+          </Button>
 
           <p className="font-sans text-sm text-slate-400">Multiplayer — coming soon</p>
         </motion.div>
         <div className="w-full max-w-[420px] text-left"><LastRunStatsCard /></div>
       </div>
       <aside className="mx-auto w-full max-w-[420px]" aria-label="Weekly leaderboards">
-        <LeaderboardPanel />
+        <LeaderboardPanel mode={boardMode} onModeChange={setBoardMode} />
       </aside>
       </div>
 
@@ -290,44 +290,75 @@ export function HomePage() {
         <div className="fixed right-5 top-4 z-40"><SettingsPanel /></div>
       )}
 
-      {/* Beta playtest access */}
-      {!showCharacterSelect && (
-        <motion.div
-          initial={{ opacity: 0, y: 20, rotate: -4 }}
-          animate={{ opacity: 1, y: 0, rotate: -2 }}
-          transition={{ delay: 1.6, duration: 0.6, type: "spring" }}
-          whileHover={{ rotate: 0, scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="fixed bottom-5 left-5 z-40"
-        >
-          <button
-            onClick={handlePrototype}
-            className="group relative block w-48 sm:w-56 overflow-hidden rounded-md border-2 border-dashed border-neon-pink/60 bg-black/80 text-left shadow-glow-pink backdrop-blur-sm transition-colors hover:border-neon-pink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neon-pink"
-          >
-            <div className="h-2 w-full bg-[repeating-linear-gradient(45deg,#FFFF00_0_10px,#000_10px_20px)]" />
-            <div className="space-y-1.5 p-3">
-              <div className="flex items-center justify-between">
-                <span className="font-press-start text-[8px] tracking-wider text-neon-pink">
-                  BETA PLAYTEST
-                </span>
-                <span className="flex items-center gap-1 font-vt323 text-sm leading-none text-red-500">
-                  <span className="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-red-500" />
-                  REC
-                </span>
-              </div>
-              <p className="font-press-start text-xs text-neon-yellow group-hover:animate-glitch">
-                THE PLAYGROUND
-              </p>
-              <p className="font-vt323 text-sm leading-tight text-slate-400">
-                open map proto v0.1 — unstable, probably haunted
-              </p>
-            </div>
-            <span className="absolute -right-1 top-6 rotate-12 rounded-sm border border-neon-cyan/70 bg-black/60 px-1.5 py-0.5 font-press-start text-[7px] text-neon-cyan/80">
-              WIP
-            </span>
-          </button>
-        </motion.div>
-      )}
     </main>
+  );
+}
+
+// A game-mode launch button. Hover/focus lifts it, lights the accent glow, unfolds the mode's pitch and
+// points the leaderboard at this mode.
+function ModeButton({ mode, primary, active, onFocusMode, onStart }: { mode: GameMode; primary: boolean; active: boolean; onFocusMode: () => void; onStart: () => void }) {
+  const info = GAME_MODES[mode];
+  const [open, setOpen] = useState(false);
+  return (
+    <motion.button
+      type="button"
+      data-testid={`mode-${mode}`}
+      onClick={onStart}
+      onMouseEnter={() => { setOpen(true); onFocusMode(); }}
+      onMouseLeave={() => setOpen(false)}
+      onFocus={() => { setOpen(true); onFocusMode(); }}
+      onBlur={() => setOpen(false)}
+      whileHover={{ scale: 1.03 }}
+      whileTap={{ scale: 0.97 }}
+      className="group relative block w-full overflow-hidden rounded-lg border-2 px-5 py-4 text-left outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-neon-cyan"
+      style={{
+        borderColor: open || active ? info.accent : `${info.accent}66`,
+        backgroundColor: primary ? `${info.accent}${open ? "2e" : "1f"}` : open ? `${info.accent}14` : "rgba(0,0,0,0.55)",
+        boxShadow: open ? `0 0 28px ${info.accent}66, inset 0 0 18px ${info.accent}22` : primary ? `0 0 16px ${info.accent}40` : "none",
+      }}
+    >
+      {/* Light sweep on hover */}
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 -skew-x-12 bg-white/10 opacity-0 transition-all duration-500 group-hover:left-[110%] group-hover:opacity-100 group-focus-visible:left-[110%] group-focus-visible:opacity-100" />
+      <span className="flex items-center justify-between gap-3">
+        <span className="font-press-start text-base tracking-wide" style={{ color: info.accent, textShadow: `0 0 12px ${info.accent}80` }}>
+          {info.name}
+        </span>
+        <span className="rounded-sm px-1.5 py-1 font-press-start text-[8px] tracking-widest text-black" style={{ backgroundColor: info.accent }}>
+          {primary ? "MAIN" : "CLASSIC"}
+        </span>
+      </span>
+      <span className="mt-1.5 block font-press-start text-[8px] tracking-[0.25em] text-slate-400">{info.tag}</span>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.span
+            key="details"
+            className="block overflow-hidden"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+          >
+            <span className="mt-3 block font-sans text-sm leading-snug text-slate-200">{info.blurb}</span>
+            <span className="mt-2 block space-y-1">
+              {info.features.map((feature, i) => (
+                <motion.span
+                  key={feature}
+                  className="flex items-center gap-2 font-sans text-xs text-slate-300"
+                  initial={{ x: -8, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  transition={{ delay: 0.06 + i * 0.05 }}
+                >
+                  <i className="inline-block h-1.5 w-1.5 shrink-0" style={{ backgroundColor: info.accent }} />
+                  {feature}
+                </motion.span>
+              ))}
+            </span>
+            <span className="mt-3 block font-press-start text-[9px] tracking-widest" style={{ color: info.accent }}>
+              &#9654; PRESS TO PLAY
+            </span>
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </motion.button>
   );
 }

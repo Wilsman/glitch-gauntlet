@@ -1,7 +1,8 @@
-import type { PlayerProgression, CharacterType } from '@shared/types';
+import type { PlayerProgression, CharacterType, PetCoat, UnlockRoute, UnlockStat, CharacterStats } from '@shared/types';
+import { getAllCharacters } from '@shared/characterConfig';
 
 const STORAGE_KEY = 'glitch-gauntlet-progression';
-const STORAGE_VERSION = 2;
+const STORAGE_VERSION = 3;
 const STARTER_CHARACTERS: CharacterType[] = ['spray-n-pray', 'null-ronin'];
 
 const DEFAULT_PROGRESSION: PlayerProgression = {
@@ -15,6 +16,10 @@ const DEFAULT_PROGRESSION: PlayerProgression = {
   successfulExtractions: 0,
   bestSurvivalTimeMs: 0,
   noHitAfterWave5Wins: 0,
+  bestRiftStagesCleared: 0,
+  riftSRanks: 0,
+  riftFlawlessStages: 0,
+  riftSecretChests: 0,
   lastUpdated: Date.now(),
 };
 
@@ -153,19 +158,36 @@ export function unlockCharacter(characterType: CharacterType): PlayerProgression
  * Unlock all characters (cheat command)
  */
 export function unlockAllCharacters(): PlayerProgression {
-  const allTypes: CharacterType[] = [
-    'spray-n-pray',
-    'boom-bringer',
-    'glass-cannon-carl',
-    'pet-pal-percy',
-    'vampire-vex',
-    'turret-tina',
-    'dash-dynamo',
-    'null-ronin'
-  ];
-
   return updateProgression({
-    unlockedCharacters: allTypes,
+    unlockedCharacters: getAllCharacters().map((character) => character.type),
+  });
+}
+
+function statValue(progression: PlayerProgression, stat: UnlockStat): number {
+  switch (stat) {
+    case 'bossesDefeated': return progression.totalBossesDefeated;
+    case 'enemiesKilled': return progression.totalEnemiesKilled;
+    case 'waveReached': return progression.highestWaveReached;
+    case 'survivalMinutes': return Math.floor(progression.bestSurvivalTimeMs / 60000);
+    case 'extractions': return progression.successfulExtractions;
+    case 'noHitAfterWave5Win': return progression.noHitAfterWave5Wins;
+    case 'riftStagesCleared': return progression.bestRiftStagesCleared;
+    case 'riftSRanks': return progression.riftSRanks;
+    case 'riftFlawlessStages': return progression.riftFlawlessStages;
+    case 'riftSecretChests': return progression.riftSecretChests;
+  }
+}
+
+export interface UnlockRouteProgress {
+  route: UnlockRoute;
+  current: number;
+  done: boolean;
+}
+
+function routeProgress(progression: PlayerProgression, character: CharacterStats): UnlockRouteProgress[] {
+  return (character.unlockRoutes ?? []).map((route) => {
+    const current = Math.min(statValue(progression, route.stat), route.required);
+    return { route, current, done: current >= route.required };
   });
 }
 
@@ -175,33 +197,14 @@ function applyUnlocks(
   const unlocked = new Set(progression.unlockedCharacters);
   const newlyUnlocked: CharacterType[] = [];
 
-  const unlockIf = (characterType: CharacterType, condition: boolean) => {
-    if (condition && !unlocked.has(characterType)) {
-      unlocked.add(characterType);
-      newlyUnlocked.push(characterType);
+  // Any completed route unlocks the character.
+  for (const character of getAllCharacters()) {
+    if (unlocked.has(character.type)) continue;
+    if (routeProgress(progression, character).some((progress) => progress.done)) {
+      unlocked.add(character.type);
+      newlyUnlocked.push(character.type);
     }
-  };
-
-  // Pet Pal Percy unlock (survive 15 minutes)
-  unlockIf(
-    'pet-pal-percy',
-    progression.bestSurvivalTimeMs >= 15 * 60 * 1000
-  );
-
-  // Vampire Vex unlock (reach wave 10)
-  unlockIf('vampire-vex', progression.highestWaveReached >= 10);
-
-  // Turret Tina unlock (500 total enemies killed)
-  unlockIf('turret-tina', progression.totalEnemiesKilled >= 500);
-
-  // Dash Dynamo unlock (extract 5 times)
-  unlockIf('dash-dynamo', progression.successfulExtractions >= 5);
-
-  // Boom Bringer unlock (defeat 3 bosses total)
-  unlockIf('boom-bringer', progression.totalBossesDefeated >= 3);
-
-  // Glass Cannon Carl unlock (win without damage after wave 5)
-  unlockIf('glass-cannon-carl', progression.noHitAfterWave5Wins >= 1);
+  }
 
   return {
     updated: { ...progression, unlockedCharacters: Array.from(unlocked) },
@@ -223,45 +226,34 @@ export function checkUnlocks(): CharacterType[] {
 }
 
 /**
- * Get progress toward unlocking a specific character
+ * Progress toward each unlock route of a character (empty for starters)
  */
-export function getUnlockProgress(characterType: CharacterType): { current: number; required: number } | null {
-  const progression = getProgression();
+export function getUnlockProgress(characterType: CharacterType): UnlockRouteProgress[] {
+  const character = getAllCharacters().find((candidate) => candidate.type === characterType);
+  return character ? routeProgress(getProgression(), character) : [];
+}
 
-  switch (characterType) {
-    case 'pet-pal-percy':
-      return {
-        current: Math.floor(progression.bestSurvivalTimeMs / 60000),
-        required: 15,
-      };
-    case 'vampire-vex':
-      return {
-        current: progression.highestWaveReached,
-        required: 10,
-      };
-    case 'turret-tina':
-      return {
-        current: progression.totalEnemiesKilled,
-        required: 500,
-      };
-    case 'dash-dynamo':
-      return {
-        current: progression.successfulExtractions,
-        required: 5,
-      };
-    case 'boom-bringer':
-      return {
-        current: progression.totalBossesDefeated,
-        required: 3,
-      };
-    case 'glass-cannon-carl':
-      return {
-        current: progression.noHitAfterWave5Wins,
-        required: 1,
-      };
-    default:
-      return null;
+/**
+ * The locked character route closest to completion, optionally limited to routes a mode can advance
+ */
+export function getNearestUnlock(
+  mode?: UnlockRoute['mode']
+): { character: CharacterStats; progress: UnlockRouteProgress } | null {
+  const progression = getProgression();
+  let best: { character: CharacterStats; progress: UnlockRouteProgress } | null = null;
+  let bestRatio = -1;
+  for (const character of getAllCharacters()) {
+    if (progression.unlockedCharacters.includes(character.type)) continue;
+    for (const progress of routeProgress(progression, character)) {
+      if (mode && progress.route.mode !== 'any' && progress.route.mode !== mode) continue;
+      const ratio = progress.current / progress.route.required;
+      if (ratio > bestRatio) {
+        best = { character, progress };
+        bestRatio = ratio;
+      }
+    }
   }
+  return best;
 }
 
 /**
@@ -294,16 +286,53 @@ export function hasPlayerName(): boolean {
   return !!name && name.trim().length > 0;
 }
 
+const PET_COAT_KEY = 'glitch-gauntlet-pet-coat';
+const PET_COATS: readonly PetCoat[] = ['red', 'black-tan', 'chocolate-tan', 'cream', 'dapple'];
+
+export function getPetCoat(): PetCoat {
+  try {
+    const stored = localStorage.getItem(PET_COAT_KEY) as PetCoat | null;
+    return stored && PET_COATS.includes(stored) ? stored : 'red';
+  } catch {
+    return 'red';
+  }
+}
+
+export function setPetCoat(coat: PetCoat): void {
+  try {
+    localStorage.setItem(PET_COAT_KEY, coat);
+  } catch {
+    // Storage unavailable; the choice just won't persist.
+  }
+}
+
 /**
  * Record game completion stats
  */
-export function recordGameEnd(wave: number, enemiesKilled: number): void {
+export function recordGameEnd(enemiesKilled: number, arenaWave?: number): void {
   const current = getProgression();
   updateProgression({
     totalGamesPlayed: current.totalGamesPlayed + 1,
-    highestWaveReached: Math.max(current.highestWaveReached, wave),
+    highestWaveReached: Math.max(current.highestWaveReached, arenaWave ?? 0),
     totalEnemiesKilled: current.totalEnemiesKilled + enemiesKilled,
   });
+}
+
+/**
+ * The Rift: record a cleared stage as soon as its relic is claimed
+ */
+export function recordRiftStageClear(stagesCleared: number, rank: string, damageTaken: number): PlayerProgression {
+  const current = getProgression();
+  return updateProgression({
+    bestRiftStagesCleared: Math.max(current.bestRiftStagesCleared, stagesCleared),
+    riftSRanks: current.riftSRanks + (rank === 'S' ? 1 : 0),
+    riftFlawlessStages: current.riftFlawlessStages + (damageTaken <= 0 ? 1 : 0),
+  });
+}
+
+export function recordRiftSecretChest(): PlayerProgression {
+  const current = getProgression();
+  return updateProgression({ riftSecretChests: current.riftSecretChests + 1 });
 }
 
 /**

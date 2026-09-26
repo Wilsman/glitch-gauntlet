@@ -1,5 +1,5 @@
 import type { ExplorationState, WorldProp, WorldWall } from '@shared/exploration';
-import { BIOMES, LANDMARKS, regionAt } from './explorationWorld';
+import { BIOMES, CAVE, CAVE_LAYOUT, LANDMARKS, regionAt } from './explorationWorld';
 import { rng, REGION_H, REGION_W, YARD_INDEX } from './worldGen';
 
 export const CHUNK = 1024;
@@ -46,6 +46,7 @@ const WALL_PAINTERS: Record<string, WallPalette> = {
   arcade: { base: '#3d1040', mortar: '#180722', light: '#6d2072', accent: '#f472b6', windows: '#f9a8d4' },
   border: { base: '#1b2436', mortar: '#0a0f1c', light: '#2e3d5c', accent: '#38bdf8' },
   secret: { base: '#241a2e', mortar: '#0d0714', light: '#43304f', accent: '#facc15' },
+  cave: { base: '#2b211b', mortar: '#120d0a', light: '#46362b', accent: '#fbbf24' },
 };
 
 function pixelBricks(ctx: CanvasRenderingContext2D, wall: WorldWall, palette: WallPalette, random: () => number) {
@@ -308,6 +309,19 @@ function drawFloorPattern(ctx: CanvasRenderingContext2D, biomeId: string, ix: nu
       glow.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(gx, gy, 60, 0, Math.PI * 2); ctx.fill();
     }
+  } else if (biomeId === 'cave') {
+    // Worn flagstones with amber moss between the slabs.
+    for (let i = 0; i < Math.floor(iw * ih / 9000); i++) {
+      const sx = px(ix + random() * iw), sy = px(iy + random() * ih);
+      ctx.fillStyle = `rgba(68,52,40,${0.25 + random() * 0.3})`;
+      ctx.fillRect(sx, sy, 32 + px(random() * 40), 20 + px(random() * 24));
+      ctx.fillStyle = 'rgba(12,9,7,0.55)';
+      ctx.fillRect(sx, sy + 20, 32, 4);
+    }
+    for (let i = 0; i < Math.floor(iw * ih / 30000); i++) {
+      ctx.fillStyle = random() < 0.6 ? 'rgba(251,191,36,0.22)' : 'rgba(163,230,53,0.18)';
+      ctx.fillRect(px(ix + random() * iw), px(iy + random() * ih), 8, 4);
+    }
   } else {
     // Yard / default: subtle circuit grid.
     ctx.lineWidth = 1;
@@ -335,7 +349,43 @@ function drawFloor(ctx: CanvasRenderingContext2D, world: ExplorationState, chunk
       ctx.fillRect(px(ix + random() * iw), px(iy + random() * ih), s, s);
     }
     if (region.biome === 'yard') drawYardFloorAndProps(ctx, world, random);
+    if (region.biome === 'cave') drawCaveShell(ctx, chunk, random);
   }
+}
+
+// Solid rock beyond the cavern ellipse, plus the carved shop circle on the floor.
+function drawCaveShell(ctx: CanvasRenderingContext2D, chunk: { x: number; y: number; w: number; h: number }, random: () => number) {
+  const { cx, cy, rx, ry } = CAVE;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(251,191,36,0.16)'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.ellipse(cx, cy + 20, 470, 330, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(251,191,36,0.08)'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.ellipse(cx, cy + 20, 420, 285, 0, 0, Math.PI * 2); ctx.stroke();
+  const { entry } = CAVE_LAYOUT;
+  const trail = ctx.createLinearGradient(entry.x, cy, cx + 900, cy);
+  trail.addColorStop(0, 'rgba(34,211,238,0.10)'); trail.addColorStop(0.5, 'rgba(251,191,36,0.06)'); trail.addColorStop(1, 'rgba(192,132,252,0.10)');
+  ctx.fillStyle = trail; ctx.fillRect(entry.x, cy - 40, cx + 900 - entry.x, 80);
+  // Rock mass: everything outside the (slightly padded) ellipse.
+  ctx.beginPath();
+  ctx.rect(chunk.x, chunk.y, chunk.w, chunk.h);
+  ctx.ellipse(cx, cy, rx + 90, ry + 90, 0, 0, Math.PI * 2);
+  ctx.fillStyle = '#0c0907';
+  ctx.fill('evenodd');
+  ctx.clip('evenodd');
+  for (let i = 0; i < 260; i++) {
+    const x = px(chunk.x + random() * chunk.w), y = px(chunk.y + random() * chunk.h);
+    const tone = random();
+    ctx.fillStyle = tone > 0.97 ? 'rgba(251,191,36,0.55)' : tone > 0.5 ? 'rgba(46,35,28,0.8)' : 'rgba(28,21,17,0.9)';
+    ctx.fillRect(x, y, tone > 0.97 ? 8 : 24 + px(random() * 48), tone > 0.97 ? 8 : 12 + px(random() * 20));
+  }
+  ctx.restore();
+  // Soft inner shadow so the floor falls off into the walls.
+  const shade = ctx.createRadialGradient(cx, cy, Math.min(rx, ry) * 0.7, cx, cy, Math.max(rx, ry) * 1.05);
+  shade.addColorStop(0, 'rgba(0,0,0,0)'); shade.addColorStop(1, 'rgba(0,0,0,0.45)');
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx + 90, ry + 90, 0, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = shade; ctx.fillRect(chunk.x, chunk.y, chunk.w, chunk.h);
+  ctx.restore();
 }
 
 // ---- Non-colliding decor props, baked per chunk ----
@@ -395,6 +445,23 @@ function drawProp(ctx: CanvasRenderingContext2D, prop: WorldProp, random: () => 
       for (let i = 0; i < 4; i++) ctx.lineTo(-34 + i * 20 + random() * 8, (random() - 0.5) * 16);
       ctx.stroke();
       ctx.strokeStyle = 'rgba(254,215,170,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+      break;
+    case 'geode': {
+      const glow = random() < 0.5 ? '#fbbf24' : '#c084fc';
+      ctx.fillStyle = '#2b211b'; ctx.beginPath(); ctx.ellipse(0, 4, 20, 10, 0, 0, Math.PI * 2); ctx.fill();
+      for (let i = 0; i < 3; i++) {
+        const bx = (i - 1) * 10, hgt = 14 + random() * 18;
+        ctx.fillStyle = i === 1 ? glow : hexAlpha(glow, 0.6);
+        ctx.beginPath(); ctx.moveTo(bx - 5, 4); ctx.lineTo(bx, -hgt); ctx.lineTo(bx + 5, 4); ctx.closePath(); ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fillRect(-2, -10, 3, 5);
+      break;
+    }
+    case 'pebbles':
+      for (let i = 0; i < 6; i++) {
+        ctx.fillStyle = random() < 0.5 ? 'rgba(70,54,43,0.9)' : 'rgba(43,33,27,0.9)';
+        ctx.fillRect(px((random() - 0.5) * 50), px((random() - 0.5) * 26), 8 + px(random() * 8), 6 + px(random() * 6));
+      }
       break;
     case 'mushroom': {
       const c = random() < 0.5 ? '#a3e635' : '#22d3ee';

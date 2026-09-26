@@ -26,7 +26,7 @@ import TestingArenaPanel from "@/components/TestingArenaPanel";
 import { toast } from "@/components/ui/sonner";
 import { CHARACTERS, getCharacter } from "@shared/characterConfig";
 import { submitLeaderboardScore } from "@/lib/leaderboardApi";
-import { getPlayerName, getLastRunStats } from "@/lib/progressionStorage";
+import { getPlayerName, getLastRunStats, getPetCoat } from "@/lib/progressionStorage";
 import RunMapOverlay from "@/components/RunMapOverlay";
 import { DIFFICULTY_TIERS } from "@/lib/explorationWorld";
 import { PauseMenuOverlay } from "@/components/PauseMenuOverlay";
@@ -150,18 +150,16 @@ export default function GamePage() {
   useEffect(() => {
     if (!gameStatus || !gameId) return;
 
-    if (isExplorationPrototype) return;
     if (gameStatus === "gameOver" || gameStatus === "won") {
-      // Submit to leaderboard if in local mode and player has a name
-      // Autoplay runs never submit scores
-      if (isLocalMode && !isAutoplay && !isExplorationPrototype) {
+      // Submit to the mode's leaderboard. Autoplay and debug-assisted runs never submit; the engine
+      // saves the run just before this fires, so only a fresh record counts (never a stale previous run).
+      const debugUsed = !!useGameStore.getState().gameState?.debugUsed;
+      if (isLocalMode && !isAutoplay && !debugUsed) {
         const playerName = getPlayerName();
         const lastRun = getLastRunStats();
+        const fresh = !!lastRun && Date.now() - lastRun.timestamp < 15000;
 
-        console.log("Game ended with status:", gameStatus);
-        console.log("Last run stats:", lastRun);
-
-        if (playerName && lastRun) {
+        if (playerName && lastRun && fresh) {
           const submission = {
             playerName,
             characterType: lastRun.characterType,
@@ -169,6 +167,10 @@ export default function GamePage() {
             enemiesKilled: lastRun.enemiesKilled,
             survivalTimeMs: lastRun.survivalTimeMs,
             isVictory: lastRun.isVictory,
+            gameMode: lastRun.gameMode ?? (isExplorationPrototype ? "rift" as const : "arena" as const),
+            stagesCleared: lastRun.stagesCleared,
+            bestCombo: lastRun.bestCombo,
+            stage3TimeMs: lastRun.stage3TimeMs,
           };
           console.log("Submitting to leaderboard:", submission);
 
@@ -181,6 +183,9 @@ export default function GamePage() {
             });
         }
       }
+
+      // The Rift shows its own run summary overlay instead of the end screens.
+      if (isExplorationPrototype) return;
 
       // Navigate to appropriate end screen
       const autoplaySuffix = isAutoplay ? "?autoplay=1" : "";
@@ -227,7 +232,8 @@ export default function GamePage() {
       const engine = new LocalGameEngine(
         playerIdFromUrl,
         characterType,
-        playerName
+        playerName,
+        getPetCoat()
       );
       if (isExplorationPrototype) engine.configureExploration(Number(searchParams.get("seed") || 0));
       engine.setAutoplay(isAutoplay && !isExplorationPrototype);
@@ -554,7 +560,6 @@ export default function GamePage() {
   return (
     <div className="w-screen h-screen bg-black flex items-center justify-center overflow-hidden relative">
       <GameCanvas />
-      {isExplorationPrototype && <div className="fixed bottom-1 left-1/2 z-30 -translate-x-1/2 text-[9px] text-slate-500">EXPLORATION PROTOTYPE · no saved progression · testing controls: backslash</div>}
       {isExplorationPrototype && (gameStatus === 'gameOver' || gameStatus === 'won') && <PrototypeRunSummary gameState={activeGameState} player={localPlayer} onRestart={handleRestartRun} onMenu={handleExitToMenu} />}
       {localPlayer && <StatsPanel player={localPlayer} />}
       {isLocalMode && (
@@ -651,7 +656,7 @@ function PrototypeRunSummary({ gameState, player, onRestart, onMenu }: { gameSta
   ];
   return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" data-testid="prototype-run-summary">
     <div className="w-[min(560px,94vw)] rounded-lg border-4 border-cyan-400 bg-[#0a0f1e] p-6 text-white shadow-[0_0_80px_rgba(34,211,238,0.25)]">
-      <div className="font-press-start text-center text-[10px] tracking-[0.5em] text-slate-400">GLITCH LOOP</div>
+      <div className="font-press-start text-center text-[10px] tracking-[0.5em] text-slate-400">THE RIFT</div>
       <h2 className="mt-2 text-center font-press-start text-3xl text-cyan-300" style={{ textShadow: '3px 3px 0 #020617, 0 0 30px #22d3ee' }}>RUN SUMMARY</h2>
       <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-2 font-vt323 text-lg text-slate-300">
         {rows.map(([label, value]) => <React.Fragment key={label}><span className="text-slate-500">{label}</span><span className="text-right text-white">{value}</span></React.Fragment>)}
@@ -667,7 +672,7 @@ function PrototypeRunSummary({ gameState, player, onRestart, onMenu }: { gameSta
         <Button onClick={onRestart} className="font-press-start text-[10px]">RUN IT BACK</Button>
         <Button onClick={onMenu} variant="outline" className="font-press-start text-[10px]">MENU</Button>
       </div>
-      <div className="mt-3 text-center text-[10px] text-slate-600">Prototype · your normal run history is unchanged.</div>
+      <div className="mt-3 text-center text-[10px] text-slate-500">{gameState.debugUsed ? 'Testing controls were used · this run does not count toward scores or unlocks.' : 'Run saved · submitted to this week’s Rift leaderboard.'}</div>
     </div>
   </div>;
 }

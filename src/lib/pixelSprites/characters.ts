@@ -1,4 +1,4 @@
-import type { CharacterType } from "@shared/types";
+import type { CharacterType, PetCoat } from "@shared/types";
 import {
   FX_PREFIX,
   setPixel,
@@ -575,20 +575,58 @@ const DOG_LEG_POSES: [number, number][] = [
   [-1, 1],
 ];
 
+const DAPPLE_SPOTS: [number, number][] = [
+  [5, 16], [7, 15], [8, 15], [8, 16], [11, 17], [12, 16], [15, 12],
+];
+
+// B body, b shade, e ear, t tan points (brows/muzzle/chest/paws), d dapple spots.
+export const DACHSHUND_COATS: Record<
+  PetCoat,
+  { label: string; swatch: string; palette: Record<string, string> }
+> = {
+  red: {
+    label: "Red",
+    swatch: "#b8692f",
+    palette: { B: "#b8692f", b: "#7a3e17", e: "#5a2c10", t: "#d08a4c", d: "#b8692f" },
+  },
+  "black-tan": {
+    label: "Black & Tan",
+    swatch: "#3a3033",
+    palette: { B: "#3a3033", b: "#1f1a1c", e: "#241d1f", t: "#c07a3c", d: "#3a3033" },
+  },
+  "chocolate-tan": {
+    label: "Chocolate & Tan",
+    swatch: "#6b4028",
+    palette: { B: "#6b4028", b: "#442616", e: "#361d10", t: "#c9925a", d: "#6b4028" },
+  },
+  cream: {
+    label: "Cream",
+    swatch: "#e6c68e",
+    palette: { B: "#e6c68e", b: "#bf985c", e: "#a57a45", t: "#f3ddb0", d: "#e6c68e" },
+  },
+  dapple: {
+    label: "Dapple",
+    swatch: "#8e8e9c",
+    palette: { B: "#3a3033", b: "#1f1a1c", e: "#241d1f", t: "#c07a3c", d: "#9c9cab" },
+  },
+};
+
+export const PET_COATS = Object.keys(DACHSHUND_COATS) as PetCoat[];
+
 export const DACHSHUND_ART: CharacterArt = {
-  id: "dachshund",
+  id: "dachshund-red",
   signature: "#ffb36b",
   palette: {
-    B: "#b8692f", b: "#7a3e17", e: "#5a2c10",
+    ...DACHSHUND_COATS.red.palette,
     E: "#111111", N: "#1a1a1a", R: "#ff4b4b", Y: "#ffd23f",
   },
   upper: part(3, 11, [
-    "............BBB...",
+    "............BBt...",
     "...........BBBEB..",
-    "...........eBBBBBN",
-    "...........eBBBBb.",
+    "...........eBBBttN",
+    "...........eBBttb.",
     "..BBBBBBBBBRYbb...",
-    ".bBBBBBBBBBBBB....",
+    ".bBBBBBBBBBBtt....",
     ".bBBBBBBBBBBBb....",
   ]),
   // Dog legs are drawn in extras; this keeps the shared leg pass empty.
@@ -607,8 +645,9 @@ export const DACHSHUND_ART: CharacterArt = {
     ];
     legs.forEach(([x, y], i) => {
       setPixel(g, x, y, i % 2 === 0 ? "b" : "B");
-      setPixel(g, x, y + 1, i % 2 === 0 ? "b" : "B");
+      setPixel(g, x, y + 1, "t");
     });
+    DAPPLE_SPOTS.forEach(([x, y]) => setPixel(g, x, y, "d"));
     // Tail wag.
     const up = ctx.frame % 2 === 0;
     setPixel(g, 4, 14, "b");

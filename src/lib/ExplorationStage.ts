@@ -1,10 +1,11 @@
 import type { Enemy, EnemyType, GameState, InputState, Player, UpgradeOption, UpgradeRarity, Vector2D } from '@shared/types';
-import type { ExplorationState, StageModifierId, WorldChest, WorldFx, WorldPedestal } from '@shared/exploration';
+import type { ExplorationState, InteractCard, ItemFeedEntry, StageModifierId, StageResults, WorldChest, WorldFx, WorldPedestal, WorldPortal } from '@shared/exploration';
 import { createEnemy } from '@shared/enemyConfig';
 import { createBoss } from '@shared/bossConfig';
 import { BIOMES, CHARGE_MS, COMBO_MILESTONES, COMBO_WINDOW_MS, GATE, VIEW_HEIGHT, VIEW_WIDTH, clamp, difficultyTier, distance, isWalkable, lineClear, moveWorld, regionIndexAt } from './explorationWorld';
-import { computeRank, RANK_BONUS, rollStageModifiers, STAGE_MODIFIERS } from './stageModifiers';
+import { CAVE_PORTAL, computeRank, RANK_BONUS, STAGE_MODIFIERS } from './stageModifiers';
 import { rng } from './worldGen';
+import { REVEAL_MS } from './lootReveal';
 
 export interface ExplorationHooks {
   reward: () => void;
@@ -14,12 +15,23 @@ export interface ExplorationHooks {
   rollPedestalItem?: (rarities: UpgradeRarity[]) => UpgradeOption | null;
   applyOption?: (option: UpgradeOption) => void;
   nextStage?: (modifier: StageModifierId) => void;
+  enterCave?: () => void;
+  // Unlock tracking: fired once per relic claim and per opened secret-stash chest.
+  stageCleared?: (stagesCleared: number, results: StageResults) => void;
+  secretChestOpened?: () => void;
 }
 
 const RARITY_COLORS: Record<string, string> = { common: '#e2e8f0', uncommon: '#4ade80', legendary: '#f87171', boss: '#facc15', lunar: '#60a5fa', void: '#c084fc' };
+const RARITY_LABELS: Record<string, string> = { common: 'COMMON', uncommon: 'UNCOMMON', legendary: 'LEGENDARY', boss: 'BOSS', lunar: 'LUNAR', void: 'VOID' };
 const AFFIXES = { blazing: '#fb923c', overloading: '#38bdf8', glacial: '#e0f2fe' } as const;
 const ENEMY_COLORS: Partial<Record<EnemyType, string>> = { grunt: '#facc15', slugger: '#fb923c', 'glitch-spider': '#f0abfc', bomber: '#f97316', splitter: '#a855f7', 'mini-splitter': '#c084fc', 'neon-pulse': '#22d3ee', 'orbit-drone': '#7dd3fc', 'tank-bot': '#94a3b8', 'leech-beacon': '#86efac' };
 export const SHOP_PRICES: Record<string, number> = { common: 35, uncommon: 45, lunar: 55, void: 60, legendary: 70, boss: 90 };
+
+function nearest<T extends { position: Vector2D }>(items: T[], from: Vector2D, within: number): T | undefined {
+  let best: T | undefined, bestD = within;
+  for (const item of items) { const d = distance(item.position, from); if (d < bestD) { best = item; bestD = d; } }
+  return best;
+}
 
 function roster(tier: number): EnemyType[] {
   return ['grunt', 'grunt', ...(tier >= 1 ? ['slugger', 'bomber'] as EnemyType[] : []), ...(tier >= 2 ? ['glitch-spider', 'splitter'] as EnemyType[] : []), ...(tier >= 3 ? ['neon-pulse', 'orbit-drone'] as EnemyType[] : []), ...(tier >= 4 ? ['tank-bot', 'leech-beacon'] as EnemyType[] : [])];
@@ -107,13 +119,17 @@ export class ExplorationStage {
 
   private notice(world: ExplorationState, text: string) { world.notice = text; world.noticeMs = 4000; }
 
-  private gainItem(world: ExplorationState, player: Player, item: UpgradeOption, hooks: ExplorationHooks, position: Vector2D, color?: string) {
+  private reveal(world: ExplorationState, entry: Omit<ItemFeedEntry, 'id' | 'ms'>) {
+    world.itemFeed.unshift({ ...entry, id: this.fxSerial++, ms: REVEAL_MS });
+    world.itemFeed = world.itemFeed.slice(0, 4);
+  }
+
+  private gainItem(world: ExplorationState, player: Player, item: UpgradeOption, hooks: ExplorationHooks, position: Vector2D, source: string) {
     hooks.applyOption?.(item);
-    const c = color || RARITY_COLORS[item.rarity] || '#ffffff';
+    const c = RARITY_COLORS[item.rarity] || '#ffffff';
     world.metrics.itemsTaken++;
     world.run.items.push({ emoji: item.emoji || '?', title: item.title, rarity: item.rarity });
-    world.itemFeed.unshift({ id: this.fxSerial++, title: item.title, emoji: item.emoji || '?', rarity: item.rarity, description: item.description, ms: 4500 });
-    world.itemFeed = world.itemFeed.slice(0, 4);
+    this.reveal(world, { kind: 'item', title: item.title, emoji: item.emoji || '?', rarity: item.rarity, description: item.description, source });
     this.fx(world, 'beam', position, c, 1200, 60);
     this.fx(world, 'ring', position, c, 700, 170);
   }
@@ -147,7 +163,7 @@ export class ExplorationStage {
       this.shake(state, 9, 260);
       if (world.modifier === 'bloodMoon' && hooks?.rollPedestalItem && Math.random() < 0.25) {
         const item = hooks.rollPedestalItem(['uncommon', 'legendary', 'lunar', 'void']);
-        if (item) this.gainItem(world, player, item, hooks, dead.position);
+        if (item) this.gainItem(world, player, item, hooks, dead.position, 'ELITE DROP');
       }
     }
   }
@@ -195,12 +211,13 @@ export class ExplorationStage {
       chest.cost = Math.round(chest.cost * 1.5);
       if (Math.random() >= 0.45) {
         this.fx(world, 'text', { x: chest.position.x, y: chest.position.y - 60 }, '#94a3b8', 1400, 20, 'THE SHRINE MOCKS YOU');
+        this.reveal(world, { kind: 'fail', title: 'THE SHRINE MOCKS YOU', emoji: '💀', rarity: 'common', description: `Nothing this time. Next prayer costs $${chest.cost}.`, source: 'SHRINE OF CHANCE' });
         this.fx(world, 'ring', chest.position, '#64748b', 500, 90);
         return;
       }
       chest.uses++;
       if (chest.uses >= 2) { chest.opened = true; chest.openedMs = 0; }
-    } else { chest.opened = true; chest.openedMs = 0; }
+    } else { chest.opened = true; chest.openedMs = 0; if (chest.secret) hooks.secretChestOpened?.(); }
     const drops = world.modifier === 'darkness' ? 2 : 1;
     for (let i = 0; i < drops; i++) {
       const item = hooks.grantItem(chest.kind);
@@ -209,11 +226,9 @@ export class ExplorationStage {
       world.metrics.detourRewards++;
       world.metrics.itemsTaken++;
       world.run.items.push({ emoji: item.emoji || '?', title: item.title, rarity: item.rarity });
-      world.itemFeed.unshift({ id: this.fxSerial++, title: item.title, emoji: item.emoji || '?', rarity: item.rarity, description: item.description, ms: 4500 });
-      world.itemFeed = world.itemFeed.slice(0, 4);
+      this.reveal(world, { kind: 'item', title: item.title, emoji: item.emoji || '?', rarity: item.rarity, description: item.description, source: chest.kind === 'shrine' ? 'SHRINE OF CHANCE' : chest.kind === 'large' ? 'LEGENDARY VAULT' : 'SUPPLY CHEST' });
       this.fx(world, 'beam', chest.position, color, 1200, chest.kind === 'large' ? 90 : 60);
       this.fx(world, 'ring', chest.position, color, 700, chest.kind === 'large' ? 260 : 170);
-      this.fx(world, 'text', { x: chest.position.x, y: chest.position.y - 70 - i * 34 }, color, 1800, 22, `${item.emoji || ''} ${item.title}`);
     }
     world.hitStopMs = Math.max(world.hitStopMs, chest.kind === 'large' ? 120 : 50);
     this.shake(state, chest.kind === 'large' ? 12 : 5, 300);
@@ -245,7 +260,7 @@ export class ExplorationStage {
 
   private takePedestal(state: GameState, world: ExplorationState, player: Player, pedestal: WorldPedestal, hooks: ExplorationHooks) {
     pedestal.taken = true;
-    if (pedestal.option) this.gainItem(world, player, pedestal.option, hooks, pedestal.position);
+    if (pedestal.option) this.gainItem(world, player, pedestal.option, hooks, pedestal.position, pedestal.kind === 'boss' ? 'BOSS RELIC' : pedestal.kind === 'shop' ? 'PURCHASED' : 'TREASURE');
     if (pedestal.kind === 'boss' || pedestal.kind === 'treasure') {
       for (const other of world.pedestals) {
         if (other !== pedestal && !other.taken && other.kind === pedestal.kind) {
@@ -255,6 +270,9 @@ export class ExplorationStage {
       }
     }
     if (pedestal.kind === 'boss') {
+      // Claiming the boss relic is the moment a stage counts as cleared (drives the Rift leaderboard).
+      world.run.clearTimesMs.push(Math.round(world.elapsedMs));
+      world.run.stagesCleared = world.run.clearTimesMs.length;
       // Stage-clear results splash, then rift portals.
       const seconds = Math.round((world.elapsedMs - world.stageStartMs) / 1000);
       const stats = { kills: world.kills, bestCombo: world.combo.best, items: world.metrics.itemsTaken, damageTaken: Math.round(world.metrics.damageTaken), seconds };
@@ -263,6 +281,7 @@ export class ExplorationStage {
       player.coins = (player.coins || 0) + bonus;
       world.results = { rank, bonus, ...stats, ms: 4200 };
       world.phase = 'results';
+      hooks.stageCleared?.(world.run.stagesCleared, world.results);
       this.fx(world, 'ring', player.position, '#facc15', 800, 420);
       for (let i = 0; i < 10; i++) this.fx(world, 'text', { x: player.position.x + (rng(this.fxSerial + i)() - 0.5) * 300, y: player.position.y - 60 - i * 26 }, '#facc15', 1200, 18, '+$');
       this.shake(state, 10, 400);
@@ -270,20 +289,67 @@ export class ExplorationStage {
     }
   }
 
-  private openPortals(world: ExplorationState) {
-    const mods = rollStageModifiers(world.seed, world.stage);
-    const random = rng(world.seed * 911 + world.stage * 37);
-    for (let k = 0; k < 3; k++) {
-      const a = -Math.PI / 2 + k * Math.PI * 2 / 3 + random() * 0.3;
-      let position = { x: world.anchor.position.x + Math.cos(a) * 320, y: world.anchor.position.y + Math.sin(a) * 320 };
-      for (let ring = 0; ring < 6 && !isWalkable(world, position, 40); ring++) {
-        const ra = random() * Math.PI * 2;
-        position = { x: world.anchor.position.x + Math.cos(ra) * (320 + ring * 80), y: world.anchor.position.y + Math.sin(ra) * (320 + ring * 80) };
+  private chestCard(world: ExplorationState, chest: WorldChest, coins: number): InteractCard {
+    const doubled = world.modifier === 'darkness' ? 'Curse of the Dark: drops 2 items' : undefined;
+    const base = { id: chest.id, anchor: chest.position, lift: chest.kind === 'large' ? 90 : 75, cost: chest.cost, ready: coins >= chest.cost, note: coins < chest.cost ? `NEED $${chest.cost - coins} MORE` : doubled };
+    if (chest.kind === 'shrine') return { ...base, kind: 'shrine', title: 'SHRINE OF CHANCE', tag: `${2 - chest.uses} BLESSING${2 - chest.uses === 1 ? '' : 'S'} LEFT`, body: 'Feed it coins. It might feed you back.', emoji: '🔮', color: '#f472b6', action: 'PRAY', pros: '45% · random item', cons: 'Price ×1.5 every prayer' };
+    if (chest.kind === 'large') return { ...base, kind: 'vault', title: 'LEGENDARY VAULT', tag: chest.secret ? 'SECRET STASH' : 'VAULT', body: 'Heavy lock, heavier loot.', emoji: '🏆', color: '#facc15', action: 'OPEN', pros: 'Guaranteed legendary or boss item' };
+    return { ...base, kind: 'chest', title: 'SUPPLY CHEST', tag: chest.secret ? 'SECRET STASH' : 'CHEST', body: 'Standard-issue glitch crate.', emoji: '📦', color: '#22d3ee', action: 'OPEN', pros: '70% common · 30% uncommon, lunar or void' };
+  }
+
+  private interactPedestal(state: GameState, world: ExplorationState, player: Player, pedestal: WorldPedestal, pressed: boolean, hooks: ExplorationHooks) {
+    const coins = Math.floor(player.coins || 0);
+    const at = { id: pedestal.id, anchor: pedestal.position, lift: 110 };
+    if (pedestal.kind === 'heal') {
+      const cost = pedestal.cost || 25;
+      const full = player.health >= player.maxHealth;
+      world.interact = { ...at, kind: 'heal', title: 'FIELD MEDIC', tag: 'HEAL', body: 'Restore 2 hearts on the spot.', emoji: '❤️', color: '#4ade80', action: 'BUY', cost, ready: !full && coins >= cost, note: full ? 'ALREADY AT FULL HEALTH' : coins < cost ? `NEED $${cost - coins} MORE` : undefined };
+      world.prompt = full ? 'Heal pedestal · already at full health' : coins >= cost ? `Buy +2 hearts · $${cost}` : `Heal pedestal · need $${cost - coins} more`;
+      if (pressed && !full && coins >= cost) {
+        player.coins -= cost; pedestal.taken = true;
+        player.health = Math.min(player.maxHealth, player.health + player.maxHealth / 5 * 2);
+        this.fx(world, 'ring', pedestal.position, '#4ade80', 600, 160);
+        this.fx(world, 'text', { x: pedestal.position.x, y: pedestal.position.y - 50 }, '#86efac', 1200, 20, '+2 HEARTS');
+        this.reveal(world, { kind: 'heal', title: '+2 HEARTS', emoji: '❤️', rarity: 'uncommon', description: 'Patched up and ready to glitch.', source: 'FIELD MEDIC' });
       }
-      // Keep the last candidate even if unwalkable — collapsing onto the anchor would auto-commit.
-      world.portals.push({ id: `portal-${k}`, position, modifier: mods[k] });
+      return;
     }
-    this.notice(world, 'Walk into a rift to choose the next stage');
+    if (!pedestal.option) return;
+    const item = pedestal.option;
+    const itemCard = { ...at, title: item.title, body: item.description, emoji: item.emoji || '?', color: RARITY_COLORS[item.rarity] || '#fff', rarity: item.rarity };
+    if (pedestal.kind === 'shop') {
+      const cost = pedestal.cost || 0;
+      world.interact = { ...itemCard, kind: 'shop', tag: `${RARITY_LABELS[item.rarity] || ''} · FOR SALE`, action: 'BUY', cost, ready: coins >= cost, note: coins < cost ? `NEED $${cost - coins} MORE` : undefined };
+      world.prompt = coins >= cost ? `Buy ${pedestal.option.title} · $${cost}` : `${pedestal.option.title} · need $${cost - coins} more`;
+      if (pressed && coins >= cost) { player.coins -= cost; this.takePedestal(state, world, player, pedestal, hooks); }
+      return;
+    }
+    // Boss / treasure: take one, the rest vanish.
+    world.interact = { ...itemCard, kind: 'relic', tag: `${RARITY_LABELS[item.rarity] || ''} ${pedestal.kind === 'boss' ? 'RELIC' : 'TREASURE'}`, action: 'TAKE', ready: true, note: 'THE OTHERS VANISH' };
+    world.prompt = `Take ${pedestal.option.title}`;
+    if (pressed) this.takePedestal(state, world, player, pedestal, hooks);
+  }
+
+  private commitPortal(state: GameState, world: ExplorationState, portal: WorldPortal) {
+    world.pendingCave = portal.kind === 'cave';
+    world.pendingModifier = portal.modifier || null;
+    world.warpMs = 700;
+    const color = portal.kind === 'cave' ? CAVE_PORTAL.color : STAGE_MODIFIERS[portal.modifier!].color;
+    this.shake(state, 14, 500);
+    this.fx(world, 'ring', portal.position, color, 900, 500);
+    this.fx(world, 'beam', portal.position, '#ffffff', 700, 160);
+  }
+
+  // After the stage results, the anchor tears open a single rift down into the shop cave.
+  private openPortals(world: ExplorationState) {
+    let position = { x: world.anchor.position.x, y: world.anchor.position.y + 230 };
+    for (let ring = 1; ring <= 6 && !isWalkable(world, position, 40); ring++) {
+      const a = Math.PI / 2 + ring * 0.6 * (ring % 2 ? 1 : -1);
+      position = { x: world.anchor.position.x + Math.cos(a) * (230 + ring * 40), y: world.anchor.position.y + Math.sin(a) * (230 + ring * 40) };
+    }
+    world.portals.push({ id: 'portal-cave', kind: 'cave', position });
+    this.fx(world, 'ring', position, CAVE_PORTAL.color, 900, 300);
+    this.notice(world, 'A rift opened · step in and press E');
   }
 
   update(state: GameState, delta: number, hooks: ExplorationHooks) {
@@ -306,6 +372,7 @@ export class ExplorationStage {
     // Portal warp: 700ms of white-flash/hit-stop then the next stage generates.
     if (world.warpMs > 0) {
       world.warpMs -= delta;
+      if (world.warpMs <= 0 && world.pendingCave) { hooks.enterCave?.(); return; }
       if (world.warpMs <= 0 && world.pendingModifier) { hooks.nextStage?.(world.pendingModifier); return; }
     }
     const tier = difficultyTier(world.elapsedMs).index;
@@ -355,40 +422,38 @@ export class ExplorationStage {
     this.wasInteract = !!player.lastInput?.interact;
     this.queuedInteract = false;
     world.prompt = '';
+    world.focusId = null;
+    world.interact = null;
     const chest = world.chests.find(c => !c.opened && distance(c.position, player.position) < 80);
+    // Choices (relics, shop stock, rifts) never auto-take: stand on one, then press to confirm.
+    const pedestal = world.phase === 'results' ? undefined : nearest(world.pedestals.filter(p => !p.taken), player.position, 70);
+    const portal = world.phase === 'portals' && world.warpMs <= 0 ? nearest(world.portals, player.position, 80) : undefined;
     if (chest) {
       const coins = Math.floor(player.coins || 0);
       const label = chest.kind === 'shrine' ? `Shrine of Chance · $${chest.cost}` : chest.kind === 'large' ? `Open legendary vault · $${chest.cost}` : `Open chest · $${chest.cost}`;
       world.prompt = coins >= chest.cost ? label : `${label} · need $${chest.cost - coins} more`;
+      world.interact = this.chestCard(world, chest, coins);
       if (pressed && coins >= chest.cost) this.useChest(state, world, player, chest, hooks);
+    } else if (pedestal) {
+      world.focusId = pedestal.id;
+      this.interactPedestal(state, world, player, pedestal, pressed, hooks);
+    } else if (portal) {
+      world.focusId = portal.id;
+      world.prompt = portal.kind === 'cave' ? 'Enter the Glitch Grotto' : `Jump into the ${STAGE_MODIFIERS[portal.modifier!].name} rift`;
+      const mod = portal.kind === 'cave' ? CAVE_PORTAL : STAGE_MODIFIERS[portal.modifier!];
+      world.interact = { id: portal.id, kind: 'portal', anchor: portal.position, lift: 100, title: mod.name, tag: portal.kind === 'cave' ? 'SAFE ZONE' : `NEXT · STAGE ${world.stage + 1}`, body: mod.flavour, emoji: portal.kind === 'cave' ? '🕯️' : '🌀', color: mod.color, action: 'JUMP IN', ready: true, pros: mod.reward, cons: mod.risk || undefined };
+      if (pressed) this.commitPortal(state, world, portal);
     } else if (world.phase === 'exploring') {
-      // Landing pedestals: treasure/take-one, shop/heal bought with E.
-      const landingPed = world.pedestals.find(p => !p.taken && distance(p.position, player.position) < 70);
-      if (landingPed && landingPed.kind === 'shop' && landingPed.option) {
-        const cost = landingPed.cost || 0;
-        const coins = Math.floor(player.coins || 0);
-        world.prompt = coins >= cost ? `Buy ${landingPed.option.title} · $${cost}` : `${landingPed.option.title} · need $${cost - coins} more`;
-        if (pressed && coins >= cost) { player.coins -= cost; this.takePedestal(state, world, player, landingPed, hooks); }
-      } else if (landingPed && landingPed.kind === 'heal') {
-        const cost = landingPed.cost || 25;
-        const coins = Math.floor(player.coins || 0);
-        world.prompt = coins >= cost ? `Buy +2 hearts · $${cost}` : `Heal pedestal · need $${cost - coins} more`;
-        if (pressed && coins >= cost) {
-          player.coins -= cost; landingPed.taken = true;
-          player.health = Math.min(player.maxHealth, player.health + player.maxHealth / 5 * 2);
-          this.fx(world, 'ring', landingPed.position, '#4ade80', 600, 160);
-          this.fx(world, 'text', { x: landingPed.position.x, y: landingPed.position.y - 50 }, '#86efac', 1200, 20, '+2 HEARTS');
-        }
-      } else if (landingPed && landingPed.kind === 'treasure' && distance(landingPed.position, player.position) < 55) {
-        this.takePedestal(state, world, player, landingPed, hooks);
-      } else if (world.hasYard && distance(player.position, world.cache.position) < 85 && !world.cache.claimed) {
+      if (world.hasYard && distance(player.position, world.cache.position) < 85 && !world.cache.claimed) {
         world.prompt = 'Open maintenance cache';
+        world.interact = { id: 'cache', kind: 'cache', anchor: world.cache.position, lift: 80, title: 'MAINTENANCE CACHE', tag: 'FREE', body: 'Abandoned repair kit. Somebody left snacks.', emoji: '🧰', color: '#5eead4', action: 'OPEN', ready: true, pros: '+$30 · +1 heart' };
         if (pressed) { world.cache.claimed = true; player.coins = (player.coins || 0) + 30; player.health = Math.min(player.maxHealth, player.health + player.maxHealth / 5); world.metrics.detourRewards++; this.notice(world, 'Cache recovered · +30 coins · +1 heart'); this.fx(world, 'ring', world.cache.position, '#5eead4', 600, 160); }
       } else if (world.hasYard && !world.gateOpen && distance(player.position, GATE) < 110) {
         world.prompt = player.position.y < GATE.y ? 'Unlock return shortcut' : 'Shortcut opens from the maintenance side';
         if (pressed && player.position.y < GATE.y) { world.gateOpen = true; this.notice(world, 'Return shortcut unlocked'); }
       } else if (world.hasYard && distance(player.position, world.elite.position) < 100 && !world.elite.started) {
         world.prompt = 'Challenge the elite · upgrade reward';
+        world.interact = { id: 'elite', kind: 'elite', anchor: world.elite.position, lift: 130, title: 'ELITE CHALLENGE', tag: 'OPTIONAL FIGHT', body: 'Wake a heavily armoured tank-bot.', emoji: '☠️', color: '#f59e0b', action: 'FIGHT', ready: true, pros: '+$40 · choose an upgrade', cons: '420 HP bruiser' };
         if (pressed) {
           world.elite.started = true;
           const elite = createEnemy(world.elite.id, { ...world.elite.position }, 'tank-bot', 1);
@@ -398,6 +463,7 @@ export class ExplorationStage {
         }
       } else if (distance(player.position, world.anchor.position) < 100) {
         world.prompt = 'Activate the Glitch Anchor';
+        world.interact = { id: 'anchor', kind: 'anchor', anchor: world.anchor.position, lift: 150, title: 'GLITCH ANCHOR', tag: `STAGE ${world.stage} EXIT`, body: 'Stabilise the signal to open the way out.', emoji: '⚓', color: '#22d3ee', action: 'ACTIVATE', ready: true, pros: 'Boss relic · rank bonus coins', cons: 'Summons the guardian · hold the field 45s' };
         if (pressed) {
           world.phase = 'anchorActive'; this.pending = []; this.spawnMs = 1500;
           const position = { x: world.anchor.position.x + 180, y: world.anchor.position.y - 150 };
@@ -412,24 +478,14 @@ export class ExplorationStage {
         }
       }
     } else if (world.phase === 'pedestals') {
-      const pedestal = world.pedestals.find(p => p.kind === 'boss' && !p.taken && distance(p.position, player.position) < 55);
-      world.prompt = 'Walk onto a boss relic to claim it';
-      if (pedestal) this.takePedestal(state, world, player, pedestal, hooks);
+      world.prompt = 'Stand on a boss relic to inspect it';
     } else if (world.phase === 'results') {
       world.prompt = 'Press E to continue';
       if (world.results) world.results.ms -= delta;
       if (pressed || !world.results || world.results.ms <= 0) { world.results = null; world.phase = 'portals'; this.openPortals(world); }
-    } else if (world.phase === 'portals') {
-      const near = world.portals.find(p => distance(p.position, player.position) < 220);
-      if (near) world.prompt = `Walk into the ${STAGE_MODIFIERS[near.modifier].name} rift to commit`;
-      const portal = world.warpMs <= 0 && world.portals.find(p => distance(p.position, player.position) < 60);
-      if (portal) {
-        world.pendingModifier = portal.modifier;
-        world.warpMs = 700;
-        this.shake(state, 14, 500);
-        this.fx(world, 'ring', portal.position, STAGE_MODIFIERS[portal.modifier].color, 900, 500);
-        this.fx(world, 'beam', portal.position, '#ffffff', 700, 160);
-      }
+    } else if (world.phase === 'portals' && world.warpMs <= 0) {
+      const near = nearest(world.portals, player.position, 240);
+      if (near) world.prompt = near.kind === 'cave' ? 'Step into the rift to reach the Glitch Grotto' : `Step into the ${STAGE_MODIFIERS[near.modifier!].name} rift`;
     }
     if (world.elite.started && !world.elite.defeated && !state.levelingUpPlayerId && !state.enemies.some(e => e.id === world.elite.id)) {
       world.elite.defeated = true; player.coins = (player.coins || 0) + 40; world.metrics.detourRewards++;

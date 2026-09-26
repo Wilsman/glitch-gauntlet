@@ -1,0 +1,107 @@
+/* Pixel-art hover + loot reveal cards. Everything moves in whole steps (steps() timing, hard
+   shadows, no blur/rotation) so the DOM cards read as sprites next to the Konva world. */
+
+.px-card {
+  --c: #22d3ee;
+  --a: #e0f2fe;
+  --ink: #020617;
+  --panel: #0a0f22;
+  --deep: color-mix(in srgb, var(--c) 28%, #020617);
+  position: relative;
+  font-family: "Press Start 2P", monospace;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+/* 4px-stepped notched corners */
+.px-notch {
+  clip-path: polygon(
+    0 8px, 4px 8px, 4px 4px, 8px 4px, 8px 0,
+    calc(100% - 8px) 0, calc(100% - 8px) 4px, calc(100% - 4px) 4px, calc(100% - 4px) 8px, 100% 8px,
+    100% calc(100% - 8px), calc(100% - 4px) calc(100% - 8px), calc(100% - 4px) calc(100% - 4px), calc(100% - 8px) calc(100% - 4px), calc(100% - 8px) 100%,
+    8px 100%, 8px calc(100% - 4px), 4px calc(100% - 4px), 4px calc(100% - 8px), 0 calc(100% - 8px)
+  );
+}
+
+/* ink outline > colour frame with a light top bevel > dithered panel */
+.px-frame { background: var(--ink); padding: 4px; filter: drop-shadow(4px 4px 0 var(--ink)) drop-shadow(0 0 14px color-mix(in srgb, var(--c) 45%, transparent)); }
+.px-frame-color { background: linear-gradient(180deg, var(--a) 0 4px, var(--c) 4px calc(100% - 4px), var(--deep) calc(100% - 4px)); padding: 4px; }
+.px-frame-inner {
+  position: relative;
+  overflow: hidden;
+  background:
+    repeating-conic-gradient(color-mix(in srgb, var(--c) 16%, transparent) 0 25%, transparent 0 50%) 0 0 / 4px 4px,
+    linear-gradient(180deg, color-mix(in srgb, var(--c) 22%, var(--panel)) 0 18%, var(--panel) 18% 100%);
+}
+
+/* Dithered "window" the item floats in, with a stepped starfield */
+.px-window {
+  position: relative;
+  overflow: hidden;
+  background:
+    repeating-conic-gradient(color-mix(in srgb, var(--c) 30%, transparent) 0 25%, transparent 0 50%) 0 0 / 4px 4px,
+    radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--c) 45%, #050914) 0 22%, color-mix(in srgb, var(--c) 22%, #050914) 22% 40%, #050914 40%);
+  box-shadow: inset 0 0 0 4px var(--ink), inset 0 4px 0 4px color-mix(in srgb, var(--c) 30%, var(--ink));
+}
+.px-window .px-emoji { position: relative; animation: px-bob 1.2s steps(1, end) infinite; filter: drop-shadow(3px 3px 0 var(--ink)); }
+.px-star { position: absolute; width: 4px; height: 4px; background: var(--a); animation: px-twinkle 1.6s steps(1, end) infinite; }
+.px-star.plus { width: 4px; height: 4px; background: #fff; box-shadow: 4px 0 0 var(--a), -4px 0 0 var(--a), 0 4px 0 var(--a), 0 -4px 0 var(--a); }
+.px-shine { position: absolute; top: -8px; bottom: -8px; left: 0; width: 8px; background: rgba(255, 255, 255, 0.35); box-shadow: 12px 0 0 rgba(255, 255, 255, 0.15); transform: translateX(-24px) skewX(-12deg); animation: px-shine 2.6s steps(10, end) infinite; }
+
+/* Banded chunky header text (RARE / LEGENDARY ...) */
+.px-banded {
+  filter: drop-shadow(0 4px 0 var(--ink)) drop-shadow(4px 0 0 var(--ink)) drop-shadow(-2px -2px 0 var(--ink));
+}
+/* Band fill lives on each letter: background-clip:text does not paint through animated children. */
+.px-banded span {
+  color: transparent;
+  background: linear-gradient(180deg, #ffffff 0 30%, var(--a) 30% 52%, var(--c) 52% 78%, var(--deep) 78% 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.px-banded span { display: inline-block; animation: px-drop 360ms steps(1, end) both; animation-delay: calc(180ms + var(--i) * 45ms); }
+
+.px-tag { background: linear-gradient(180deg, #fef08a 0 3px, #facc15 3px calc(100% - 3px), #a16207 calc(100% - 3px)); color: var(--ink); padding: 6px 7px 5px; box-shadow: 0 0 0 3px var(--ink); animation: px-blink 0.9s steps(1, end) infinite; }
+.px-chip { background: var(--c); color: var(--ink); padding: 4px 5px 3px; box-shadow: 0 0 0 2px var(--ink); }
+.px-plate { background: var(--ink); color: #f8fafc; padding: 7px 8px 6px; box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--c) 55%, var(--ink)), inset 0 -4px 0 2px color-mix(in srgb, var(--c) 20%, var(--ink)); }
+.px-body { font-family: "VT323", monospace; font-size: 20px; line-height: 18px; color: #cbd5e1; }
+.px-pro { color: #86efac; }
+.px-con { color: #fda4af; }
+.px-rule { height: 4px; background: repeating-linear-gradient(90deg, color-mix(in srgb, var(--c) 45%, transparent) 0 4px, transparent 4px 8px); }
+
+/* Pixel keycap that "presses" itself */
+.px-key { display: inline-block; background: linear-gradient(180deg, var(--a) 0 3px, var(--c) 3px); color: var(--ink); padding: 5px 6px 4px; box-shadow: 0 0 0 2px var(--ink), 0 4px 0 2px var(--deep), 0 4px 0 4px var(--ink); animation: px-press 1s steps(1, end) infinite; }
+.px-key.off { background: #475569; animation: none; }
+.px-cost { color: #fde047; text-shadow: 2px 2px 0 var(--ink), -2px 0 0 var(--ink), 0 -2px 0 var(--ink); animation: px-pulse 1s steps(1, end) infinite; }
+.px-cost.broke { color: #f87171; animation: px-shake 1.6s steps(1, end) infinite; }
+
+/* NEW! stamp slams in late (big -> small in whole steps), then keeps blinking */
+.px-stamp { animation: px-stamp 240ms steps(1, end) both, px-blink 0.9s steps(1, end) infinite; }
+/* Rarity pips pop in one by one, like the reference's gem row */
+.px-gem { display: inline-block; width: 12px; height: 12px; background: var(--c); box-shadow: inset 4px 4px 0 -0px color-mix(in srgb, #fff 70%, var(--c)), 0 0 0 2px var(--ink); clip-path: polygon(33% 0, 67% 0, 67% 33%, 100% 33%, 100% 67%, 67% 67%, 67% 100%, 33% 100%, 33% 67%, 0 67%, 0 33%, 33% 33%); animation: px-pip 200ms steps(1, end) both; }
+
+/* Entrances / exits */
+.px-pop { animation: px-pop 280ms steps(1, end) both; transform-origin: 50% 100%; }
+.px-reveal { animation: px-reveal 420ms steps(1, end) both; }
+.px-reveal.fail { animation: px-reveal 420ms steps(1, end) both, px-shake 420ms steps(1, end) 420ms 2; }
+.px-leave { animation: px-leave 280ms steps(1, end) both; }
+.px-slide { animation: px-slide 300ms steps(1, end) both; }
+
+@keyframes px-pop { 0% { transform: scale(0.3); opacity: 0; } 20% { transform: scale(0.6); opacity: 1; } 45% { transform: scale(1.12); } 70% { transform: scale(0.96); } 100% { transform: scale(1); } }
+@keyframes px-reveal { 0% { transform: translateY(-64px) scale(1.5); opacity: 0; } 15% { transform: translateY(-40px) scale(1.35); opacity: 1; } 35% { transform: translateY(-12px) scale(1.15); } 55% { transform: translateY(8px) scale(0.94); } 75% { transform: translateY(-4px) scale(1.03); } 100% { transform: none; } }
+@keyframes px-leave { 0% { transform: none; } 25% { transform: translateY(-8px) scale(1.04); } 50% { transform: translateY(40px) scale(0.7); opacity: 0.9; } 75% { transform: translateY(140px) scale(0.4); opacity: 0.6; } 100% { transform: translateY(260px) scale(0.2); opacity: 0; } }
+@keyframes px-slide { 0% { transform: translateY(-40px); opacity: 0; } 34% { transform: translateY(-16px); opacity: 1; } 67% { transform: translateY(4px); } 100% { transform: none; } }
+@keyframes px-drop { 0% { transform: translateY(-20px); opacity: 0; } 34% { transform: translateY(-8px); opacity: 1; } 67% { transform: translateY(4px); } 100% { transform: none; } }
+@keyframes px-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes px-twinkle { 0%, 100% { opacity: 1; } 40% { opacity: 0.2; } 70% { opacity: 0.7; } }
+@keyframes px-blink { 0%, 100% { filter: none; } 50% { filter: brightness(1.35); } }
+@keyframes px-press { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(2px); box-shadow: 0 0 0 2px var(--ink), 0 2px 0 2px var(--deep), 0 2px 0 4px var(--ink); } }
+@keyframes px-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+@keyframes px-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-2px); } 80% { transform: translateX(2px); } }
+@keyframes px-shine { 0% { transform: translateX(-24px) skewX(-12deg); } 40%, 100% { transform: translateX(400px) skewX(-12deg); } }
+@keyframes px-stamp { 0% { transform: scale(3.2); opacity: 0; } 1% { opacity: 1; } 33% { transform: scale(2.2); } 66% { transform: scale(0.85); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes px-pip { 0% { transform: scale(0); } 50% { transform: scale(1.5); } 100% { transform: scale(1); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .px-card *, .px-card, .px-stamp, .px-gem, .px-pop, .px-reveal, .px-leave, .px-slide { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}
