@@ -1,4 +1,4 @@
-import type { UpgradeOption, UpgradeRarity, Vector2D } from './types';
+import type { BossType, UpgradeOption, UpgradeRarity, Vector2D } from './types';
 
 export type BiomeId = 'yard' | 'frost' | 'foundry' | 'bloom' | 'marsh' | 'void' | 'arcade' | 'cave';
 export type StageModifierId = 'goldRush' | 'bloodMoon' | 'overclock' | 'treasure' | 'blackMarket' | 'darkness' | 'hordeNight';
@@ -35,7 +35,7 @@ export interface InteractCard {
 }
 export interface StageResults { rank: 'S' | 'A' | 'B' | 'C' | 'D'; bonus: number; kills: number; bestCombo: number; items: number; damageTaken: number; seconds: number; ms: number }
 // clearTimesMs: play time (elapsedMs) at each boss-relic claim; length = stages actually cleared.
-export interface RunStats { stagesCleared: number; totalKills: number; bestCombo: number; items: { emoji: string; title: string; rarity: UpgradeRarity }[]; maxTier: number; clearTimesMs: number[] }
+export interface RunStats { stagesCleared: number; totalKills: number; bestCombo: number; items: { emoji: string; title: string; rarity: UpgradeRarity }[]; maxTier: number; clearTimesMs: number[]; guardians?: BossType[] }
 export interface ExplorationState {
   seed: number;
   stage: number;

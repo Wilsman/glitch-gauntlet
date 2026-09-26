@@ -832,6 +832,7 @@ export class LocalGameEngine {
       items: carry.run.items,
       maxTier: carry.run.maxTier,
       clearTimesMs: carry.run.clearTimesMs,
+      guardians: carry.run.guardians,
     } : undefined;
     const stageSeed = this.prototypeSeed + (stage - 1) * 101;
     state.exploration = opts?.interlude && carry && run
@@ -7182,11 +7183,19 @@ export class LocalGameEngine {
           targetPosition: { ...boss.position },
         };
       } else if (attackType === "teleport") {
-        // Teleport to random edge
+        // Teleport to random edge (in the Rift: the edge of the anchor's signal field, not the world)
         const edge = Math.floor(Math.random() * 4);
         let targetPos = { x: 0, y: 0 };
+        const field = state.exploration?.anchor;
 
-        switch (edge) {
+        if (field) {
+          const angle = Math.random() * Math.PI * 2;
+          const r = field.radius * 0.85;
+          targetPos = {
+            x: field.position.x + Math.cos(angle) * r,
+            y: field.position.y + Math.sin(angle) * r,
+          };
+        } else switch (edge) {
           case 0: // top
             targetPos = { x: Math.random() * this.arenaWidth, y: 100 };
             break;
@@ -7242,13 +7251,19 @@ export class LocalGameEngine {
         boss.isInvulnerable = true;
         boss.shieldGenerators = [];
 
-        // Spawn shield generators at corners
-        const positions = [
-          { x: 150, y: 150 },
-          { x: this.arenaWidth - 150, y: 150 },
-          { x: this.arenaWidth - 150, y: this.arenaHeight - 150 },
-          { x: 150, y: this.arenaHeight - 150 },
-        ];
+        // Spawn shield generators at corners (in the Rift: around the anchor's signal field)
+        const field = state.exploration?.anchor;
+        const positions = field
+          ? [-1, 1].flatMap((sy) => [-1, 1].map((sx) => ({
+              x: field.position.x + sx * field.radius * 0.6,
+              y: field.position.y + sy * field.radius * 0.6,
+            })))
+          : [
+              { x: 150, y: 150 },
+              { x: this.arenaWidth - 150, y: 150 },
+              { x: this.arenaWidth - 150, y: this.arenaHeight - 150 },
+              { x: 150, y: this.arenaHeight - 150 },
+            ];
 
         for (let i = 0; i < ARCHITECT_SHIELD_GENERATOR_COUNT; i++) {
           boss.shieldGenerators.push({

@@ -1,4 +1,4 @@
-import type { Enemy, EnemyType, GameState, InputState, Player, UpgradeOption, UpgradeRarity, Vector2D } from '@shared/types';
+import type { BossType, Enemy, EnemyType, GameState, InputState, Player, UpgradeOption, UpgradeRarity, Vector2D } from '@shared/types';
 import type { ExplorationState, InteractCard, ItemFeedEntry, StageModifierId, StageResults, WorldChest, WorldFx, WorldPedestal, WorldPortal } from '@shared/exploration';
 import { createEnemy } from '@shared/enemyConfig';
 import { createBoss } from '@shared/bossConfig';
@@ -31,6 +31,16 @@ function nearest<T extends { position: Vector2D }>(items: T[], from: Vector2D, w
   let best: T | undefined, bestD = within;
   for (const item of items) { const d = distance(item.position, from); if (d < bestD) { best = item; bestD = d; } }
   return best;
+}
+
+const GUARDIAN_POOL: BossType[] = ['berserker', 'summoner', 'architect', 'glitch-golem', 'viral-swarm', 'overclocker', 'magnetic-magnus', 'neon-reaper', 'core-destroyer'];
+
+// Pick an anchor guardian the run hasn't fought yet; once every boss has appeared, start over (never twice in a row).
+function pickGuardian(seen: BossType[] = []): BossType {
+  const last = seen[seen.length - 1];
+  let options = GUARDIAN_POOL.filter((type) => !seen.includes(type));
+  if (!options.length) options = GUARDIAN_POOL.filter((type) => type !== last);
+  return options[Math.floor(Math.random() * options.length)];
 }
 
 function roster(tier: number): EnemyType[] {
@@ -467,7 +477,9 @@ export class ExplorationStage {
         if (pressed) {
           world.phase = 'anchorActive'; this.pending = []; this.spawnMs = 1500;
           const position = { x: world.anchor.position.x + 180, y: world.anchor.position.y - 150 };
-          state.boss = createBoss('anchor-guardian', position, 'berserker', 1);
+          const guardian = pickGuardian(world.run.guardians);
+          world.run.guardians = [...(world.run.guardians ?? []), guardian];
+          state.boss = createBoss('anchor-guardian', position, guardian, 1);
           state.boss.health = state.boss.maxHealth = Math.round(1000 * (1 + 0.6 * (world.stage - 1)));
           state.boss.attackCooldown = 1800;
           this.notice(world, 'Stay inside the signal field and defeat its guardian');
