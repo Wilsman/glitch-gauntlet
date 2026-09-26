@@ -71,9 +71,11 @@ export async function archiveAndResetLeaderboard(db: D1Database): Promise<void> 
     // Move old entries to archive
     await db.prepare(`
       INSERT INTO leaderboard_archive 
-      (player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at, reset_timestamp, archived_at)
-      SELECT 
-        player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at, reset_timestamp, ?
+      (player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at, reset_timestamp, archived_at,
+       game_mode, stages_cleared, best_combo, stage3_time_ms)
+      SELECT
+        player_name, character_type, wave_reached, enemies_killed, survival_time_ms, is_victory, created_at, reset_timestamp, ?,
+        game_mode, stages_cleared, best_combo, stage3_time_ms
       FROM leaderboard_entries
       WHERE reset_timestamp < ?
     `).bind(Date.now(), currentResetTimestamp).run();

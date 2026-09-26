@@ -1,4 +1,4 @@
-import type { LeaderboardSubmission, LeaderboardCategory, LeaderboardEntry, LeaderboardResponse, ApiResponse } from '@shared/types';
+import type { GameMode, LeaderboardSubmission, LeaderboardCategory, LeaderboardEntry, LeaderboardResponse, ApiResponse } from '@shared/types';
 
 /**
  * Submit a score to the leaderboard
@@ -33,16 +33,17 @@ export async function submitLeaderboardScore(submission: LeaderboardSubmission):
 }
 
 /**
- * Get leaderboard entries for a specific category
+ * Get leaderboard entries for a category of one game mode
  */
 export async function getLeaderboard(
   category: LeaderboardCategory,
   limit: number = 10,
-  offset: number = 0
+  offset: number = 0,
+  mode: GameMode = 'arena'
 ): Promise<LeaderboardResponse> {
   try {
     const response = await fetch(
-      `/api/leaderboard/${category}?limit=${limit}&offset=${offset}`
+      `/api/leaderboard/${category}?limit=${limit}&offset=${offset}&mode=${mode}`
     );
 
     const result = await response.json() as ApiResponse<LeaderboardResponse>;
@@ -86,13 +87,13 @@ export async function getNextResetTime(): Promise<{
 /**
  * Get a player's best scores across all categories
  */
-export async function getPlayerStats(playerName: string): Promise<{
+export async function getPlayerStats(playerName: string, mode: GameMode = 'arena'): Promise<{
   playerName: string;
   bestScores: Record<string, any>;
   totalGames: number;
 }> {
   try {
-    const response = await fetch(`/api/leaderboard/player/${encodeURIComponent(playerName)}`);
+    const response = await fetch(`/api/leaderboard/player/${encodeURIComponent(playerName)}?mode=${mode}`);
 
     const result = await response.json() as ApiResponse<{
       playerName: string;

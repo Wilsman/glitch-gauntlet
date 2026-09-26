@@ -2,17 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Gamepad2, LockKeyhole } from "lucide-react";
 import { getAllCharacters } from "@shared/characterConfig";
-import type { CharacterStats, CharacterType } from "@shared/types";
+import type { CharacterStats, CharacterType, PetCoat } from "@shared/types";
 import { Button } from "./ui/button";
 import {
   checkUnlocks,
+  getPetCoat,
   getUnlockProgress,
   isCharacterUnlocked,
+  setPetCoat,
+  type UnlockRouteProgress,
 } from "@/lib/progressionStorage";
-import { UnlockTooltip } from "./UnlockTooltip";
+import { GAME_MODES } from "@/lib/gameModes";
+import { DACHSHUND_COATS, PET_COATS } from "@/lib/pixelSprites";
 import { useGamepad } from "@/hooks/useGamepad";
 import { SPRITE_MAP, USE_LEGACY_CHARACTER_SPRITES } from "@/lib/spriteMap";
-import { PixelCharacterPortrait } from "./PixelSprite";
+import { PixelCharacterPortrait, PixelPetPortrait } from "./PixelSprite";
 import { toast } from "@/components/ui/sonner";
 
 interface CharacterSelectProps {
@@ -110,6 +114,41 @@ function CharacterPortrait({
   );
 }
 
+function UnlockRouteList({ routes, large = false }: { routes: UnlockRouteProgress[]; large?: boolean }) {
+  return (
+    <div className={`w-full ${large ? "space-y-2.5" : "space-y-2"}`}>
+      {routes.map(({ route, current, done }, index) => {
+        const accent = route.mode === "any" ? "#e2e8f0" : GAME_MODES[route.mode].accent;
+        return (
+          <div key={route.stat}>
+            {index > 0 && (
+              <div className="mb-1.5 text-center font-vt323 text-xs uppercase tracking-[0.3em] text-white/35">or</div>
+            )}
+            <div className={`flex items-center gap-2 text-left font-sans ${large ? "text-sm" : "text-xs"}`}>
+              <span
+                className="shrink-0 rounded border px-1.5 py-px font-vt323 text-xs uppercase tracking-[0.18em]"
+                style={{ color: accent, borderColor: `${accent}66` }}
+              >
+                {route.mode === "any" ? "Any" : GAME_MODES[route.mode].short}
+              </span>
+              <span className="min-w-0 flex-1 leading-4 text-slate-200">{route.description}</span>
+              <span className={`shrink-0 tabular-nums ${done ? "text-emerald-300" : "text-slate-400"}`}>
+                {current}/{route.required}
+              </span>
+            </div>
+            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-900/80">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${(current / route.required) * 100}%`, background: accent }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function getCarouselOffset(index: number, currentIndex: number, total: number) {
   let offset = index - currentIndex;
   if (offset > total / 2) offset -= total;
@@ -122,21 +161,19 @@ function CharacterCard({
   offset,
   isSelected,
   isLocked,
+  unlockRoutes,
   isDenied,
   onFocus,
   onLaunch,
-  onMouseMove,
-  onMouseLeave,
 }: {
   character: CharacterStats;
   offset: number;
   isSelected: boolean;
   isLocked: boolean;
+  unlockRoutes: UnlockRouteProgress[];
   isDenied?: boolean;
   onFocus: () => void;
   onLaunch: () => void;
-  onMouseMove: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onMouseLeave: () => void;
 }) {
   const visibility = Math.abs(offset);
   const isVisible = visibility <= 2;
@@ -169,8 +206,6 @@ function CharacterCard({
             onLaunch();
           }
         }}
-        onMouseMove={onMouseMove}
-        onMouseLeave={onMouseLeave}
         className={`relative flex h-full w-full flex-col overflow-hidden rounded-[24px] border-[3px] px-5 py-4 text-left transition-colors duration-200 ${
           isDenied
             ? "border-red-500 bg-[rgba(20,6,8,0.94)] text-red-300 shadow-[0_0_0_1px_rgba(255,0,0,0.3),0_0_48px_rgba(255,0,0,0.3)]"
@@ -208,25 +243,35 @@ function CharacterCard({
             </AnimatePresence>
           </div>
 
-          <div className="relative mt-2 flex h-24 shrink-0 items-center justify-center rounded-[20px] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_58%)] md:h-28">
+          <div className={`relative mt-2 flex shrink-0 items-center justify-center rounded-[20px] border border-white/10 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.08),transparent_58%)] ${isLocked ? "h-20" : "h-24 md:h-28"}`}>
             <motion.div
-              animate={isSelected ? { y: [0, -7, 0], scale: [1, 1.03, 1] } : { y: 0, scale: 0.94 }}
+              animate={isSelected && !isLocked ? { y: [0, -7, 0], scale: [1, 1.03, 1] } : { y: 0, scale: 0.94 }}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              className={isLocked ? "opacity-40 brightness-50 grayscale" : undefined}
             >
-              <CharacterPortrait character={character} animated={isSelected} />
+              <CharacterPortrait character={character} animated={isSelected && !isLocked} />
             </motion.div>
+            {isLocked && (
+              <LockKeyhole className="absolute h-9 w-9 text-white/85 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" />
+            )}
           </div>
 
           <div className="mt-4 text-center">
             <h3 className="font-press-start text-[16px] leading-7 text-inherit sm:text-[18px]">
               {character.name}
             </h3>
-            <p className="mt-3 min-h-[54px] font-sans text-sm leading-5 text-slate-200">
-              {character.description}
-            </p>
+            {isLocked ? (
+              <div className="mt-3 min-h-[54px]">
+                <UnlockRouteList routes={unlockRoutes} />
+              </div>
+            ) : (
+              <p className="mt-3 min-h-[54px] font-sans text-sm leading-5 text-slate-200">
+                {character.description}
+              </p>
+            )}
           </div>
 
-          <div className="mt-4 space-y-2.5">
+          <div className={isLocked ? "mt-3 space-y-1.5" : "mt-4 space-y-2.5"}>
             {STAT_SPECS.map((stat) => {
               const value = stat.value(character);
               const width = Math.min(100, (value / stat.max) * 100);
@@ -252,16 +297,6 @@ function CharacterCard({
 
         </div>
 
-        {isLocked && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-[2px]">
-            <div className="rounded-full border border-white/15 bg-black/65 px-4 py-3 text-center">
-              <LockKeyhole className="mx-auto h-7 w-7 text-white/80" />
-              <div className="mt-2 font-vt323 text-base uppercase tracking-[0.32em] text-white/70">
-                Locked
-              </div>
-            </div>
-          </div>
-        )}
       </motion.button>
     </div>
   );
@@ -273,23 +308,9 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
   const { getGamepadInput } = useGamepad();
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [tooltipState, setTooltipState] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    current: number;
-    required: number;
-    description: string;
-  }>({
-    visible: false,
-    x: 0,
-    y: 0,
-    current: 0,
-    required: 0,
-    description: "",
-  });
   const [isGamepadFocused, setIsGamepadFocused] = useState(false);
   const [deniedType, setDeniedType] = useState<CharacterType | null>(null);
+  const [petCoat, setPetCoatState] = useState<PetCoat>(getPetCoat);
   const deniedTimeoutRef = useRef<number | null>(null);
 
   const lastGamepadInput = useRef<{
@@ -316,7 +337,7 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
 
   const activeCharacter = characters[currentIndex] ?? characters[0];
   const activeUnlocked = isUnlocked(activeCharacter.type);
-  const activeUnlockProgress = !activeUnlocked ? getUnlockProgress(activeCharacter.type) : null;
+  const activeUnlockRoutes = !activeUnlocked ? getUnlockProgress(activeCharacter.type) : [];
 
   const handleMove = (direction: -1 | 1) => {
     setCurrentIndex((previousIndex) => {
@@ -324,7 +345,6 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
         (previousIndex + direction + characters.length) % characters.length;
       return nextIndex;
     });
-    setTooltipState((previous) => ({ ...previous, visible: false }));
   };
 
   const handleConfirm = () => {
@@ -336,8 +356,9 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
     setDeniedType(activeCharacter.type);
     toast.warning("OPERATOR LOCKED", {
       description:
-        activeCharacter.unlockCriteria?.description ||
-        "Complete the unlock challenge first.",
+        activeUnlockRoutes
+          .map(({ route }) => `${route.mode === "any" ? "" : `${GAME_MODES[route.mode].short}: `}${route.description}`)
+          .join(" — or — ") || "Complete the unlock challenge first.",
     });
     if (deniedTimeoutRef.current) window.clearTimeout(deniedTimeoutRef.current);
     deniedTimeoutRef.current = window.setTimeout(() => setDeniedType(null), 450);
@@ -415,30 +436,8 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeCharacter.type, activeUnlocked, onCancel]);
 
-  const handleLockedTooltip = (
-    event: React.MouseEvent<HTMLButtonElement>,
-    character: CharacterStats,
-  ) => {
-    const progress = getUnlockProgress(character.type);
-    if (!progress || !character.unlockCriteria) {
-      setTooltipState((previous) => ({ ...previous, visible: false }));
-      return;
-    }
-
-    setTooltipState({
-      visible: true,
-      x: event.clientX,
-      y: event.clientY,
-      current: progress.current,
-      required: progress.required,
-      description: character.unlockCriteria.description,
-    });
-  };
-
   return (
     <>
-      <UnlockTooltip {...tooltipState} />
-
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -488,7 +487,7 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
                 {characters.map((character, index) => {
                   const offset = getCarouselOffset(index, currentIndex, characters.length);
                   const isLocked =
-                    character.locked && !isUnlocked(character.type);
+                    !!character.locked && !isUnlocked(character.type);
 
                   return (
                     <CharacterCard
@@ -497,22 +496,10 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
                       offset={offset}
                       isSelected={offset === 0}
                       isLocked={isLocked}
+                      unlockRoutes={isLocked ? getUnlockProgress(character.type) : []}
                       isDenied={deniedType === character.type}
-                      onFocus={() => {
-                        setCurrentIndex(index);
-                        setTooltipState((previous) => ({ ...previous, visible: false }));
-                      }}
+                      onFocus={() => setCurrentIndex(index)}
                       onLaunch={() => onSelect(character.type)}
-                      onMouseMove={(event) => {
-                        if (isLocked) {
-                          handleLockedTooltip(event, character);
-                          return;
-                        }
-                        setTooltipState((previous) => ({ ...previous, visible: false }));
-                      }}
-                      onMouseLeave={() =>
-                        setTooltipState((previous) => ({ ...previous, visible: false }))
-                      }
                     />
                   );
                 })}
@@ -561,11 +548,13 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
                 <span className="mx-2 text-neon-cyan/60">|</span>
                 {activeCharacter.abilityName}
               </div>
-              {!activeUnlocked && activeCharacter.unlockCriteria ? (
-                <p className="mt-2 font-sans text-sm leading-5 text-yellow-100">
-                  Unlock: {activeCharacter.unlockCriteria.description}
-                  {activeUnlockProgress && <span className="ml-2 tabular-nums text-slate-300">({Math.min(activeUnlockProgress.current, activeUnlockProgress.required)}/{activeUnlockProgress.required})</span>}
-                </p>
+              {activeUnlockRoutes.length > 0 ? (
+                <div className="mx-auto mt-3 max-w-md">
+                  <div className="mb-2 font-vt323 text-sm uppercase tracking-[0.3em] text-yellow-100/80">
+                    {activeUnlockRoutes.length > 1 ? "Unlock in either mode" : "Unlock"}
+                  </div>
+                  <UnlockRouteList routes={activeUnlockRoutes} large />
+                </div>
               ) : (
               <div className="mt-2 grid gap-2 font-sans text-sm leading-5 md:grid-cols-2">
                 <div className="rounded-[12px] border border-emerald-500/15 bg-emerald-500/5 px-3 py-2 text-emerald-300">
@@ -575,6 +564,46 @@ export function CharacterSelect({ onSelect, onCancel, unlockAll = false }: Chara
                   CON: {activeCharacter.con}
                 </div>
               </div>
+              )}
+              {activeUnlocked && activeCharacter.startsWithPet && (
+                <div className="mt-3 flex flex-col items-center gap-3 rounded-[12px] border border-amber-400/15 bg-amber-400/5 px-3 py-2 sm:flex-row sm:justify-center">
+                  <div className="flex items-center gap-2">
+                    <PixelPetPortrait coat={petCoat} className="h-20 w-20 rounded-lg bg-white/10" />
+                    <div className="text-left">
+                      <div className="font-vt323 text-xs uppercase tracking-[0.28em] text-amber-200/70">Pup coat</div>
+                      <div className="font-sans text-sm text-amber-100">{DACHSHUND_COATS[petCoat].label}</div>
+                    </div>
+                  </div>
+                  <div role="radiogroup" aria-label="Pup coat colour" className="flex flex-wrap justify-center gap-2">
+                    {PET_COATS.map((coat) => (
+                      <button
+                        key={coat}
+                        type="button"
+                        role="radio"
+                        aria-checked={coat === petCoat}
+                        aria-label={DACHSHUND_COATS[coat].label}
+                        title={DACHSHUND_COATS[coat].label}
+                        onClick={() => {
+                          setPetCoatState(coat);
+                          setPetCoat(coat);
+                        }}
+                        className={`h-8 w-8 rounded-full border-2 transition-all duration-150 ${
+                          coat === petCoat
+                            ? "scale-110 border-neon-yellow shadow-[0_0_12px_rgba(255,255,0,0.4)]"
+                            : "border-white/25 hover:border-white/60"
+                        }`}
+                        style={{
+                          background:
+                            coat === "dapple"
+                              ? `radial-gradient(circle at 30% 35%, ${DACHSHUND_COATS.dapple.palette.d} 0 22%, transparent 24%), radial-gradient(circle at 68% 62%, ${DACHSHUND_COATS.dapple.palette.d} 0 18%, transparent 20%), ${DACHSHUND_COATS.dapple.palette.B}`
+                              : coat.endsWith("-tan")
+                                ? `linear-gradient(135deg, ${DACHSHUND_COATS[coat].palette.B} 55%, ${DACHSHUND_COATS[coat].palette.t} 55%)`
+                                : DACHSHUND_COATS[coat].swatch,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
 

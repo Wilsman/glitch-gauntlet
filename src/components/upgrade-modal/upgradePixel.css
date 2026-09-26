@@ -1,0 +1,92 @@
+/* Pixel level-up modal. All motion is stepped (steps() timing, whole-pixel offsets); soft light is dither. */
+
+.pxu-root { background: #0d0b1e; font-family: "Press Start 2P", monospace; -webkit-font-smoothing: none; user-select: none; }
+.pxu-fx { position: absolute; left: 0; top: 0; image-rendering: pixelated; image-rendering: crisp-edges; pointer-events: none; }
+.pxu-scan { position: absolute; inset: 0; pointer-events: none; z-index: 30;
+  background: repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0, 0, 0, 0.18) 3px 4px); mix-blend-mode: multiply; }
+
+/* ---- Title ---- */
+.pxu-title { display: flex; justify-content: center; gap: 2px; font-size: clamp(30px, 5vw, 56px); line-height: 1; }
+.pxu-title span {
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(180deg, #ffffff 0 28%, var(--a) 28% 50%, var(--c) 50% 76%, var(--d) 76% 100%);
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 4px 0 #07060f) drop-shadow(4px 0 0 #07060f) drop-shadow(-4px 0 0 #07060f) drop-shadow(0 -4px 0 #07060f);
+  animation: px-drop 360ms steps(1, end) both, pxu-hop 1.6s steps(1, end) infinite;
+  animation-delay: calc(80ms + var(--i) * 55ms), calc(900ms + var(--i) * 90ms);
+}
+.pxu-sub { font-family: "VT323", monospace; font-size: 22px; color: #a9a3c9; text-shadow: 2px 2px 0 #07060f; }
+.pxu-lv { background: linear-gradient(180deg, #fff3b0 0 3px, #ffcf4a 3px calc(100% - 3px), #e0781f calc(100% - 3px)); color: #07060f; padding: 7px 8px 6px; font-size: 10px; box-shadow: 0 0 0 3px #07060f; }
+.pxu-hint { font-size: 10px; color: #f4efe0; text-shadow: 2px 2px 0 #07060f; letter-spacing: 1px; }
+.pxu-hint b { color: #ffcf4a; font-weight: 400; }
+
+/* ---- Card shell ---- */
+.pxu-card { --s: 5; position: relative; width: calc(56px * var(--s)); height: calc(80px * var(--s)); padding: 0; border: 0; background: none; cursor: pointer; outline: none; }
+.pxu-card:focus-visible { outline: 4px dashed #f4efe0; outline-offset: 8px; }
+.pxu-deal { animation: pxu-deal 300ms steps(1, end) both; animation-delay: var(--deal); }
+.pxu-lift { width: 100%; height: 100%; transition: transform 150ms steps(3, end); }
+.pxu-card.hot.revealed .pxu-lift { transform: translateY(-16px); }
+.pxu-inner { position: relative; width: 100%; height: 100%; }
+.pxu-back { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; filter: drop-shadow(8px 8px 0 #07060f); }
+.pxu-face { position: absolute; inset: 0; display: flex; }
+.pxu-face > .px-card { width: 100%; height: 100%; }
+.pxu-face .px-frame, .pxu-face .px-frame-color, .pxu-face .px-frame-inner { height: 100%; }
+
+/* Reveal spin: stepped scaleX through edge-on, more turns at higher tiers */
+/* Common: one quick pop · uncommon: single flip · lunar/void: 1.5 spins · legendary/boss: slow 2.5 spins */
+.pxu-flip-0 { animation: pxu-flip-0 180ms steps(1, end) both; }
+.pxu-flip-1 { animation: pxu-flip-1 260ms steps(1, end) both; }
+.pxu-flip-2 { animation: pxu-flip-2 450ms steps(1, end) both; }
+.pxu-flip-3 { animation: pxu-flip-3 800ms steps(1, end) both; }
+/* Dithered accent-colour sheen that clears off the freshly flipped face (card-local, never solid) */
+.pxu-whiteout { position: absolute; inset: 0; pointer-events: none; z-index: 5; animation: pxu-whiteout 240ms steps(1, end) both; }
+
+/* Rarity name dropping in above the card */
+.pxu-rarity { position: absolute; left: 50%; bottom: calc(100% + 18px); transform: translateX(-50%); white-space: nowrap; font-size: 18px; line-height: 1; }
+.pxu-rarity .px-banded span { animation-delay: calc(260ms + var(--i) * 55ms); }
+.pxu-quick span { animation-duration: 200ms !important; animation-delay: calc(40ms + var(--i) * 18ms) !important; }
+.pxu-title-rainbow span { animation: pxu-hue 1s steps(8, end) infinite !important; animation-delay: calc(var(--i) * -120ms) !important; }
+.pxu-rainbow span { animation: px-drop 360ms steps(1, end) both, pxu-hue 1s steps(8, end) infinite !important; }
+.pxu-tier3 .px-frame-color, .pxu-tier3 .pxu-pip { animation: pxu-hue 1.2s steps(8, end) infinite; }
+
+/* Holo glare band that follows the pointer in 4px steps */
+.pxu-glare { position: absolute; top: 0; bottom: 0; left: var(--gx, -40px); width: 8px; pointer-events: none; z-index: 4; background: rgba(255, 255, 255, 0.22); box-shadow: 12px 0 0 rgba(255, 255, 255, 0.1), -8px 0 0 rgba(255, 255, 255, 0.06); transform: skewX(-10deg); }
+
+.pxu-pip { display: inline-block; width: 8px; height: 8px; background: var(--c); box-shadow: 0 0 0 2px #07060f, inset 2px 2px 0 rgba(255, 255, 255, 0.6); animation: px-pip 200ms steps(1, end) both; }
+.pxu-select { display: block; width: 100%; text-align: center; font-size: 12px; padding: 10px 0 8px; color: #07060f; background: linear-gradient(180deg, var(--a) 0 4px, var(--c) 4px calc(100% - 4px), var(--deep) calc(100% - 4px)); box-shadow: 0 0 0 3px #07060f; }
+.pxu-card.hot .pxu-select { animation: px-press 0.8s steps(1, end) infinite; }
+.pxu-select.off { background: #475569; color: #cbd5e1; }
+.pxu-cost { font-size: 11px; color: #fde047; text-shadow: 2px 2px 0 #07060f; }
+.pxu-cost.broke { color: #f87171; }
+
+/* Lock-in / dismiss */
+.pxu-lock { animation: pxu-lock 420ms steps(1, end) both; z-index: 30; }
+.pxu-drop { animation: px-leave 320ms steps(1, end) both; }
+.pxu-stamp { position: absolute; left: 50%; top: -58px; transform: translateX(-50%); white-space: nowrap; z-index: 40; background: linear-gradient(180deg, #ffffff 0 4px, #f4efe0 4px); color: #07060f; font-size: 16px; padding: 10px 12px 8px; box-shadow: 0 0 0 4px #07060f, 8px 8px 0 4px #07060f; animation: pxu-stamp 260ms steps(1, end) both; }
+
+/* Full-screen punctuation */
+.pxu-bars::before, .pxu-bars::after { content: ""; position: absolute; left: 0; right: 0; height: 10vh; background: #07060f; z-index: 55; pointer-events: none; animation: pxu-bars 1300ms steps(1, end) both; }
+.pxu-bars::before { top: 0; transform-origin: top; }
+.pxu-bars::after { bottom: 0; transform-origin: bottom; }
+
+@keyframes pxu-deal { 0% { transform: translateY(-120vh); } 40% { transform: translateY(-40px); } 60% { transform: translateY(12px) scaleY(0.92); } 80% { transform: translateY(-6px); } 100% { transform: none; } }
+@keyframes pxu-hop { 0%, 100% { transform: translateY(0); } 8% { transform: translateY(-6px); } 16% { transform: translateY(0); } }
+@keyframes pxu-hue { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }
+@keyframes pxu-flip-0 { 0% { transform: scaleX(0.06); } 25% { transform: scaleX(0.4); } 50% { transform: scaleX(0.85); } 70% { transform: scaleX(1.12) scaleY(0.96); } 85% { transform: scaleX(0.96); } 100% { transform: none; } }
+@keyframes pxu-flip-1 { 0% { transform: scaleX(0.06); } 15% { transform: scaleX(0.5); } 30% { transform: scaleX(1); } 45% { transform: scaleX(0.5); } 55% { transform: scaleX(0.06); } 65% { transform: scaleX(0.6); } 78% { transform: scaleX(1.14) scaleY(0.94); } 90% { transform: scaleX(0.95); } 100% { transform: none; } }
+@keyframes pxu-flip-2 { 0% { transform: scaleX(0.06); } 9% { transform: scaleX(0.6); } 18% { transform: scaleX(1); } 27% { transform: scaleX(0.6); } 34% { transform: scaleX(0.06); } 42% { transform: scaleX(0.6); } 50% { transform: scaleX(1); } 58% { transform: scaleX(0.6); } 64% { transform: scaleX(0.06); } 72% { transform: scaleX(0.6); } 82% { transform: scaleX(1.16) scaleY(0.92); } 92% { transform: scaleX(0.94) scaleY(1.03); } 100% { transform: none; } }
+@keyframes pxu-flip-3 { 0% { transform: scaleX(0.06) scale(1.3); } 7% { transform: scaleX(0.6) scale(1.3); } 13% { transform: scaleX(1) scale(1.3); } 19% { transform: scaleX(0.6) scale(1.25); } 24% { transform: scaleX(0.06) scale(1.25); } 30% { transform: scaleX(0.6) scale(1.2); } 36% { transform: scaleX(1) scale(1.2); } 42% { transform: scaleX(0.6) scale(1.15); } 47% { transform: scaleX(0.06) scale(1.15); } 53% { transform: scaleX(0.6) scale(1.1); } 60% { transform: scaleX(1) scale(1.1); } 66% { transform: scaleX(0.6) scale(1.05); } 71% { transform: scaleX(0.06) scale(1.05); } 78% { transform: scaleX(0.7); } 86% { transform: scaleX(1.18) scaleY(0.9); } 94% { transform: scaleX(0.94) scaleY(1.04); } 100% { transform: none; } }
+@keyframes pxu-whiteout {
+  0% { background: repeating-conic-gradient(var(--a) 0 25%, transparent 0 50%) 0 0 / 4px 4px; }
+  40% { background: repeating-conic-gradient(var(--a) 0 25%, transparent 0 100%) 0 0 / 8px 8px; }
+  100% { background: transparent; }
+}
+
+@keyframes pxu-lock { 0% { transform: none; } 25% { transform: translateY(8px) scale(0.96); } 50% { transform: translateY(-40px) scale(1.14); } 75% { transform: translateY(-24px) scale(1.08); } 100% { transform: translateY(-28px) scale(1.1); } }
+@keyframes pxu-stamp { 0% { transform: translateX(-50%) scale(3); opacity: 0; } 1% { opacity: 1; } 34% { transform: translateX(-50%) scale(2); } 67% { transform: translateX(-50%) scale(0.85); } 100% { transform: translateX(-50%) scale(1); opacity: 1; } }
+@keyframes pxu-bars { 0% { transform: scaleY(0); } 10% { transform: scaleY(0.5); } 20%, 80% { transform: scaleY(1); } 90% { transform: scaleY(0.5); } 100% { transform: scaleY(0); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pxu-root *, .pxu-root *::before, .pxu-root *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
+}

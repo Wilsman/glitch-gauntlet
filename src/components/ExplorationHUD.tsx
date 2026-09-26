@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { GameState, Player } from '@shared/types';
 import type { ExplorationState } from '@shared/exploration';
 import { activeWalls, CHARGE_MS, COMBO_WINDOW_MS, DIFFICULTY_TIERS, VIEW_HEIGHT, VIEW_WIDTH, difficultyTier, distance, regionIndexAt } from '@/lib/explorationWorld';
-import { STAGE_MODIFIERS } from '@/lib/stageModifiers';
+import { CAVE_PORTAL, STAGE_MODIFIERS } from '@/lib/stageModifiers';
+import { InteractHoverCard, LootReveals } from './ExplorationCards';
+import { isRevealing } from '@/lib/lootReveal';
 
-const RARITY_COLORS: Record<string, string> = { common: '#e2e8f0', uncommon: '#4ade80', legendary: '#f87171', boss: '#facc15', lunar: '#60a5fa', void: '#c084fc' };
 const CHEST_COLORS = { small: '#22d3ee', large: '#facc15', shrine: '#f472b6' };
 const HAZARD_COLORS: Record<string, string> = { ice: '#7dd3fc', lava: '#fb923c', sludge: '#2dd4bf', warp: '#c084fc' };
 
@@ -71,7 +72,7 @@ function drawWorldMap(ctx: CanvasRenderingContext2D, world: ExplorationState, pl
   if (world.hasYard && world.cache.discovered && !world.cache.claimed) { ctx.fillStyle = '#5eead4'; ctx.fillRect(X(world.cache.position.x) - 40 * scale, Y(world.cache.position.y) - 40 * scale, 80 * scale, 80 * scale); }
   if (world.hasYard && world.elite.discovered && !world.elite.defeated) { ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.arc(X(world.elite.position.x), Y(world.elite.position.y), 60 * scale, 0, Math.PI * 2); ctx.fill(); }
   for (const portal of world.portals) {
-    ctx.fillStyle = STAGE_MODIFIERS[portal.modifier].color;
+    ctx.fillStyle = portal.modifier ? STAGE_MODIFIERS[portal.modifier].color : CAVE_PORTAL.color;
     ctx.beginPath(); ctx.arc(X(portal.position.x), Y(portal.position.y), Math.max(3, 70 * scale), 0, Math.PI * 2); ctx.fill();
   }
   if (world.anchor.discovered) {
@@ -140,7 +141,7 @@ function WorldMapCanvas({ world, player, width, labels }: { world: ExplorationSt
 const PHASE_OBJECTIVES: Record<string, string> = {
   pedestals: 'Claim a boss relic',
   results: 'Stage clear',
-  portals: 'Choose your next rift',
+  portals: 'Enter the rift',
 };
 
 const RANK_COLORS: Record<string, string> = { S: '#facc15', A: '#4ade80', B: '#22d3ee', C: '#a78bfa', D: '#94a3b8' };
@@ -168,7 +169,7 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
   const pastAnchor = world.phase === 'pedestals' || world.phase === 'results' || world.phase === 'portals';
   const currentRegion = world.biomes.find(r => r.id === world.currentRegionId);
   const modifier = world.modifier ? STAGE_MODIFIERS[world.modifier] : null;
-  const objective = PHASE_OBJECTIVES[world.phase] || (active ? 'Stabilise the Anchor' : world.anchor.discovered ? 'Activate the Glitch Anchor' : 'Find the Glitch Anchor');
+  const objective = world.interlude ? 'Shop, then jump into a rift' : PHASE_OBJECTIVES[world.phase] || (active ? 'Stabilise the Anchor' : world.anchor.discovered ? 'Activate the Glitch Anchor' : 'Find the Glitch Anchor');
   const seconds = Math.floor(world.elapsedMs / 1000);
   const tier = difficultyTier(world.elapsedMs);
   const dx = world.anchor.position.x - player.position.x, dy = world.anchor.position.y - player.position.y;
@@ -277,23 +278,12 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
       <div className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-cyan-300 bg-slate-950/80 text-cyan-200 shadow-[0_0_16px_#22d3ee]"><span style={{ transform: `rotate(${angle}rad)` }}>➜</span></div>
     </div>}
 
-    <div className="fixed bottom-24 left-1/2 z-30 flex w-[min(440px,60vw)] -translate-x-1/2 flex-col gap-2 pointer-events-none" data-testid="exploration-item-feed">
-      {world.itemFeed.map(item => {
-        const color = RARITY_COLORS[item.rarity] || '#fff';
-        const enter = Math.min(1, (4500 - item.ms) / 180);
-        return <div key={item.id} className="flex items-center gap-3 overflow-hidden rounded-md border bg-slate-950/70 px-3 py-2 backdrop-blur-sm" style={{ borderColor: color, opacity: item.ms < 600 ? item.ms / 600 : 1, transform: `translateY(${(1 - enter) * 20}px)` }}>
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-2xl" style={{ backgroundColor: `${color}22`, border: `1px solid ${color}` }}>{item.emoji}</div>
-          <div className="min-w-0">
-            <div className="font-press-start text-[9px] leading-relaxed" style={{ color }}>{item.title}</div>
-            <div className="truncate text-xs text-slate-300">{item.description}</div>
-          </div>
-        </div>;
-      })}
-    </div>
+    <LootReveals feed={world.itemFeed} />
+    <InteractHoverCard world={world} hidden={isRevealing(world.itemFeed)} />
 
     <div className="fixed bottom-7 left-1/2 z-30 flex max-w-[60vw] -translate-x-1/2 flex-col items-center gap-2 pointer-events-none text-center">
       {world.noticeMs > 0 && <div className="rounded-md border border-cyan-300/40 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-cyan-100 backdrop-blur-sm">{world.notice}</div>}
-      {world.prompt && <div className="rounded-md border border-yellow-300/60 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">{!/^walk /i.test(world.prompt) && <kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>}{world.prompt}</div>}
+      {world.prompt && !world.interact && <div className="rounded-md border border-yellow-300/60 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">{!/^walk /i.test(world.prompt) && <kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>}{world.prompt}</div>}
     </div>
   </div>;
 }

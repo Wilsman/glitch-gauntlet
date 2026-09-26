@@ -27,6 +27,7 @@ import {
   resolvePlayerAnimation,
   SPRITE_WORLD_SIZE,
 } from "@/lib/pixelSprites";
+import { getPetBubble, type PetBubble } from "@/lib/petChatter";
 import { PixelSpriteNode } from "./PixelSprite";
 import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
@@ -1975,6 +1976,47 @@ function getDisplaySize() {
   };
 }
 
+const BUBBLE_FONT = 8;
+const BUBBLE_PX = 2;
+const BUBBLE_INK = "#1b1020";
+const BUBBLE_PAPER = "#fff6e0";
+
+function PetSpeechBubble({ x, y, bubble }: { x: number; y: number; bubble: PetBubble }) {
+  const P = BUBBLE_PX;
+  const w = bubble.text.length * BUBBLE_FONT + 10;
+  const h = BUBBLE_FONT + 10;
+  const left = -Math.round(w / 2 / P) * P;
+  const top = -(h + 3 * P);
+  const tx = left + 4 * P;
+  // Stepped pop-in keeps the pixel look instead of a smooth tween.
+  const scale = bubble.age < 70 ? 0.6 : bubble.age < 140 ? 0.85 : 1;
+  const opacity = Math.min(1, bubble.remaining / 250);
+  const bob = Math.floor(bubble.age / 450) % 2 === 1 ? -P : 0;
+  return (
+    <Group x={x} y={y + bob} scaleX={scale} scaleY={scale} opacity={opacity} listening={false}>
+      <Rect x={left - P} y={top + P} width={w + 2 * P} height={h - 2 * P} fill={BUBBLE_INK} />
+      <Rect x={left + P} y={top - P} width={w - 2 * P} height={h + 2 * P} fill={BUBBLE_INK} />
+      <Rect x={left} y={top} width={w} height={h} fill={BUBBLE_INK} />
+      <Rect x={tx - P} y={top + h} width={4 * P} height={P} fill={BUBBLE_INK} />
+      <Rect x={tx - P} y={top + h + P} width={3 * P} height={P} fill={BUBBLE_INK} />
+      <Rect x={tx - P} y={top + h + 2 * P} width={2 * P} height={P} fill={BUBBLE_INK} />
+      <Rect x={left} y={top + P} width={w} height={h - 2 * P} fill={BUBBLE_PAPER} />
+      <Rect x={left + P} y={top} width={w - 2 * P} height={h} fill={BUBBLE_PAPER} />
+      <Rect x={tx} y={top + h - P} width={2 * P} height={2 * P} fill={BUBBLE_PAPER} />
+      <Rect x={tx} y={top + h + P} width={P} height={P} fill={BUBBLE_PAPER} />
+      <Rect x={left + P} y={top + h - 2 * P} width={w - 2 * P} height={P} fill="#e8d6b0" />
+      <Text
+        text={bubble.text}
+        x={left + 5}
+        y={top + 5}
+        fontSize={BUBBLE_FONT}
+        fontFamily='"Press Start 2P"'
+        fill={BUBBLE_INK}
+      />
+    </Group>
+  );
+}
+
 const selectGameState = (state: ReturnType<typeof useGameStore.getState>) => ({
   gameState: state.gameState,
   localPlayerId: state.localPlayerId,
@@ -2686,6 +2728,19 @@ export default function GameCanvas() {
                 pet.lastHitTimestamp &&
                 now - pet.lastHitTimestamp < HIT_FLASH_DURATION;
               const petFrame = resolvePetFrame(pet, now, !!isHit);
+              const bubble =
+                pet.ownerId === localPlayerId && status !== "gameOver"
+                  ? getPetBubble(
+                      pet,
+                      playersById.get(pet.ownerId),
+                      {
+                        bossActive: !!boss,
+                        stage: world?.stage,
+                        kills: world?.run.totalKills,
+                      },
+                      now,
+                    )
+                  : null;
               return (
                 <Group key={pet.id}>
                   <Circle
@@ -2718,6 +2773,13 @@ export default function GameCanvas() {
                     height={3}
                     fill="#FF69B4"
                   />
+                  {bubble && (
+                    <PetSpeechBubble
+                      x={pet.position.x}
+                      y={pet.position.y - 25}
+                      bubble={bubble}
+                    />
+                  )}
                 </Group>
               );
             })}

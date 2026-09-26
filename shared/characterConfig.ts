@@ -47,11 +47,9 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     pro: 'Built-in AoE explosions, safe distance combat',
     con: 'Slow fire rate, poor single-target burst',
     locked: true,
-    unlockCriteria: {
-      type: 'bossesDefeated',
-      required: 3,
-      description: 'Defeat 3 bosses total across all runs',
-    },
+    unlockRoutes: [
+      { mode: 'any', stat: 'bossesDefeated', required: 3, description: 'Defeat 3 bosses in any mode' },
+    ],
   },
   'glass-cannon-carl': {
     type: 'glass-cannon-carl',
@@ -69,11 +67,10 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     pro: 'Massive damage per shot, high base crit multiplier (3x)',
     con: 'Very low HP, slow fire rate, vulnerable up close',
     locked: true,
-    unlockCriteria: {
-      type: 'noHitAfterWave5Win',
-      required: 1,
-      description: 'Win a run without taking damage after wave 5',
-    },
+    unlockRoutes: [
+      { mode: 'arena', stat: 'noHitAfterWave5Win', required: 1, description: 'Win a run without taking damage after wave 5' },
+      { mode: 'rift', stat: 'riftFlawlessStages', required: 1, description: 'Clear a stage without taking damage' },
+    ],
   },
   'pet-pal-percy': {
     type: 'pet-pal-percy',
@@ -92,11 +89,10 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     con: 'Slightly lower HP, but has a very good boy',
     locked: true,
     startsWithPet: true,
-    unlockCriteria: {
-      type: 'survivalTime',
-      required: 15,
-      description: 'Survive 15 minutes in a single run',
-    },
+    unlockRoutes: [
+      { mode: 'arena', stat: 'survivalMinutes', required: 15, description: 'Survive 15 minutes in a single run' },
+      { mode: 'rift', stat: 'riftSecretChests', required: 3, description: 'Open 3 secret stash chests' },
+    ],
   },
   'vampire-vex': {
     type: 'vampire-vex',
@@ -114,11 +110,10 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     pro: 'Passive AoE drain heals you, grows with level, 3-round burst',
     con: 'Low HP, drain radius starts small, medium fire rate',
     locked: true,
-    unlockCriteria: {
-      type: 'waveReached',
-      required: 10,
-      description: 'Reach wave 10 in any game',
-    },
+    unlockRoutes: [
+      { mode: 'arena', stat: 'waveReached', required: 10, description: 'Reach wave 10' },
+      { mode: 'rift', stat: 'riftStagesCleared', required: 4, description: 'Clear 4 stages in a single run' },
+    ],
   },
   'turret-tina': {
     type: 'turret-tina',
@@ -136,11 +131,9 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     pro: 'Deploys auto-firing turrets, high HP, large projectiles',
     con: 'Very slow movement, low personal damage, turrets expire',
     locked: true,
-    unlockCriteria: {
-      type: 'enemiesKilled',
-      required: 500,
-      description: 'Kill 500 total enemies across all games',
-    },
+    unlockRoutes: [
+      { mode: 'any', stat: 'enemiesKilled', required: 500, description: 'Kill 500 enemies in any mode' },
+    ],
   },
   'dash-dynamo': {
     type: 'dash-dynamo',
@@ -158,11 +151,10 @@ export const CHARACTERS: Record<CharacterType, CharacterStats> = {
     pro: 'Very high speed, blink dash ability, short-range shotgun',
     con: 'Very low HP, short weapon range, blink has cooldown',
     locked: true,
-    unlockCriteria: {
-      type: 'extractions',
-      required: 5,
-      description: 'Extract successfully 5 times',
-    },
+    unlockRoutes: [
+      { mode: 'arena', stat: 'extractions', required: 5, description: 'Extract successfully 5 times' },
+      { mode: 'rift', stat: 'riftSRanks', required: 1, description: 'Earn an S rank on a stage' },
+    ],
   },
   'null-ronin': {
     type: 'null-ronin',

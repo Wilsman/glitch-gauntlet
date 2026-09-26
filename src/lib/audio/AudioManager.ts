@@ -64,7 +64,8 @@ export class AudioManager {
   private pickupSynth: Tone.Synth | null = null;
   // SFX scheduling guards
   private lastShootTime: number | null = null;
-  private lastPickupTime: number | null = null;
+  // Last scheduled start per monophonic synth: Tone throws if a note starts at or before the previous one.
+  private synthCursor = new WeakMap<object, number>();
 
   private currentTrack: MusicTrack = null;
   private requestedTrack: MusicTrack = null;
@@ -520,9 +521,24 @@ export class AudioManager {
     this.stopGameMusic();
     if (!this.isContextRunning()) return;
     const now = Tone.now();
-    this.victorySynth?.triggerAttackRelease('C5', '8n', now);
-    this.victorySynth?.triggerAttackRelease('E5', '8n', now + 0.15);
-    this.victorySynth?.triggerAttackRelease('G5', '4n', now + 0.3);
+    this.note(this.victorySynth, 'C5', '8n', now);
+    this.note(this.victorySynth, 'E5', '8n', now + 0.15);
+    this.note(this.victorySynth, 'G5', '4n', now + 0.3);
+  }
+
+  // Schedule a note on a shared monophonic synth strictly after its previous note, and never throw:
+  // an out-of-order start time used to abort callers mid-frame (freezing the level-up reveal loop).
+  private note(synth: Tone.Synth | null, pitch: string, duration: Tone.Unit.Time, at?: number) {
+    if (!synth) return;
+    const want = at ?? Tone.now();
+    const last = this.synthCursor.get(synth) ?? -Infinity;
+    const time = want <= last ? last + 0.005 : want;
+    this.synthCursor.set(synth, time);
+    try {
+      synth.triggerAttackRelease(pitch, duration, time);
+    } catch {
+      // Audio is decoration; a scheduling hiccup must never break gameplay or visuals.
+    }
   }
 
   public playClick() {
@@ -537,17 +553,10 @@ export class AudioManager {
     this.ensureInitialized();
     if (!this.isContextRunning()) return;
 
-    const now = Tone.now();
-    const epsilon = 0.005; // 5ms gap to avoid overlap clicks
-    const time =
-      this.lastPickupTime !== null && now <= this.lastPickupTime
-        ? this.lastPickupTime + epsilon
-        : now;
-    this.lastPickupTime = time;
-
     // A high-pitched, satisfying "ching" - two quick notes
-    this.pickupSynth?.triggerAttackRelease("E6", "32n", time);
-    this.pickupSynth?.triggerAttackRelease("G6", "32n", time + 0.05);
+    const now = Tone.now();
+    this.note(this.pickupSynth, "E6", "32n", now);
+    this.note(this.pickupSynth, "G6", "32n", now + 0.05);
   }
 
   public playUpgradeReveal(tier: number) {
@@ -556,7 +565,27 @@ export class AudioManager {
     if (!this.isContextRunning()) return;
     const notes = ["C6", "E6", "G6", "C7"];
     const note = notes[Math.max(0, Math.min(3, tier))];
-    this.pickupSynth?.triggerAttackRelease(note, "32n");
+    this.note(this.pickupSynth, note, "32n");
+  }
+
+  // A card-back crack snapping while the player charges a level-up card (step 0..3).
+  public playUpgradeCrack(step: number) {
+    if (!this.isBrowser) return;
+    this.ensureInitialized();
+    if (!this.isContextRunning()) return;
+    const notes = ["C5", "D#5", "G5", "C6"];
+    this.note(this.pickupSynth, notes[Math.max(0, Math.min(3, step))], "64n");
+  }
+
+  // Rising arpeggio when the charging card's rarity hint climbs to `tier`.
+  public playUpgradeTease(tier: number) {
+    if (!this.isBrowser) return;
+    this.ensureInitialized();
+    if (!this.isContextRunning()) return;
+    const now = Tone.now();
+    const roots = ["C6", "E6", "G6", "C7"];
+    const runs: Record<string, string[]> = { C6: ["C6", "E6", "G6"], E6: ["E6", "G#6", "B6"], G6: ["G6", "B6", "D7"], C7: ["C7", "E7", "G7"] };
+    runs[roots[Math.max(0, Math.min(3, tier))]].forEach((pitch, i) => this.note(this.pickupSynth, pitch, "64n", now + i * 0.035));
   }
 
   public playUpgradeSelect(tier: number) {
@@ -567,7 +596,7 @@ export class AudioManager {
     const scale = ["C6", "E6", "G6", "C7", "E7"];
     const count = 2 + Math.max(0, Math.min(3, tier));
     for (let i = 0; i < count; i++) {
-      this.victorySynth?.triggerAttackRelease(scale[i], "16n", now + i * 0.07);
+      this.note(this.victorySynth, scale[i], "16n", now + i * 0.07);
     }
   }
   public setMasterVolume(value: number) {

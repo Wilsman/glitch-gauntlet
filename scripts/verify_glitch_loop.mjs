@@ -13,6 +13,10 @@ const state = () => page.evaluate(() => JSON.parse(window.render_game_to_text())
 const advance = ms => page.evaluate(t => window.advanceTime(t), ms);
 const shot = async name => { await page.waitForTimeout(150); await page.screenshot({ path: `${out}/${name}.png` }); };
 const engine = (fn, arg) => page.evaluate(fn, arg);
+// Choices never auto-take: stand on one, then tap interact to confirm.
+async function pressE() {
+  await page.keyboard.down('KeyE'); await page.waitForTimeout(140); await page.keyboard.up('KeyE'); await advance(80);
+}
 async function choose() {
   for (let i = 0; i < 6 && (await state()).levelingUp; i++) {
     await page.locator('button').filter({ has: page.locator('h3') }).first().click({ force: true });
@@ -41,18 +45,36 @@ try {
 
   await engine(() => window.__localEngine().debugExploration('pedestal'));
   await advance(250);
+  assert.equal((await state()).exploration.phase, 'pedestals', 'standing on a relic must not auto-take it');
+  await shot('02b-relic-focused');
+  await pressE();
   assert.equal((await state()).exploration.phase, 'results');
   await shot('03-results-rank');
   for (let i = 0; i < 8 && (await state()).exploration.phase === 'results'; i++) await advance(600);
   assert.equal((await state()).exploration.phase, 'portals');
   await shot('04-rift-portals');
 
-  // Commit a portal -> warp -> stage 2 arrival card.
+  // Boss rift -> the Glitch Grotto shop cave.
   await engine(() => window.__localEngine().debugExploration('portal'));
+  await advance(150);
+  await pressE();
+  await advance(1200);
+  let s = await state();
+  assert(s.exploration.interlude, 'boss rift leads to the Glitch Grotto');
+  assert.equal(s.exploration.stage, 1);
+  assert.equal(s.exploration.portals.length, 3, 'grotto offers three exit rifts');
+  assert(s.exploration.pedestals.some(p => p.kind === 'shop'), 'grotto has shop stock');
+  await page.waitForTimeout(300);
+  await shot('05a-grotto');
+
+  // Grotto exit rift -> warp -> stage 2 arrival card.
+  await engine(() => window.__localEngine().debugExploration('portal'));
+  await advance(150);
+  await pressE();
   await advance(150);
   await shot('05-warp-flash');
   await advance(1200);
-  let s = await state();
+  s = await state();
   assert.equal(s.exploration.stage, 2);
   await shot('06-stage2-arrival');
   const modifier = s.exploration.modifier;
