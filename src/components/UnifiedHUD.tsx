@@ -21,7 +21,7 @@ function formatUpgradeType(type: string): string {
 }
 
 const PANEL =
-  "rounded-md border border-white/10 bg-slate-950/70 backdrop-blur-sm";
+  "rounded-md border border-white/10 bg-slate-950/85";
 const LABEL =
   "font-press-start text-[7px] tracking-widest text-slate-400 uppercase";
 

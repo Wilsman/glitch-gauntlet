@@ -8760,8 +8760,10 @@ export class LocalGameEngine {
 
     // Spawn hazards occasionally; keep count/chance low for readability.
     const maxHazards = state.wave >= 15 ? 5 : state.wave >= 8 ? 4 : 3;
-    const hazardSpawnChance =
+    // Chance is per 50ms tick; compound it by elapsed ticks so frame-synced stepping spawns at the same rate.
+    const hazardChancePerTick =
       state.wave >= 15 ? 0.0018 : state.wave >= 8 ? 0.0014 : 0.001;
+    const hazardSpawnChance = 1 - Math.pow(1 - hazardChancePerTick, delta / TICK_RATE);
 
     if (
       state.hazards.length < maxHazards &&

@@ -249,7 +249,10 @@ export const UpgradeParticles = forwardRef<UpgradeParticlesHandle>(
 
       let raf = 0;
       let last = performance.now();
-      const dpr = () => Math.min(2, window.devicePixelRatio || 1);
+      let backDirty = true, frontDirty = true;
+      // Particles are whole-pixel squares, so a 1x backing store upscaled with pixelated rendering looks the
+      // same as a 2x one at a quarter of the fill cost on high-DPI screens.
+      const dpr = () => 1;
 
       const resize = () => {
         const d = dpr();
@@ -338,8 +341,9 @@ export const UpgradeParticles = forwardRef<UpgradeParticlesHandle>(
           }
         });
 
-        drawList(bctx, backParticles.current, dt, dpr());
-        drawList(fctx, frontParticles.current, dt, dpr());
+        // An empty canvas that was already cleared needs no clear or upload this frame.
+        if (backParticles.current.length || backDirty) { drawList(bctx, backParticles.current, dt, dpr()); backDirty = backParticles.current.length > 0; }
+        if (frontParticles.current.length || frontDirty) { drawList(fctx, frontParticles.current, dt, dpr()); frontDirty = frontParticles.current.length > 0; }
         raf = requestAnimationFrame(tick);
       };
       raf = requestAnimationFrame(tick);
@@ -355,11 +359,13 @@ export const UpgradeParticles = forwardRef<UpgradeParticlesHandle>(
         <canvas
           ref={backRef}
           className="pointer-events-none fixed inset-0 z-[5]"
+          style={{ imageRendering: "pixelated" }}
           aria-hidden="true"
         />
         <canvas
           ref={frontRef}
           className="pointer-events-none fixed inset-0 z-[60]"
+          style={{ imageRendering: "pixelated" }}
           aria-hidden="true"
         />
       </>

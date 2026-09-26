@@ -10,7 +10,7 @@ interface AbilityDockProps {
 }
 
 const TILE =
-  "relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-slate-950/70 backdrop-blur-sm";
+  "relative flex h-11 w-11 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-slate-950/85";
 
 function KeyChip({ label }: { label: string }) {
   return (

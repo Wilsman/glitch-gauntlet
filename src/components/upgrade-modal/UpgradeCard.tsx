@@ -173,11 +173,9 @@ export function UpgradeCard({
               : { duration: 2.8, repeat: Infinity, ease: "easeInOut", delay: index * 0.2 }
         }
         style={{
-          filter: isUnaffordable
-            ? "grayscale(0.5) saturate(0.6)"
-            : isIdleFloating
-              ? "saturate(1.05)"
-              : "saturate(1.15)",
+          // No filter on affordable cards: a CSS filter on an element that animates every frame forces it
+          // to be re-rasterised each frame.
+          filter: isUnaffordable ? "grayscale(0.5) saturate(0.6)" : undefined,
           opacity: isUnaffordable ? 0.55 : 1,
           zIndex: isLockedIn ? 40 : isHovered ? 30 : isOtherCardFocused ? 5 : 10,
           transformStyle: "preserve-3d",

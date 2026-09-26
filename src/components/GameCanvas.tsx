@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, memo } from "react";
+import Konva from "konva";
 import {
   Stage,
   Layer,
@@ -12,7 +13,7 @@ import {
   Image as KonvaImage,
 } from "react-konva";
 import ExplorationWorld, { ExplorationFX } from "./ExplorationWorld";
-import ExplorationScreenFX from "./ExplorationScreenFX";
+import ExplorationScreenFX, { ExplorationStaticFX } from "./ExplorationScreenFX";
 import {
   SPRITE_MAP,
   USE_LEGACY_CHARACTER_SPRITES,
@@ -32,6 +33,14 @@ import { INPUT_PROMPT_ICONS } from "@/lib/inputPromptIcons";
 import { useGameStore } from "@/hooks/useGameStore";
 import { useShallow } from "zustand/react/shallow";
 import type { Particle, Hazard, ShopOffer, UpgradeRarity } from "@shared/types";
+
+// Konva's "perfect draw" routes every shape with fill + stroke + opacity (or a stroked shadow) through a
+// stage-sized buffer canvas: a full-canvas clear and composite per shape, per frame. The difference is only
+// visible where a translucent stroke overlaps its own fill, so it is off unless a shape opts in explicitly.
+const konvaUseBufferCanvas = Konva.Shape.prototype._useBufferCanvas;
+Konva.Shape.prototype._useBufferCanvas = function (this: Konva.Shape, forceFill?: boolean) {
+  return this.attrs.perfectDrawEnabled === true && konvaUseBufferCanvas.call(this, forceFill);
+};
 
 // Fixed server-side arena dimensions
 const SERVER_ARENA_WIDTH = 1280;
@@ -1995,7 +2004,7 @@ export default function GameCanvas() {
     chainLightning = [],
     pets = [],
     orbitalSkulls = [],
-    fireTrails = [],
+    fireTrails: allFireTrails = [],
     turrets = [],
     clones = [],
     isHellhoundRound = false,
@@ -2010,17 +2019,20 @@ export default function GameCanvas() {
     shopPrompt = null,
     particles: allParticles = [],
     screenShake = null,
-    hazards = [],
+    hazards: allHazards = [],
     trailSegments = [],
     binaryDrops = [],
   } = gameState || {};
 
   const world = gameState?.exploration;
-  const inView = (p: { x: number; y: number }) => !world || (p.x >= world.camera.x - 160 && p.x <= world.camera.x + 1440 && p.y >= world.camera.y - 160 && p.y <= world.camera.y + 880);
+  const inView = (p: { x: number; y: number }, pad = 160) => !world || (p.x >= world.camera.x - pad && p.x <= world.camera.x + 1280 + pad && p.y >= world.camera.y - pad && p.y <= world.camera.y + 720 + pad);
   const enemies = world ? allEnemies.filter(e => inView(e.position)) : allEnemies;
   const projectiles = world ? allProjectiles.filter(p => inView(p.position)) : allProjectiles;
   const xpOrbs = world ? allXpOrbs.filter(p => inView(p.position)) : allXpOrbs;
   const particles = world ? allParticles.filter(p => inView(p.position)) : allParticles;
+  // Open-map hazards and fire patches live anywhere in the world; only draw what the camera can see.
+  const hazards = world ? allHazards.filter(h => inView(h.position, 260)) : allHazards;
+  const fireTrails = world ? allFireTrails.filter(t => inView(t.position, t.radius + 40)) : allFireTrails;
   const now = gameState?.simulationTime || Date.now();
   const [displaySize, setDisplaySize] = useState(getDisplaySize());
   const playersById = useMemo(
@@ -3835,17 +3847,24 @@ export default function GameCanvas() {
                 const opacity = (1 - progress) * 0.5; // Fade out over time
                 const pulseScale = 1 + Math.sin(now / 100) * 0.1; // Pulsing effect
 
+                // Glow is faked with a wider translucent disc: canvas shadowBlur on every patch was the
+                // most expensive draw in TNT-heavy scenes (up to 9 patches per barrel).
                 return (
                   <Group key={trail.id}>
                     {/* Outer glow */}
                     <Circle
                       x={trail.position.x}
                       y={trail.position.y}
+                      radius={trail.radius * 1.5 * pulseScale}
+                      fill="#FF6600"
+                      opacity={opacity * 0.12}
+                    />
+                    <Circle
+                      x={trail.position.x}
+                      y={trail.position.y}
                       radius={trail.radius * pulseScale}
                       fill="#FF6600"
                       opacity={opacity * 0.3}
-                      shadowColor="#FF6600"
-                      shadowBlur={25}
                     />
                     {/* Inner fire */}
                     <Circle
@@ -3854,8 +3873,6 @@ export default function GameCanvas() {
                       radius={trail.radius * 0.6 * pulseScale}
                       fill="#FF3300"
                       opacity={opacity * 0.6}
-                      shadowColor="#FF9900"
-                      shadowBlur={15}
                     />
                   </Group>
                 );
@@ -4430,6 +4447,12 @@ export default function GameCanvas() {
             </Group>
         )}
       </Layer>
+      {/* Static open-map vignette + CRT lines on their own layer: drawn once, then only composited. */}
+      {world && (
+        <Layer listening={false}>
+          <ExplorationStaticFX />
+        </Layer>
+      )}
     </Stage>
   );
 }
