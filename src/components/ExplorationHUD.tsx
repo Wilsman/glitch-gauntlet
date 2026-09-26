@@ -187,7 +187,7 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
   const guardianHp = gameState.boss ? Math.max(0, gameState.boss.health / gameState.boss.maxHealth) : 0;
   return <div className="font-sans">
     <div className="fixed right-4 top-14 z-30 flex w-[232px] flex-col gap-2 pointer-events-none">
-      <div className="rounded-md border border-white/10 bg-slate-950/70 px-2.5 py-2 backdrop-blur-sm" data-testid="exploration-difficulty">
+      <div className="rounded-md border border-white/10 bg-slate-950/85 px-2.5 py-2" data-testid="exploration-difficulty">
         <div className="flex items-center justify-between font-press-start text-[7px] tracking-widest text-slate-400 uppercase"><span>{currentRegion?.name || 'UNKNOWN SECTOR'}</span><span>STAGE {world.stage}</span></div>
         {modifier && <div className="mt-1.5 rounded-sm border px-1.5 py-1 font-press-start text-[7px] tracking-widest" style={{ borderColor: `${modifier.color}66`, color: modifier.color, backgroundColor: `${modifier.color}14` }} data-testid="exploration-modifier">{modifier.name}</div>}
         <div className="mt-1.5 flex items-end justify-between">
@@ -212,7 +212,7 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
         </div>
       </div>
 
-      <div className="rounded-md border border-white/10 bg-slate-950/70 p-2 backdrop-blur-sm" data-testid="exploration-minimap">
+      <div className="rounded-md border border-white/10 bg-slate-950/85 p-2" data-testid="exploration-minimap">
         <WorldMapCanvas world={world} player={player} width={216} labels={false} />
         <div className="mt-1 flex justify-between font-press-start text-[7px] tracking-wider text-slate-500"><span>M · MAP</span><span>{world.chests.filter(c => c.opened).length}/{world.chests.length} LOOTED</span></div>
       </div>
@@ -282,8 +282,8 @@ export default function ExplorationHUD({ gameState, player }: { gameState: GameS
     <InteractHoverCard world={world} hidden={isRevealing(world.itemFeed)} />
 
     <div className="fixed bottom-7 left-1/2 z-30 flex max-w-[60vw] -translate-x-1/2 flex-col items-center gap-2 pointer-events-none text-center">
-      {world.noticeMs > 0 && <div className="rounded-md border border-cyan-300/40 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-cyan-100 backdrop-blur-sm">{world.notice}</div>}
-      {world.prompt && !world.interact && <div className="rounded-md border border-yellow-300/60 bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">{!/^walk /i.test(world.prompt) && <kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>}{world.prompt}</div>}
+      {world.noticeMs > 0 && <div className="rounded-md border border-cyan-300/40 bg-slate-950/85 px-4 py-2 text-sm font-semibold text-cyan-100">{world.notice}</div>}
+      {world.prompt && !world.interact && <div className="rounded-md border border-yellow-300/60 bg-slate-950/85 px-4 py-2 text-sm font-semibold text-white">{!/^walk /i.test(world.prompt) && <kbd className="mr-2 rounded border border-yellow-300/70 bg-yellow-300/10 px-1.5 font-press-start text-[9px] text-yellow-200">E / RT</kbd>}{world.prompt}</div>}
     </div>
   </div>;
 }
